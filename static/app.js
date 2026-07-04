@@ -280,6 +280,7 @@ function fmtMetric(value, m) {
 function metricDelta(current, previous, m) {
   if (current == null || previous == null) return "";
   const diff = current - previous;
+  if (Number(Math.abs(diff).toFixed(m.decimals)) === 0) return ""; // no visible change
   const arrow = diff >= 0 ? "▲" : "▼";
   const cls = m.direction === 0 ? "delta-neutral"
     : (diff * m.direction >= 0 ? "delta-up" : "delta-down");
