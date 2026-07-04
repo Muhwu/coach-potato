@@ -256,6 +256,24 @@ def trend_buckets(conn, puuids, bucket="month", champion=None, queues=None):
     return results
 
 
+def block_games_detailed(conn):
+    """Block-game entries hydrated from stored matches, oldest first."""
+    rows = conn.execute(
+        """SELECT bg.id AS entry_id, bg.block_id, bg.notes, bg.match_id, bg.puuid,
+                  m.game_creation_ms, m.game_duration_s, m.queue_id,
+                  me.champion_name AS my_champion, me.win,
+                  me.kills, me.deaths, me.assists,
+                  opp.champion_name AS opp_champion
+           FROM block_games bg
+           JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
+           JOIN matches m ON m.match_id = bg.match_id
+           LEFT JOIN participants opp ON opp.match_id = bg.match_id
+               AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
+           ORDER BY m.game_creation_ms"""
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=None):
     """Individual top-lane games for the tracked puuids, newest first."""
     base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,

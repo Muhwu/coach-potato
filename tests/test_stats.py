@@ -377,6 +377,25 @@ def test_trend_buckets_day_and_bad_bucket(conn):
         stats.trend_buckets(conn, [ME], bucket="year")
 
 
+def test_block_games_detailed_hydrates_from_matches(conn):
+    m1, _ = add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, when=5_000,
+                      kills=7, deaths=2, assists=4)
+    m2, _ = add_match(conn, my_champ="Kled", opp_pos="JUNGLE", opp_champ="Wukong",
+                      win=False, when=3_000)
+    db.add_game_to_block(conn, m1, ME)
+    db.add_game_to_block(conn, m2, ME)
+    games = stats.block_games_detailed(conn)
+    assert [g["match_id"] for g in games] == [m2, m1]  # game_creation order
+    g1 = next(g for g in games if g["match_id"] == m1)
+    assert g1["my_champion"] == "Gwen"
+    assert g1["opp_champion"] == "Darius"
+    assert (g1["win"], g1["kills"], g1["deaths"], g1["assists"]) == (1, 7, 2, 4)
+    assert g1["block_id"] == 1
+    assert g1["notes"] == ""
+    g2 = next(g for g in games if g["match_id"] == m2)
+    assert g2["opp_champion"] is None  # no enemy TOP in that game
+
+
 def test_filter_options(conn):
     _, opp = add_match(conn, my_champ="Garen", queue=420)
     add_match(conn, my_champ="Kled", queue=440)
