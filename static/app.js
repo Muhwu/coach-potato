@@ -615,7 +615,10 @@ async function pollCrawl() {
     } else if (status.message === "done") {
       el.textContent = "up to date";
       await init(false);
+      // refresh whichever view is active so new games appear immediately
       if (state.mainView === "progress") await loadProgress();
+      else if (state.mainView === "blocks") await loadBlocks();
+      else if (state.mainView === "trends") await loadTrends();
     } else {
       el.textContent = "";
     }
