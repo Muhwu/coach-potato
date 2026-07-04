@@ -146,6 +146,13 @@ function renderBlocks() {
   target.querySelectorAll(".game-notes").forEach((input) => {
     autoGrow(input);
     input.addEventListener("input", () => autoGrow(input));
+    input.addEventListener("keydown", (e) => {
+      // Enter saves (blur); Shift+Enter inserts a new line
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        input.blur();
+      }
+    });
     input.addEventListener("change", () =>
       fetch(`/api/blocks/games/${input.dataset.entry}`, {
         method: "PATCH",
