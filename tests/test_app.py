@@ -233,6 +233,70 @@ def test_trends_endpoint_buckets_and_meta(client):
     assert [b["bucket"] for b in default["buckets"]] == ["2020-09", "2023-11"]
 
 
+def test_pool_default_and_put_round_trip(client):
+    assert client.get("/api/pool").json() == {"main_blind": None, "core": [], "counter": []}
+    response = client.put("/api/pool", json={
+        "main_blind": "Gwen", "core": ["Kled"], "counter": ["Malphite", "Quinn"]})
+    assert response.status_code == 200
+    assert client.get("/api/pool").json()["counter"] == ["Malphite", "Quinn"]
+    assert client.put("/api/pool", json={"main_blind": "Gwen", "core": "Kled",
+                                         "counter": []}).status_code == 400
+
+
+def first_two_games(client):
+    games = client.get("/api/stats/games").json()
+    return games[-1], games[-2]  # oldest first for stable ids
+
+
+def test_block_add_game_and_listing(client):
+    game = client.get("/api/stats/games").json()[0]
+    response = client.post("/api/blocks/games",
+                           json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    assert response.status_code == 200
+    block_id = response.json()["block_id"]
+    blocks = client.get("/api/blocks").json()["blocks"]
+    assert blocks[0]["id"] == block_id
+    assert blocks[0]["complete"] is False
+    entry = blocks[0]["games"][0]
+    assert entry["my_champion"] in ("Garen", "Kled")
+    assert entry["account"] == "PlayerOne"
+    assert "opp_champion" in entry
+
+
+def test_block_add_duplicate_409_names_block(client):
+    game = client.get("/api/stats/games").json()[0]
+    payload = {"match_id": game["match_id"], "puuid": game["my_puuid"]}
+    block_id = client.post("/api/blocks/games", json=payload).json()["block_id"]
+    response = client.post("/api/blocks/games", json=payload)
+    assert response.status_code == 409
+    assert str(block_id) in response.json()["detail"]
+
+
+def test_block_add_unknown_pair_404(client):
+    assert client.post("/api/blocks/games",
+                       json={"match_id": "EUW1_nope", "puuid": ME}).status_code == 404
+
+
+def test_block_patch_and_deletes(client):
+    game = client.get("/api/stats/games").json()[0]
+    block_id = client.post("/api/blocks/games", json={
+        "match_id": game["match_id"], "puuid": game["my_puuid"]}).json()["block_id"]
+    assert client.patch(f"/api/blocks/{block_id}",
+                        json={"title": "T", "learnings": "## L"}).status_code == 200
+    assert client.patch(f"/api/blocks/{block_id}", json={}).status_code == 400
+    assert client.patch("/api/blocks/999", json={"title": "x"}).status_code == 404
+    blocks = client.get("/api/blocks").json()["blocks"]
+    assert blocks[0]["title"] == "T"
+    entry_id = blocks[0]["games"][0]["entry_id"]
+    assert client.patch(f"/api/blocks/games/{entry_id}",
+                        json={"notes": "kept tempo"}).status_code == 200
+    assert client.patch("/api/blocks/games/999", json={"notes": "x"}).status_code == 404
+    assert client.delete(f"/api/blocks/games/{entry_id}").status_code == 200
+    assert client.delete(f"/api/blocks/games/{entry_id}").status_code == 404
+    assert client.delete(f"/api/blocks/{block_id}").status_code == 200
+    assert client.delete(f"/api/blocks/{block_id}").status_code == 404
+
+
 def test_index_served(client):
     response = client.get("/")
     assert response.status_code == 200

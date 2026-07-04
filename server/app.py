@@ -226,7 +226,7 @@ def api_games(request: Request, from_ms: int | None = None, to_ms: int | None = 
             conn, list(names), from_ms=from_ms, to_ms=to_ms,
             champion=params.get("champion") or None, queues=queues)
         for game in games:
-            game["account"] = names.get(game.pop("my_puuid"), "?")
+            game["account"] = names.get(game["my_puuid"], "?")
         return games
     finally:
         conn.close()
@@ -265,6 +265,124 @@ def api_trends(request: Request, bucket: str = "month"):
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return {"buckets": buckets, "meta": METRICS}
+    finally:
+        conn.close()
+
+
+@app.get("/api/pool")
+def api_get_pool():
+    conn = get_conn()
+    try:
+        return db.get_pool(conn)
+    finally:
+        conn.close()
+
+
+@app.put("/api/pool")
+def api_put_pool(body: dict):
+    core = body.get("core") or []
+    counter = body.get("counter") or []
+    if not isinstance(core, list) or not isinstance(counter, list):
+        raise HTTPException(400, "core and counter must be lists of champion names")
+    conn = get_conn()
+    try:
+        db.set_pool(conn, (body.get("main_blind") or "").strip() or None,
+                    [str(c).strip() for c in core if str(c).strip()],
+                    [str(c).strip() for c in counter if str(c).strip()])
+        return db.get_pool(conn)
+    finally:
+        conn.close()
+
+
+@app.get("/api/blocks")
+def api_blocks():
+    conn = get_conn()
+    try:
+        names = {r["puuid"]: r["game_name"] for r in
+                 conn.execute("SELECT puuid, game_name FROM players WHERE is_tracked=1")}
+        games_by_block = {}
+        for game in stats.block_games_detailed(conn):
+            game["account"] = names.get(game["puuid"], "?")
+            games_by_block.setdefault(game["block_id"], []).append(game)
+        blocks = []
+        for row in db.list_blocks(conn):
+            games = games_by_block.get(row["id"], [])
+            blocks.append({**dict(row), "games": games,
+                           "complete": len(games) >= db.BLOCK_SIZE})
+        return {"blocks": blocks, "block_size": db.BLOCK_SIZE}
+    finally:
+        conn.close()
+
+
+@app.post("/api/blocks/games")
+def api_add_block_game(body: dict):
+    match_id = (body or {}).get("match_id")
+    puuid = (body or {}).get("puuid")
+    if not match_id or not puuid:
+        raise HTTPException(400, "match_id and puuid required")
+    conn = get_conn()
+    try:
+        known = conn.execute(
+            "SELECT 1 FROM participants WHERE match_id=? AND puuid=?",
+            (match_id, puuid)).fetchone()
+        if not known:
+            raise HTTPException(404, "no such game for that account")
+        try:
+            block_id = db.add_game_to_block(conn, match_id, puuid)
+        except sqlite3.IntegrityError:
+            holder = db.find_block_for_game(conn, match_id, puuid)
+            raise HTTPException(409, f"game is already in Block #{holder}")
+        return {"block_id": block_id}
+    finally:
+        conn.close()
+
+
+@app.patch("/api/blocks/{block_id}")
+def api_update_block(block_id: int, body: dict):
+    title = body.get("title")
+    learnings = body.get("learnings")
+    if title is None and learnings is None:
+        raise HTTPException(400, "provide title and/or learnings")
+    conn = get_conn()
+    try:
+        if not db.update_block(conn, block_id, title=title, learnings=learnings):
+            raise HTTPException(404, "no such block")
+        return {"updated": True}
+    finally:
+        conn.close()
+
+
+@app.patch("/api/blocks/games/{entry_id}")
+def api_update_block_game(entry_id: int, body: dict):
+    if body.get("notes") is None:
+        raise HTTPException(400, "provide notes")
+    conn = get_conn()
+    try:
+        if not db.update_block_game(conn, entry_id, body["notes"]):
+            raise HTTPException(404, "no such block game")
+        return {"updated": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/blocks/games/{entry_id}")
+def api_delete_block_game(entry_id: int):
+    conn = get_conn()
+    try:
+        if not db.delete_block_game(conn, entry_id):
+            raise HTTPException(404, "no such block game")
+        return {"deleted": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/blocks/{block_id}")
+def api_delete_block(block_id: int):
+    conn = get_conn()
+    try:
+        if not db.delete_block(conn, block_id):
+            raise HTTPException(404, "no such block")
+        return {"deleted": True}
     finally:
         conn.close()
 
