@@ -1,4 +1,5 @@
 """FastAPI app: JSON API over the sqlite db + static frontend."""
+import json
 import os
 import sqlite3
 import threading
@@ -289,6 +290,14 @@ def api_put_pool(body: dict):
         db.set_pool(conn, (body.get("main_blind") or "").strip() or None,
                     [str(c).strip() for c in core if str(c).strip()],
                     [str(c).strip() for c in counter if str(c).strip()])
+        # a block completed before any pool was saved gets this pool stamped
+        current = conn.execute(
+            """SELECT b.id FROM blocks b WHERE b.pool_snapshot IS NULL
+               AND b.id = (SELECT MAX(id) FROM blocks)
+               AND (SELECT COUNT(*) FROM block_games WHERE block_id = b.id) >= ?""",
+            (db.BLOCK_SIZE,)).fetchone()
+        if current:
+            db.snapshot_pool_to_block(conn, current["id"])
         return db.get_pool(conn)
     finally:
         conn.close()
@@ -307,8 +316,11 @@ def api_blocks():
         blocks = []
         for row in db.list_blocks(conn):
             games = games_by_block.get(row["id"], [])
-            blocks.append({**dict(row), "games": games,
-                           "complete": len(games) >= db.BLOCK_SIZE})
+            record = {**dict(row), "games": games,
+                      "complete": len(games) >= db.BLOCK_SIZE}
+            snapshot = record.pop("pool_snapshot", None)
+            record["pool"] = json.loads(snapshot) if snapshot else None
+            blocks.append(record)
         return {"blocks": blocks, "block_size": db.BLOCK_SIZE}
     finally:
         conn.close()

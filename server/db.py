@@ -1,4 +1,5 @@
 """SQLite storage layer. All timestamps are ms epoch (Riot convention)."""
+import json
 import sqlite3
 from pathlib import Path
 
@@ -77,6 +78,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL DEFAULT '',
     learnings TEXT NOT NULL DEFAULT '',
+    pool_snapshot TEXT,
     created_at_ms INTEGER
 );
 
@@ -114,14 +116,18 @@ def connect(db_path) -> sqlite3.Connection:
 
 
 def _migrate(conn):
-    """In-place upgrades for schema changes on existing databases."""
-    columns = {r["name"] for r in conn.execute("PRAGMA table_info(coaching_sessions)")}
-    if not columns:
-        return  # table doesn't exist yet; SCHEMA will create the current shape
-    if "note" in columns and "title" not in columns:
-        conn.execute("ALTER TABLE coaching_sessions RENAME COLUMN note TO title")
-    if "notes" not in columns:
-        conn.execute("ALTER TABLE coaching_sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+    """In-place upgrades for schema changes on existing databases.
+    Missing tables are skipped — SCHEMA creates them in their current shape."""
+    session_columns = {r["name"] for r in conn.execute("PRAGMA table_info(coaching_sessions)")}
+    if session_columns:
+        if "note" in session_columns and "title" not in session_columns:
+            conn.execute("ALTER TABLE coaching_sessions RENAME COLUMN note TO title")
+        if "notes" not in session_columns:
+            conn.execute(
+                "ALTER TABLE coaching_sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+    block_columns = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
+    if block_columns and "pool_snapshot" not in block_columns:
+        conn.execute("ALTER TABLE blocks ADD COLUMN pool_snapshot TEXT")
     conn.commit()
 
 
@@ -293,7 +299,22 @@ def add_game_to_block(conn, match_id, puuid):
                 VALUES (?, ?, ?, {_now_expr()})""",
             (current, match_id, puuid),
         )
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM block_games WHERE block_id=?", (current,)
+    ).fetchone()["c"]
+    if count >= BLOCK_SIZE:
+        snapshot_pool_to_block(conn, current)  # pool as committed when finalized
     return current
+
+
+def snapshot_pool_to_block(conn, block_id):
+    """Stamp the current pool onto a block, only if not already stamped."""
+    with conn:
+        cursor = conn.execute(
+            "UPDATE blocks SET pool_snapshot=? WHERE id=? AND pool_snapshot IS NULL",
+            (json.dumps(get_pool(conn)), block_id),
+        )
+    return cursor.rowcount > 0
 
 
 def find_block_for_game(conn, match_id, puuid):

@@ -238,6 +238,51 @@ def test_add_duplicate_game_raises_and_is_findable(conn):
     assert db.find_block_for_game(conn, "EUW1_none", "me") is None
 
 
+def test_completing_block_snapshots_current_pool(conn):
+    import json
+    db.set_pool(conn, "Gwen", ["Kled"], ["Quinn"])
+    ids = _seed_block_matches(conn, 4)
+    for i in range(3):
+        db.add_game_to_block(conn, ids[i], "me")
+    block = db.list_blocks(conn)[0]
+    assert json.loads(block["pool_snapshot"]) == {
+        "main_blind": "Gwen", "core": ["Kled"], "counter": ["Quinn"]}
+    # pool changes afterwards don't rewrite the snapshot
+    db.set_pool(conn, "Kled", [], [])
+    db.add_game_to_block(conn, ids[3], "me")  # opens block 2, still open
+    blocks = db.list_blocks(conn)
+    assert json.loads(blocks[1]["pool_snapshot"])["main_blind"] == "Gwen"
+    assert blocks[0]["pool_snapshot"] is None  # open block: no snapshot yet
+
+
+def test_snapshot_pool_to_block_stamps_only_when_missing(conn):
+    import json
+    db.set_pool(conn, "Gwen", [], [])
+    ids = _seed_block_matches(conn, 1)
+    block_id = db.add_game_to_block(conn, ids[0], "me")
+    assert db.snapshot_pool_to_block(conn, block_id) is True
+    db.set_pool(conn, "Kled", [], [])
+    assert db.snapshot_pool_to_block(conn, block_id) is False  # already stamped
+    block = db.list_blocks(conn)[0]
+    assert json.loads(block["pool_snapshot"])["main_blind"] == "Gwen"
+
+
+def test_pool_snapshot_column_added_to_existing_blocks_table(tmp_path):
+    import sqlite3
+    path = tmp_path / "legacy.sqlite"
+    legacy = sqlite3.connect(path)
+    legacy.execute("""CREATE TABLE blocks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL DEFAULT '', learnings TEXT NOT NULL DEFAULT '',
+        created_at_ms INTEGER)""")
+    legacy.execute("INSERT INTO blocks (created_at_ms) VALUES (1)")
+    legacy.commit()
+    legacy.close()
+    conn = db.connect(path)
+    assert db.list_blocks(conn)[0]["pool_snapshot"] is None
+    conn.close()
+
+
 def test_block_update_and_game_notes_and_deletes(conn):
     ids = _seed_block_matches(conn, 2)
     block_id = db.add_game_to_block(conn, ids[0], "me")

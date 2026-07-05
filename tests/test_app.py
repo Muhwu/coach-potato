@@ -297,6 +297,34 @@ def test_block_patch_and_deletes(client):
     assert client.delete(f"/api/blocks/{block_id}").status_code == 404
 
 
+def test_blocks_expose_parsed_pool_snapshot(client):
+    client.put("/api/pool", json={"main_blind": "Gwen", "core": ["Kled"], "counter": []})
+    games = client.get("/api/stats/games").json()[:3]
+    for game in games:
+        client.post("/api/blocks/games",
+                    json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    block = client.get("/api/blocks").json()["blocks"][0]
+    assert block["complete"] is True
+    assert block["pool"] == {"main_blind": "Gwen", "core": ["Kled"], "counter": []}
+
+
+def test_pool_save_stamps_completed_current_block_without_snapshot(client, monkeypatch):
+    import os
+    # complete a block with an empty pool (no snapshot content of value)
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    games = client.get("/api/stats/games").json()[:3]
+    for game in games:
+        client.post("/api/blocks/games",
+                    json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    # wipe the snapshot to simulate a block completed before the feature existed
+    conn.execute("UPDATE blocks SET pool_snapshot=NULL")
+    conn.commit()
+    conn.close()
+    client.put("/api/pool", json={"main_blind": "Gwen", "core": [], "counter": []})
+    block = client.get("/api/blocks").json()["blocks"][0]
+    assert block["pool"]["main_blind"] == "Gwen"
+
+
 def test_index_served(client):
     response = client.get("/")
     assert response.status_code == 200
