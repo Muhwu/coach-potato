@@ -1,10 +1,63 @@
-"""Project configuration loaded from a .env file in the project root."""
+"""Project configuration: runtime settings live in the db (Settings view),
+with a .env fallback for the dev workflow. `load_config` remains the
+.env-only path used by the crawl.py CLI."""
+import json
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from .riot_client import PLATFORM_ROUTING
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Where resolve_settings looks for a fallback .env (tests point this elsewhere;
+# frozen bundles get the PyInstaller temp dir, which never contains one).
+ENV_FALLBACK_ROOT = PROJECT_ROOT
+
+APP_DIR_NAME = "CoachPotato"
+
+
+def default_db_path() -> Path:
+    env = os.environ.get("LOL_DB_PATH")
+    if env:
+        return Path(env)
+    if getattr(sys, "frozen", False):  # packaged desktop build
+        if sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA", str(Path.home()))) / APP_DIR_NAME
+        elif sys.platform == "darwin":
+            base = Path.home() / "Library" / "Application Support" / APP_DIR_NAME
+        else:
+            base = Path(os.environ.get("XDG_DATA_HOME",
+                                       str(Path.home() / ".local" / "share"))) / "coach-potato"
+        return base / "lol.sqlite"
+    return PROJECT_ROOT / "data" / "lol.sqlite"
+
+
+def resolve_settings(conn) -> dict:
+    """Effective runtime settings: db values win, .env fills the gaps.
+    Never persists anything — PUT /api/settings is the only writer."""
+    from . import db as _db
+
+    stored = _db.get_settings(conn)
+    env = {}
+    env_path = ENV_FALLBACK_ROOT / ".env"
+    if env_path.exists():
+        env = parse_env_file(env_path)
+    api_key = stored.get("riot_api_key") or env.get("RIOT_API_KEY") or ""
+    if stored.get("accounts"):
+        accounts = json.loads(stored["accounts"])
+    elif env.get("ACCOUNTS"):
+        accounts = [f"{n}#{t}" for n, t in parse_accounts(env["ACCOUNTS"])]
+    else:
+        accounts = []
+    platform = (stored.get("platform") or env.get("PLATFORM") or "euw1").lower()
+    configured = bool(api_key and accounts)
+    source = None
+    if configured:
+        source = "db" if stored.get("riot_api_key") else "env"
+    return {"riot_api_key": api_key, "accounts": accounts, "platform": platform,
+            "configured": configured, "source": source}
 
 
 class ConfigError(Exception):

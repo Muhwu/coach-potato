@@ -68,6 +68,11 @@ CREATE TABLE IF NOT EXISTS participant_metrics (
     PRIMARY KEY (match_id, puuid)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS champion_pool (
     role TEXT NOT NULL CHECK (role IN ('main_blind','core','counter')),
     champion TEXT NOT NULL,
@@ -243,6 +248,17 @@ def delete_session(conn, session_id):
     with conn:
         cursor = conn.execute("DELETE FROM coaching_sessions WHERE id=?", (session_id,))
     return cursor.rowcount > 0
+
+
+def get_settings(conn):
+    return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings")}
+
+
+def set_settings(conn, mapping):
+    with conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            list(mapping.items()))
 
 
 BLOCK_SIZE = 3
