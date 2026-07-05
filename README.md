@@ -51,12 +51,21 @@ games — the crawler is incremental and safe to interrupt/resume.
 (SEA). The regional routing hosts for match history and account lookup are
 derived from it automatically.
 
-## ⚠ Riot dev keys expire every 24 h
+## Getting a Riot API key
 
-The key in `.env` is a development key. When it expires, crawls fail with a
-clear "API key expired" message. Fix: grab a fresh key at
-<https://developer.riotgames.com> and update the `RIOT_API_KEY=` line in `.env`
-(already-crawled data is unaffected; browsing the UI needs no key).
+Two kinds of key work, both free from <https://developer.riotgames.com>:
+
+- **Personal API key (recommended).** Register a *personal product*
+  ("Coach Potato — personal match-history tool" is a fine description;
+  approval is lightweight). You get a **persistent key** that doesn't
+  expire — set it once in the app's Settings and forget it.
+- **Development key (quick start).** Available instantly on the portal
+  front page, but **expires every 24 h**. When it does, crawls fail with a
+  clear "API key expired" message — paste a fresh key in Settings
+  (already-crawled data is unaffected; browsing the UI needs no key).
+
+Keys are stored locally and only ever sent to Riot's API. Every user brings
+their own key — the app ships without one by design.
 
 Dev-key rate limits (20 req/s, 100 req/2 min) are respected automatically, so a
 full first crawl of a large history takes roughly 2 minutes per ~100 matches.
