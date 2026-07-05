@@ -463,6 +463,33 @@ td.notes-cell { text-align: left; white-space: normal; }
 .chip-counter { background: rgba(237, 161, 0, 0.16); border: 1px solid #c98500; }
 .chip-plain { background: var(--accent-wash); border: 1px solid var(--border); }
 
+.key-row { display: flex; gap: 6px; align-items: center; }
+.key-row input { flex: 1; }
+.view-toggles { display: flex; gap: 16px; flex-wrap: wrap; }
+.view-toggles label { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; }
+
+.col-picker { position: relative; display: inline-block; }
+.col-picker summary { list-style: none; cursor: pointer; }
+.col-picker summary::-webkit-details-marker { display: none; }
+.col-picker[open] .col-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 170px;
+  white-space: nowrap;
+}
+.col-menu label { display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+td.rank-cell { font-size: 12px; line-height: 1.5; }
+
 .welcome-banner {
   margin-top: 16px;
   padding: 12px 16px;

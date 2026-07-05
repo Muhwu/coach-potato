@@ -38,6 +38,7 @@
       <label class="filter-label" for="progress-queue">Queue</label>
       <select id="progress-queue"><option value="">All</option></select>
     </div>
+    <span id="progress-cols"></span>
     <span class="muted">Both accounts combined · top lane only</span>
   </section>
 
@@ -79,7 +80,11 @@
   <section id="settings-card">
     <div class="settings-field">
       <label class="filter-label" for="setting-key">Riot API key</label>
-      <input type="text" id="setting-key" placeholder="RGAPI-..." spellcheck="false" autocomplete="off">
+      <div class="key-row">
+        <input type="password" id="setting-key" placeholder="RGAPI-..." spellcheck="false" autocomplete="off">
+        <button id="key-reveal" class="preset icon-btn" type="button"
+          title="Show key" aria-label="Show or hide the API key">👁</button>
+      </div>
       <p class="muted">Get one at
         <a href="https://developer.riotgames.com" target="_blank" rel="noopener">developer.riotgames.com</a>.
         Best option: register a <strong>personal product</strong> there for a
@@ -96,6 +101,17 @@
     <div class="settings-field">
       <label class="filter-label" for="setting-platform">Server / platform</label>
       <select id="setting-platform"></select>
+    </div>
+    <div class="settings-field">
+      <span class="filter-label">Visible views</span>
+      <div class="view-toggles">
+        <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
+      </div>
+      <p class="muted">Untick views you don't use to hide them from the top bar
+        (data collection is unaffected).</p>
     </div>
     <div class="settings-field">
       <button id="settings-save" class="preset">Save settings</button>
@@ -138,6 +154,7 @@
       <a class="preset" href="/api/blocks/export.md" download>Export .md</a>
       <a class="preset" href="/api/blocks/export.csv" download>Export .csv</a>
       <button id="copy-discord" class="preset">Copy for Discord</button>
+      <span id="blocks-cols"></span>
       <span id="blocks-export-status" class="muted"></span>
     </div>
     <div id="blocks-list"></div>

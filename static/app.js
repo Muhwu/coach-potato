@@ -51,6 +51,47 @@ function titleCase(tier) {
   return tier === "UNKNOWN" ? "Unknown rank" : tier.charAt(0) + tier.slice(1).toLowerCase();
 }
 
+const TIER_SHORT = { IRON: "Iron", BRONZE: "Bronze", SILVER: "Silver", GOLD: "Gold",
+  PLATINUM: "Plat", EMERALD: "Em", DIAMOND: "Dia", MASTER: "Master",
+  GRANDMASTER: "GM", CHALLENGER: "Chal" };
+
+function fmtRank(entry) {
+  if (!entry || !entry.tier) return "Unranked";
+  const division = ["MASTER", "GRANDMASTER", "CHALLENGER"].includes(entry.tier)
+    ? "" : ` ${entry.division}`;
+  return `${TIER_SHORT[entry.tier] || entry.tier}${division} ${entry.lp ?? 0}LP`;
+}
+
+function fmtRankList(ranks) {
+  if (!ranks || !ranks.length) return "–";
+  return ranks.map((r) =>
+    `${escapeHtml(r.account.split("#")[0])} ${fmtRank(r)}`).join("<br>");
+}
+
+// ---------- persisted column choices ----------
+
+function colPrefs(storageKey, allKeys) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey));
+    if (Array.isArray(saved)) return new Set(saved.filter((k) => allKeys.includes(k)));
+  } catch { /* fall through to defaults */ }
+  return new Set(allKeys);
+}
+
+function renderColPicker(target, storageKey, columns, visible, onChange) {
+  target.innerHTML = `<details class="col-picker"><summary class="preset">Columns ▾</summary>
+    <div class="col-menu">` + columns.map((c) =>
+      `<label><input type="checkbox" data-col="${c.key}"
+         ${visible.has(c.key) ? "checked" : ""}> ${c.label}</label>`).join("") +
+    `</div></details>`;
+  target.querySelectorAll("input").forEach((cb) =>
+    cb.addEventListener("change", () => {
+      cb.checked ? visible.add(cb.dataset.col) : visible.delete(cb.dataset.col);
+      localStorage.setItem(storageKey, JSON.stringify([...visible]));
+      onChange();
+    }));
+}
+
 function queryString() {
   const params = new URLSearchParams({ puuid: state.puuid });
   if (state.range === "custom") {
@@ -372,6 +413,18 @@ async function toggleSegment(segment) {
   renderProgress(segmentUi.segments);
 }
 
+const PROGRESS_COLS = [
+  { key: "rank", label: "Rank at start" },
+  { key: "games", label: "Games" },
+  { key: "wl", label: "W–L" },
+  { key: "winrate", label: "Winrate" },
+  { key: "kda", label: "KDA" },
+  { key: "cs", label: "CS/min" },
+  { key: "gold", label: "Gold/min" },
+  { key: "dmg", label: "DMG/min" },
+];
+const progressCols = colPrefs("cp-cols-progress", PROGRESS_COLS.map((c) => c.key));
+
 function renderProgress(segments) {
   segmentUi.segments = segments;
   const target = $("#progress-table");
@@ -380,6 +433,7 @@ function renderProgress(segments) {
       No coaching sessions yet — add your first one below.</div></div>`;
     return;
   }
+  const visible = PROGRESS_COLS.filter((c) => progressCols.has(c.key));
   const rows = segments.map((segment, i) => {
     const previous = segments.slice(0, i).reverse().find((s) => s.games > 0);
     const wrDelta = delta(segment, previous, "winrate_pp", 1, "pp");
@@ -388,28 +442,31 @@ function renderProgress(segments) {
     const empty = !segment.games;
     const key = segKey(segment);
     const expanded = segmentUi.expanded.has(key);
+    const cells = {
+      rank: `<td class="rank-cell">${fmtRankList(segment.start_ranks)}</td>`,
+      games: `<td>${segment.games}</td>`,
+      wl: `<td>${empty ? "–" : `${segment.wins}–${segment.games - segment.wins}`}</td>`,
+      winrate: `<td class="wr-col">${empty ? "–" : wrCell(segment.winrate)}<span class="delta-slot">${wrDelta}</span></td>`,
+      kda: `<td>${fmt(segment.kda, 2)}<span class="delta-slot">${kdaDelta}</span></td>`,
+      cs: `<td>${fmt(segment.cs_min)}<span class="delta-slot">${csDelta}</span></td>`,
+      gold: `<td>${fmt(segment.gold_min, 0)}</td>`,
+      dmg: `<td>${fmt(segment.dmg_min, 0)}</td>`,
+    };
     let html = `<tr${empty ? ' class="muted"' : ""}>
       <td class="period-cell"><div class="period-wrap">
         <button class="preset seg-toggle" data-i="${i}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"}</button>
         <div class="period-text"><strong>${segment.label}</strong><br><span class="muted period-sub">${fmtSegmentDates(segment)}${segment.note ? " · " + escapeHtml(segment.note) : ""}</span></div>
-      </div></td>
-      <td>${segment.games}</td>
-      <td>${empty ? "–" : `${segment.wins}–${segment.games - segment.wins}`}</td>
-      <td class="wr-col">${empty ? "–" : wrCell(segment.winrate)}<span class="delta-slot">${wrDelta}</span></td>
-      <td>${fmt(segment.kda, 2)}<span class="delta-slot">${kdaDelta}</span></td>
-      <td>${fmt(segment.cs_min)}<span class="delta-slot">${csDelta}</span></td>
-      <td>${fmt(segment.gold_min, 0)}</td>
-      <td>${fmt(segment.dmg_min, 0)}</td>
-    </tr>`;
+      </div></td>` + visible.map((c) => cells[c.key]).join("") + `</tr>`;
     if (expanded) {
-      html += `<tr class="games-row"><td colspan="8">${segmentMetricsPanel(segment)}</td></tr>`;
+      html += `<tr class="games-row"><td colspan="${visible.length + 1}">${segmentMetricsPanel(segment)}</td></tr>`;
     }
     return html;
   }).join("");
+  const headers = { winrate: ' class="wr-col"' };
   target.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Period</th><th>Games</th><th>W–L</th><th class="wr-col">Winrate</th>
-    <th>KDA</th><th>CS/min</th><th>Gold/min</th><th>DMG/min</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+    <thead><tr><th>Period</th>` +
+    visible.map((c) => `<th${headers[c.key] || ""}>${c.label}</th>`).join("") +
+    `</tr></thead><tbody>${rows}</tbody></table></div>`;
   target.querySelectorAll(".seg-toggle").forEach((btn) =>
     btn.addEventListener("click", () => toggleSegment(segments[+btn.dataset.i])));
   target.querySelectorAll(".games-toggle").forEach((btn) =>
@@ -611,6 +668,18 @@ function renderAccountChips() {
     }));
 }
 
+function applyHiddenViews(hidden) {
+  state.hiddenViews = hidden || [];
+  for (const view of ["overview", "progress", "trends", "blocks"]) {
+    $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
+  }
+  if (state.hiddenViews.includes(state.mainView)) {
+    const fallback = ["overview", "progress", "trends", "blocks"]
+      .find((view) => !state.hiddenViews.includes(view));
+    setMainView(fallback || "settings");
+  }
+}
+
 async function initSettings() {
   const data = await getJSON("/api/settings");
   $("#setting-key").value = data.riot_api_key;
@@ -620,9 +689,18 @@ async function initSettings() {
     `<option value="${p}" ${p === data.platform ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
   settingsUi.accounts = data.accounts;
   renderAccountChips();
+  document.querySelectorAll(".view-toggle-cb").forEach((cb) => {
+    cb.checked = !(data.hidden_views || []).includes(cb.value);
+  });
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  $("#key-reveal").addEventListener("click", () => {
+    const input = $("#setting-key");
+    const hidden = input.type === "password";
+    input.type = hidden ? "text" : "password";
+    $("#key-reveal").title = hidden ? "Hide key" : "Show key";
+  });
   const input = $("#settings-accounts-input");
   const addAccount = () => {
     const value = input.value.trim();
@@ -648,6 +726,8 @@ async function initSettings() {
   $("#settings-accounts").addEventListener("click", () => input.focus());
   $("#settings-save").addEventListener("click", async () => {
     addAccount(); // commit any half-typed account first
+    const hiddenViews = [...document.querySelectorAll(".view-toggle-cb")]
+      .filter((cb) => !cb.checked).map((cb) => cb.value);
     const response = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -655,10 +735,12 @@ async function initSettings() {
         riot_api_key: $("#setting-key").value,
         accounts: settingsUi.accounts,
         platform: $("#setting-platform").value,
+        hidden_views: hiddenViews,
       }),
     });
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
+      applyHiddenViews(body.hidden_views);
       $("#settings-banner").classList.add("hidden");
       $("#settings-status").textContent =
         "saved ✓ — use Update data to fetch your match history";
@@ -812,6 +894,8 @@ function wireFilters() {
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
   $("#view-flat").addEventListener("click", () => setView("flat"));
   $("#view-rank").addEventListener("click", () => setView("rank"));
+  renderColPicker($("#progress-cols"), "cp-cols-progress", PROGRESS_COLS, progressCols,
+    () => renderProgress(segmentUi.segments));
   $("#crawl-btn").addEventListener("click", async () => {
     await fetch("/api/crawl", { method: "POST" });
     pollCrawl();
@@ -850,6 +934,8 @@ async function init(firstLoad = true) {
     wireProgress();
     pollCrawl();
     checkForUpdates();
+    const settings = await getJSON("/api/settings");
+    applyHiddenViews(settings.hidden_views);
   }
   if (!state.players.length) {
     $("#summary-tiles").innerHTML = `<div class="tile" style="min-width:100%">

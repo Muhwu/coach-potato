@@ -15,6 +15,19 @@ function persistCollapsed() {
   localStorage.setItem("cp-collapsed-blocks", JSON.stringify([...blockState.collapsed]));
 }
 
+const BLOCK_COLS = [
+  { key: "date", label: "Date" },
+  { key: "account", label: "Account" },
+  { key: "me", label: "Me" },
+  { key: "opponent", label: "Opponent" },
+  { key: "result", label: "Result" },
+  { key: "kda", label: "K/D/A" },
+  { key: "notes", label: "Notes" },
+  { key: "rank", label: "Rank (start → end)" },
+];
+const GAME_COL_KEYS = ["date", "account", "me", "opponent", "result", "kda", "notes"];
+const blockCols = colPrefs("cp-cols-blocks", BLOCK_COLS.map((c) => c.key));
+
 const POOL_ROLES = {
   main_blind: { cls: "chip-main", glyph: "★", label: "Main blind" },
   core: { cls: "chip-core", glyph: "", label: "Core pool" },
@@ -26,6 +39,8 @@ async function initBlocks() {
     blockState.wired = true;
     $("#pool-save").addEventListener("click", savePool);
     $("#copy-discord").addEventListener("click", copyDiscordMarkdown);
+    renderColPicker($("#blocks-cols"), "cp-cols-blocks", BLOCK_COLS, blockCols,
+      () => renderBlocks());
     wireChipBoxes();
     await loadChampionRoster();
   }
@@ -220,27 +235,41 @@ async function toggleGameStats(entryId, matchId, puuid) {
 
 function blockGameRow(g) {
   const statsOpen = blockState.expandedGameStats.has(g.entry_id);
-  let html = `<tr>
-    <td><button class="preset seg-toggle game-stats-toggle" data-entry="${g.entry_id}"
-      data-match="${g.match_id}" data-puuid="${g.puuid}" aria-expanded="${statsOpen}"
-      title="Per-game stats">${statsOpen ? "▾" : "▸"}</button></td>
-    <td>${fmtDate(g.game_creation_ms)}</td>
-    <td>${escapeHtml(g.account)}</td>
-    <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
-    <td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>
-    <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
-    <td>${g.kills}/${g.deaths}/${g.assists}</td>
-    <td class="notes-cell">${blockState.editingNotes === g.entry_id
+  const cells = {
+    date: `<td>${fmtDate(g.game_creation_ms)}</td>`,
+    account: `<td>${escapeHtml(g.account)}</td>`,
+    me: `<td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>`,
+    opponent: `<td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>`,
+    result: `<td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>`,
+    kda: `<td>${g.kills}/${g.deaths}/${g.assists}</td>`,
+    notes: `<td class="notes-cell">${blockState.editingNotes === g.entry_id
       ? `<textarea class="game-notes" data-entry="${g.entry_id}" rows="1"
            placeholder="notes… (Markdown, Enter saves, Shift+Enter new line)">${escapeHtml(g.notes)}</textarea>`
       : `<div class="notes-display" data-entry="${g.entry_id}" title="Click to edit">${
-          g.notes ? renderNotes(g.notes) : `<span class="muted">notes…</span>`}</div>`}</td>
-    <td><button class="preset game-remove" data-entry="${g.entry_id}" title="Remove from block">×</button></td>
+          g.notes ? renderNotes(g.notes) : `<span class="muted">notes…</span>`}</div>`}</td>`,
+  };
+  const visible = GAME_COL_KEYS.filter((k) => blockCols.has(k));
+  let html = `<tr>
+    <td><button class="preset seg-toggle game-stats-toggle" data-entry="${g.entry_id}"
+      data-match="${g.match_id}" data-puuid="${g.puuid}" aria-expanded="${statsOpen}"
+      title="Per-game stats">${statsOpen ? "▾" : "▸"}</button></td>` +
+    visible.map((k) => cells[k]).join("") +
+    `<td><button class="preset game-remove" data-entry="${g.entry_id}" title="Remove from block">×</button></td>
   </tr>`;
   if (statsOpen) {
-    html += `<tr class="games-row"><td colspan="9">${gameMetricsPanel(g.entry_id)}</td></tr>`;
+    html += `<tr class="games-row"><td colspan="${visible.length + 2}">${gameMetricsPanel(g.entry_id)}</td></tr>`;
   }
   return html;
+}
+
+function blockRankLine(block) {
+  if (!blockCols.has("rank") || (!block.start_ranks && !block.end_ranks)) return "";
+  const ends = new Map((block.end_ranks || []).map((r) => [r.account, r]));
+  const parts = (block.start_ranks || []).map((r) => {
+    const end = ends.get(r.account);
+    return `${escapeHtml(r.account.split("#")[0])} ${fmtRank(r)}${end ? " → " + fmtRank(end) : ""}`;
+  });
+  return parts.length ? `<div class="block-pool">Rank: ${parts.join(" · ")}</div>` : "";
 }
 
 function blockPoolChips(pool) {
@@ -296,12 +325,16 @@ function blockCard(block, isCurrent) {
   if (collapsed) {
     return `<div class="session-card block-card">${head}</div>`;
   }
+  const headerCells = GAME_COL_KEYS.filter((k) => blockCols.has(k)).map((k) => {
+    const label = BLOCK_COLS.find((c) => c.key === k).label;
+    return `<th${k === "notes" ? ' class="notes-col"' : ""}>${label}</th>`;
+  }).join("");
   return `<div class="session-card block-card">
     ${head}
     ${blockPoolChips(block.pool)}
+    ${blockRankLine(block)}
     ${block.games.length ? `<div class="table-wrap block-games"><table>
-      <thead><tr><th></th><th>Date</th><th>Account</th><th>Me</th><th>Opponent</th>
-      <th>Result</th><th>K/D/A</th><th class="notes-col">Notes</th><th></th></tr></thead>
+      <thead><tr><th></th>${headerCells}<th></th></tr></thead>
       <tbody>${block.games.map(blockGameRow).join("")}</tbody></table></div>` : ""}
     ${learnings}
   </div>`;
