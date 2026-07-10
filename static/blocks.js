@@ -20,16 +20,16 @@ const BLOCK_COLS = [
   { key: "account", label: "Account" },
   { key: "me", label: "Me" },
   { key: "opponent", label: "Opponent" },
+  { key: "lane7", label: "Lane (7m)", off: true },
+  { key: "lane14", label: "Lane (14m)" },
   { key: "result", label: "Result" },
   { key: "kda", label: "K/D/A" },
   { key: "cs", label: "CS/min" },
-  { key: "lane7", label: "Lane (7m)", off: true },
-  { key: "lane14", label: "Lane (14m)" },
   { key: "notes", label: "Notes" },
   { key: "rank", label: "Rank (start → end)" },
 ];
-const GAME_COL_KEYS = ["date", "account", "me", "opponent", "result", "kda",
-                       "cs", "lane7", "lane14", "notes"];
+const GAME_COL_KEYS = ["date", "account", "me", "opponent", "lane7", "lane14",
+                       "result", "kda", "cs", "notes"];
 // v2 storage key: new columns get their intended defaults for existing installs
 const blockCols = colPrefs("cp-cols-blocks-v2", BLOCK_COLS.map((c) => c.key),
   BLOCK_COLS.filter((c) => !c.off).map((c) => c.key));

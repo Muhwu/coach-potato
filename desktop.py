@@ -48,6 +48,10 @@ def main():
     url = f"http://127.0.0.1:{port}"
     try:
         import webview  # pywebview: native window when the OS webview exists
+        try:
+            webview.settings["ALLOW_DOWNLOADS"] = True  # export .md/.csv links
+        except (AttributeError, KeyError, TypeError):
+            pass  # older pywebview without the settings dict
         webview.create_window(WINDOW_TITLE, url, width=1280, height=880)
         webview.start()
     except Exception:
