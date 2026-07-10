@@ -299,13 +299,16 @@ def block_games_detailed(conn):
         """SELECT bg.id AS entry_id, bg.block_id, bg.notes, bg.match_id, bg.puuid,
                   m.game_creation_ms, m.game_duration_s, m.queue_id,
                   me.champion_name AS my_champion, me.win,
-                  me.kills, me.deaths, me.assists,
+                  me.kills, me.deaths, me.assists, me.cs,
+                  pm.lane_adv_early, pm.lane_adv_late,
                   opp.champion_name AS opp_champion
            FROM block_games bg
            JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
            JOIN matches m ON m.match_id = bg.match_id
            LEFT JOIN participants opp ON opp.match_id = bg.match_id
                AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
+           LEFT JOIN participant_metrics pm
+               ON pm.match_id = bg.match_id AND pm.puuid = bg.puuid
            ORDER BY m.game_creation_ms"""
     ).fetchall()
     return [dict(r) for r in rows]

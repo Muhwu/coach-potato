@@ -70,12 +70,12 @@ function fmtRankList(ranks) {
 
 // ---------- persisted column choices ----------
 
-function colPrefs(storageKey, allKeys) {
+function colPrefs(storageKey, allKeys, defaultKeys = allKeys) {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
     if (Array.isArray(saved)) return new Set(saved.filter((k) => allKeys.includes(k)));
   } catch { /* fall through to defaults */ }
-  return new Set(allKeys);
+  return new Set(defaultKeys);
 }
 
 function renderColPicker(target, storageKey, columns, visible, onChange) {

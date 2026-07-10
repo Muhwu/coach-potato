@@ -22,11 +22,17 @@ const BLOCK_COLS = [
   { key: "opponent", label: "Opponent" },
   { key: "result", label: "Result" },
   { key: "kda", label: "K/D/A" },
+  { key: "cs", label: "CS/min" },
+  { key: "lane7", label: "Lane (7m)", off: true },
+  { key: "lane14", label: "Lane (14m)" },
   { key: "notes", label: "Notes" },
   { key: "rank", label: "Rank (start → end)" },
 ];
-const GAME_COL_KEYS = ["date", "account", "me", "opponent", "result", "kda", "notes"];
-const blockCols = colPrefs("cp-cols-blocks", BLOCK_COLS.map((c) => c.key));
+const GAME_COL_KEYS = ["date", "account", "me", "opponent", "result", "kda",
+                       "cs", "lane7", "lane14", "notes"];
+// v2 storage key: new columns get their intended defaults for existing installs
+const blockCols = colPrefs("cp-cols-blocks-v2", BLOCK_COLS.map((c) => c.key),
+  BLOCK_COLS.filter((c) => !c.off).map((c) => c.key));
 
 const POOL_ROLES = {
   main_blind: { cls: "chip-main", glyph: "★", label: "Main blind" },
@@ -245,6 +251,13 @@ async function toggleGameStats(entryId, matchId, puuid) {
   renderBlocks();
 }
 
+function laneCell(value) {
+  if (value == null) return `<td class="muted">–</td>`;
+  return value >= 1
+    ? `<td><span class="lane-yes" title="Ahead in lane">✓</span></td>`
+    : `<td><span class="lane-no" title="Behind in lane">✗</span></td>`;
+}
+
 function blockGameRow(g) {
   const statsOpen = blockState.expandedGameStats.has(g.entry_id);
   const cells = {
@@ -254,6 +267,9 @@ function blockGameRow(g) {
     opponent: `<td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>`,
     result: `<td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>`,
     kda: `<td>${g.kills}/${g.deaths}/${g.assists}</td>`,
+    cs: `<td>${(g.cs * 60 / g.game_duration_s).toFixed(1)}</td>`,
+    lane7: laneCell(g.lane_adv_early),
+    lane14: laneCell(g.lane_adv_late),
     notes: `<td class="notes-cell">${blockState.editingNotes === g.entry_id
       ? `<textarea class="game-notes" data-entry="${g.entry_id}" rows="1"
            placeholder="notes… (Markdown, Enter saves, Shift+Enter new line)">${escapeHtml(g.notes)}</textarea>`

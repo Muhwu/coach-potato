@@ -400,9 +400,10 @@ def test_trend_buckets_day_and_bad_bucket(conn):
 
 def test_block_games_detailed_hydrates_from_matches(conn):
     m1, _ = add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, when=5_000,
-                      kills=7, deaths=2, assists=4)
+                      kills=7, deaths=2, assists=4, cs=240, duration=1800)
     m2, _ = add_match(conn, my_champ="Kled", opp_pos="JUNGLE", opp_champ="Wukong",
                       win=False, when=3_000)
+    add_metrics(conn, m1, lane_adv_early=1, lane_adv_late=0)
     db.add_game_to_block(conn, m1, ME)
     db.add_game_to_block(conn, m2, ME)
     games = stats.block_games_detailed(conn)
@@ -411,10 +412,14 @@ def test_block_games_detailed_hydrates_from_matches(conn):
     assert g1["my_champion"] == "Gwen"
     assert g1["opp_champion"] == "Darius"
     assert (g1["win"], g1["kills"], g1["deaths"], g1["assists"]) == (1, 7, 2, 4)
+    assert g1["cs"] == 240
+    assert g1["lane_adv_early"] == 1
+    assert g1["lane_adv_late"] == 0
     assert g1["block_id"] == 1
     assert g1["notes"] == ""
     g2 = next(g for g in games if g["match_id"] == m2)
     assert g2["opp_champion"] is None  # no enemy TOP in that game
+    assert g2["lane_adv_early"] is None  # no metrics row for that game
 
 
 def test_single_game_metrics_transforms_per_agg_kind(conn):

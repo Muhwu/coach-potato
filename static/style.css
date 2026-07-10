@@ -339,6 +339,8 @@ tbody tr.games-row:hover td { background: var(--page); }
 .delta-up { color: var(--good-text); font-size: 12px; font-weight: 650; }
 .delta-down { color: var(--critical); font-size: 12px; font-weight: 650; }
 .delta-neutral { color: var(--muted); font-size: 12px; font-weight: 650; }
+.lane-yes { color: var(--good-text); font-weight: 700; }
+.lane-no { color: var(--critical); font-weight: 700; }
 
 .metric-groups {
   display: grid;
