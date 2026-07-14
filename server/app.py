@@ -86,7 +86,7 @@ def api_version():
     return {"version": config.app_version(), "repo": config.GITHUB_REPO}
 
 
-HIDEABLE_VIEWS = {"overview", "progress", "trends", "blocks"}
+HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks"}
 
 
 def _hidden_views(conn):
@@ -381,6 +381,30 @@ def api_trends(request: Request, bucket: str = "month"):
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return {"buckets": buckets, "meta": METRICS}
+    finally:
+        conn.close()
+
+
+@app.get("/api/matchups/notes")
+def api_matchup_notes():
+    conn = get_conn()
+    try:
+        return db.get_matchup_notes(conn)
+    finally:
+        conn.close()
+
+
+@app.put("/api/matchups/notes/{champion}")
+def api_put_matchup_note(champion: str, body: dict):
+    notes = (body or {}).get("notes")
+    if notes is None:
+        raise HTTPException(400, "provide notes")
+    if CHAMPION_IDS and champion not in CHAMPION_IDS:
+        raise HTTPException(400, f"not a champion: {champion}")
+    conn = get_conn()
+    try:
+        db.set_matchup_note(conn, champion, str(notes))
+        return {"saved": True}
     finally:
         conn.close()
 

@@ -12,6 +12,7 @@
   <h1>Coach Potato</h1>
   <div class="view-toggle" id="main-view-toggle" role="tablist">
     <button id="nav-overview" class="active" role="tab">Overview</button>
+    <button id="nav-matchups" role="tab">Matchups</button>
     <button id="nav-progress" role="tab">Coaching progress</button>
     <button id="nav-trends" role="tab">Trends</button>
     <button id="nav-blocks" role="tab">Blocks</button>
@@ -106,6 +107,7 @@
       <span class="filter-label">Visible views</span>
       <div class="view-toggles">
         <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="matchups" checked> Matchups</label>
         <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
         <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
         <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
@@ -180,6 +182,49 @@
       adding to a full block starts the next one.</p>
     <div id="block-picker"></div>
   </section>
+</div>
+
+<div id="matchups-view" class="hidden">
+<section class="filter-row" aria-label="Matchup filters">
+  <div class="filter-group" id="mu-range-presets">
+    <span class="filter-label">Period</span>
+    <button data-range="all" class="preset active">All</button>
+    <button data-range="7d" class="preset">7d</button>
+    <button data-range="14d" class="preset">14d</button>
+    <button data-range="30d" class="preset">30d</button>
+    <button data-range="90d" class="preset">90d</button>
+    <button data-range="180d" class="preset">180d</button>
+    <button data-range="365d" class="preset">1y</button>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="mu-champion">My champion</label>
+    <select id="mu-champion"><option value="">All</option></select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="mu-queue">Queue</label>
+    <select id="mu-queue"><option value="">All</option></select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="mu-rank">Opp. rank</label>
+    <select id="mu-rank"><option value="">All</option></select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="mu-min-games">Min games</label>
+    <input type="number" id="mu-min-games" min="1" value="1" style="width:4em">
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Matchups</h2>
+    <div class="view-toggle" role="tablist">
+      <button id="mu-view-flat" class="active" role="tab">By matchup</button>
+      <button id="mu-view-rank" role="tab">Grouped by opponent rank</button>
+    </div>
+  </div>
+  <p class="muted">Expand a matchup for the win/loss timeline and your notes on it.</p>
+  <div id="mu-table"></div>
+</section>
 </div>
 
 <div id="trends-view" class="hidden">
@@ -257,17 +302,6 @@
 </section>
 
 <section>
-  <div class="section-head">
-    <h2>Matchups</h2>
-    <div class="view-toggle" role="tablist">
-      <button id="view-flat" class="active" role="tab">By matchup</button>
-      <button id="view-rank" role="tab">Grouped by opponent rank</button>
-    </div>
-  </div>
-  <div id="matchup-table"></div>
-</section>
-
-<section>
   <h2>My champions</h2>
   <div id="champion-table"></div>
 </section>
@@ -285,6 +319,7 @@
 
 <script src="vendor/marked.min.js"></script>
 <script src="app.js"></script>
+<script src="matchups.js"></script>
 <script src="trends.js"></script>
 <script src="blocks.js"></script>
 </body>

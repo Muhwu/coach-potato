@@ -96,6 +96,8 @@ change, not a crawler change.
   `POST /api/blocks/games` (409 names holding block). UI in `blocks.js`;
   "+ Block" promote buttons on Recent-games and segment game rows.
 - `static/` — no build step; state + fetch + innerHTML render in `app.js`;
+  matchups view (own tab: per-matchup notes, expanded rows with Overview
+  [win/loss strip + notes] / Games tabs) in `matchups.js`;
   trends view (SVG small-multiple charts + breakdown table) in `trends.js`;
   blocks view in `blocks.js`.
 
@@ -111,6 +113,12 @@ from session/block `start_ranks`/`end_ranks` (`db.seed_rank_history`, runs on
 connect while empty). Feeds the Overview "Rank over time" chart via
 `/api/stats/rank-history` (`stats.rank_value` maps tier/division/LP to absolute
 ladder points; coaching sessions drawn as vertical lines client-side).
+Between/before snapshots, `stats._with_estimates` interleaves ±20 LP estimated
+points from ranked-solo win/loss (`estimated: true`, rendered faint; each real
+snapshot resets the drift, backward walk reconstructs pre-snapshot history).
+`matchup_notes(opp_champion PK, notes, updated_at_ms)` — per-matchup Markdown
+notes (`GET /api/matchups/notes`, `PUT /api/matchups/notes/{champion}`; empty
+notes delete the row).
 `crawl_state(puuid+queue_id PK, newest_ms, complete)` — resume watermarks
 `participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
 metric key)` — coaching metrics, tracked players only, columns generated

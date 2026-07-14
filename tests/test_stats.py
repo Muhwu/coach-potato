@@ -473,3 +473,36 @@ def test_rank_history_series_per_puuid(conn):
         (1000, 1440), (2000, 1510)]
     assert series[ME][0]["tier"] == "GOLD" and series[ME][0]["division"] == "II"
     assert stats.rank_history(conn, []) == {}
+
+
+def test_value_to_rank_inverse():
+    assert stats.value_to_rank(1454) == ("GOLD", "II", 54)
+    assert stats.value_to_rank(0) == ("IRON", "IV", 0)
+    assert stats.value_to_rank(2950) == ("MASTER", None, 150)
+    assert stats.value_to_rank(-40) == ("IRON", "IV", 0)  # clamped
+
+
+def test_rank_history_estimates_from_ranked_results(conn):
+    add_match(conn, win=True, when=1_000_000, queue=420)    # before first anchor
+    add_match(conn, win=False, when=3_000_000, queue=420)   # between anchors
+    add_match(conn, win=True, when=3_500_000, queue=420)    # between anchors
+    add_match(conn, win=True, when=6_000_000, queue=420)    # after last anchor
+    add_match(conn, win=True, when=6_500_000, queue=440)    # flex: ignored
+    add_match(conn, win=True, when=7_000_000, queue=420, duration=200)  # remake: ignored
+    db.record_rank_history(conn, ME, "GOLD", "II", 40, 2_000_000)  # 1440
+    db.record_rank_history(conn, ME, "GOLD", "II", 10, 5_000_000)  # 1410
+    pts = stats.rank_history(conn, [ME])[ME]
+    assert [(p["t"], p["value"], p["estimated"]) for p in pts] == [
+        (1_000_000, 1440, True),   # backward walk: value right after that win
+        (2_000_000, 1440, False),
+        (3_000_000, 1420, True),   # loss -20
+        (3_500_000, 1440, True),   # win +20
+        (5_000_000, 1410, False),  # real snapshot resets the drift
+        (6_000_000, 1430, True),   # forward walk from the last anchor
+    ]
+    assert (pts[2]["tier"], pts[2]["division"], pts[2]["lp"]) == ("GOLD", "II", 20)
+
+
+def test_rank_history_no_anchor_no_estimates(conn):
+    add_match(conn, win=True, when=1_000_000, queue=420)
+    assert stats.rank_history(conn, [ME]) == {ME: []}

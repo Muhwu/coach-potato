@@ -10,8 +10,7 @@ const state = {
   queue: "",
   rankTier: "",
   minGames: 1,
-  view: "flat", // flat | rank
-  mainView: "overview", // overview | progress
+  mainView: "overview", // overview | matchups | progress | trends | blocks | settings
   progressChampion: null, // null = not initialized yet (defaults to Gwen)
   progressQueue: "",
   ddragonVersion: null,
@@ -123,18 +122,6 @@ function wrCell(winrate) {
     </span>`;
 }
 
-const MATCHUP_HEADER = `<thead><tr>
-  <th></th><th>Opponent</th><th>Games</th><th>W–L</th><th class="wr-col">Winrate</th><th>KDA</th>
-  <th>CS/min</th><th>Gold/min</th><th>DMG/min</th><th>Avg length</th>
-</tr></thead>`;
-
-const matchupUi = { expanded: new Set(), cache: new Map(), rows: [],
-                    statsOpen: new Set(), statsCache: new Map() };
-
-function matchupKey(row) {
-  return state.view === "rank" ? `${row.rank_tier}:${row.opp_champion}` : row.opp_champion;
-}
-
 // per-game "standard metrics" panel (same groups as the coaching/blocks views)
 function metricGroupsPanel(data) {
   if (data === undefined) return `<div class="muted">Loading…</div>`;
@@ -146,128 +133,6 @@ function metricGroupsPanel(data) {
         <span class="metric-label">${m.label}</span>
         <span class="metric-value">${fmtMetric(data.metrics[m.key], m)}</span>
       </div>`).join("") + `</div>`).join("") + `</div>`;
-}
-
-function matchupGamesTable(key) {
-  const games = matchupUi.cache.get(key);
-  if (!games) return `<div class="muted">Loading…</div>`;
-  if (!games.length) return `<div class="muted">No games.</div>`;
-  const rows = games.map((g) => {
-    const gkey = `${g.match_id}:${g.my_puuid}`;
-    const open = matchupUi.statsOpen.has(gkey);
-    let html = `<tr>
-      <td><button class="preset seg-toggle mg-stats-toggle" data-gkey="${gkey}"
-        data-match="${g.match_id}" data-puuid="${g.my_puuid}" aria-expanded="${open}"
-        title="Per-game stats">${open ? "▾" : "▸"}</button></td>
-      <td>${fmtDate(g.game_creation_ms)}</td>
-      <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
-      <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
-      <td>${g.opp_champion ? titleCase(g.rank_tier) : "–"}</td>
-      <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
-      <td>${g.kills}/${g.deaths}/${g.assists}</td>
-      <td>${(g.cs * 60 / g.game_duration_s).toFixed(1)}</td>
-      <td>${fmtDuration(g.game_duration_s)}</td>
-      <td><button class="preset promote-btn" data-match="${g.match_id}"
-        data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
-    </tr>`;
-    if (open) {
-      html += `<tr class="games-row"><td colspan="10">${metricGroupsPanel(matchupUi.statsCache.get(gkey))}</td></tr>`;
-    }
-    return html;
-  }).join("");
-  return `<table class="games-inner">
-    <thead><tr><th></th><th>Date</th><th>Queue</th><th>Me</th><th>Opp. rank</th>
-    <th>Result</th><th>K/D/A</th><th>CS/min</th><th>Length</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
-}
-
-async function toggleMatchup(row) {
-  const key = matchupKey(row);
-  if (matchupUi.expanded.has(key)) {
-    matchupUi.expanded.delete(key);
-    renderMatchups(matchupUi.rows);
-    return;
-  }
-  matchupUi.expanded.add(key);
-  if (!matchupUi.cache.has(key)) {
-    const params = new URLSearchParams(queryString());
-    params.delete("min_games");
-    params.set("opp_champion", row.opp_champion);
-    if (state.view === "rank") params.set("rank_tier", row.rank_tier);
-    matchupUi.cache.set(key, await getJSON(`/api/stats/games?${params}`));
-  }
-  renderMatchups(matchupUi.rows);
-}
-
-async function toggleMatchupGameStats(gkey, matchId, puuid) {
-  if (matchupUi.statsOpen.has(gkey)) {
-    matchupUi.statsOpen.delete(gkey);
-  } else {
-    matchupUi.statsOpen.add(gkey);
-    if (!matchupUi.statsCache.has(gkey)) {
-      const response = await fetch(
-        `/api/stats/games/metrics?match_id=${encodeURIComponent(matchId)}&puuid=${encodeURIComponent(puuid)}`);
-      matchupUi.statsCache.set(gkey, response.ok ? await response.json() : null);
-    }
-  }
-  renderMatchups(matchupUi.rows);
-}
-
-function matchupRow(row) {
-  const key = matchupKey(row);
-  const expanded = matchupUi.expanded.has(key);
-  let html = `<tr>
-    <td><button class="preset seg-toggle matchup-toggle" data-key="${escapeHtml(key)}"
-      aria-expanded="${expanded}" title="Games in this matchup">${expanded ? "▾" : "▸"}</button></td>
-    <td><span class="champ-cell">${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span></td>
-    <td>${row.games}</td>
-    <td>${row.wins}–${row.games - row.wins}</td>
-    <td class="wr-col">${wrCell(row.winrate)}</td>
-    <td>${fmt(row.kda, 2)}</td>
-    <td>${fmt(row.cs_min)}</td>
-    <td>${fmt(row.gold_min, 0)}</td>
-    <td>${fmt(row.dmg_min, 0)}</td>
-    <td>${fmtDuration(row.avg_duration_s)}</td>
-  </tr>`;
-  if (expanded) {
-    html += `<tr class="games-row"><td colspan="10">${matchupGamesTable(key)}</td></tr>`;
-  }
-  return html;
-}
-
-function renderMatchups(rows) {
-  matchupUi.rows = rows;
-  const target = $("#matchup-table");
-  if (!rows.length) {
-    target.innerHTML = `<div class="table-wrap"><div class="empty">No top-lane games match the current filters.</div></div>`;
-    return;
-  }
-  let body;
-  if (state.view === "rank") {
-    const groups = new Map();
-    for (const row of rows) {
-      if (!groups.has(row.rank_tier)) groups.set(row.rank_tier, []);
-      groups.get(row.rank_tier).push(row);
-    }
-    body = [...groups.entries()].map(([tier, tierRows]) => {
-      const games = tierRows.reduce((a, r) => a + r.games, 0);
-      const wins = tierRows.reduce((a, r) => a + r.wins, 0);
-      return `<tr class="rank-header"><td colspan="10">${titleCase(tier)} — ${games} games, ${pct(wins / games)} WR</td></tr>`
-        + tierRows.map(matchupRow).join("");
-    }).join("");
-  } else {
-    body = rows.map(matchupRow).join("");
-  }
-  target.innerHTML = `<div class="table-wrap"><table>${MATCHUP_HEADER}<tbody>${body}</tbody></table></div>`;
-  target.querySelectorAll(".matchup-toggle").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      const row = rows.find((r) => matchupKey(r) === btn.dataset.key);
-      if (row) toggleMatchup(row);
-    }));
-  target.querySelectorAll(".mg-stats-toggle").forEach((btn) =>
-    btn.addEventListener("click", () =>
-      toggleMatchupGameStats(btn.dataset.gkey, btn.dataset.match, btn.dataset.puuid)));
-  wirePromoteButtons(target);
 }
 
 function renderSummary(s) {
@@ -402,13 +267,36 @@ function renderRankChart() {
         data-tip="${escapeHtml(`${s.date}: ${s.title || "coaching session"}`)}"/>`;
   }
 
+  // estimated stretches (from win/loss walks) draw fainter than real snapshots
+  let anyEstimated = false;
   const lines = series.map((s) => {
-    const path = s.pts.map((p) => `${x(p.x).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
-    const dots = s.pts.filter((p) => !p.carried).map((p) =>
-      `<circle class="rk-dot" cx="${x(p.x).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3" style="fill:${s.color}"/>
-       <circle class="tl-hit" cx="${x(p.x).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="8"
-         data-tip="${escapeHtml(`${fmtDate(p.t)} · ${s.account.split("#")[0]}: ${fmtRank(p)}`)}"/>`).join("");
-    return `<polyline class="rk-line" style="stroke:${s.color}" points="${path}"/>${dots}`;
+    // split the line into runs of segments that are real–real vs touching an
+    // estimated point, so estimated stretches can render fainter
+    const pairEst = (k) => Boolean(s.pts[k].estimated || s.pts[k + 1].estimated);
+    let segments = "";
+    for (let i = 0; i < s.pts.length - 1;) {
+      const est = pairEst(i);
+      let j = i + 1;
+      while (j < s.pts.length - 1 && pairEst(j) === est) j++;
+      const pts = s.pts.slice(i, j + 1)
+        .map((p) => `${x(p.x).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+      segments += `<polyline class="rk-line${est ? " rk-est" : ""}" style="stroke:${s.color}" points="${pts}"/>`;
+      i = j;
+    }
+    if (s.pts.some((p) => p.estimated)) anyEstimated = true;
+    const shown = s.pts.filter((p) => !p.carried);
+    const estCount = shown.filter((p) => p.estimated).length;
+    const dots = shown.map((p) => {
+      if (p.estimated && estCount > 300) return ""; // keep the DOM sane on long histories
+      const cx = x(p.x).toFixed(1), cy = y(p.value).toFixed(1);
+      const tip = `${fmtDate(p.t)} · ${s.account.split("#")[0]}: ` +
+        (p.estimated ? `≈ ${fmtRank(p)} (est.)` : fmtRank(p));
+      return `<circle class="rk-dot${p.estimated ? " rk-est" : ""}" cx="${cx}" cy="${cy}"
+          r="${p.estimated ? 2 : 3}" style="fill:${s.color}"/>
+        <circle class="tl-hit" cx="${cx}" cy="${cy}" r="${p.estimated ? 5 : 8}"
+          data-tip="${escapeHtml(tip)}"/>`;
+    }).join("");
+    return segments + dots;
   }).join("");
 
   target.innerHTML = `<div class="rank-chart-box">
@@ -418,6 +306,8 @@ function renderRankChart() {
       <text class="rk-xlab" x="${RK_PAD.l}" y="${RANK_H - 6}">${escapeHtml(fmtDate(fromMs))}</text>
       <text class="rk-xlab" x="${RANK_W - RK_PAD.r}" y="${RANK_H - 6}" text-anchor="end">${escapeHtml(fmtDate(toMs))}</text>
     </svg>
+    ${anyEstimated ? `<div class="muted rk-note">Faint = estimated from ranked
+      wins/losses (±20 LP per game); solid = recorded rank snapshots.</div>` : ""}
   </div>`;
 
   const tip = $("#chart-tip");
@@ -496,6 +386,7 @@ function renderTabs() {
       state.champion = "";
       renderTabs();
       loadFilterOptions().then(refresh);
+      if (state.mainView === "matchups") initMatchups();
     }));
 }
 
@@ -512,21 +403,12 @@ async function loadFilterOptions() {
 }
 
 async function refresh() {
-  // filters or data changed — cached matchup game lists are stale
-  matchupUi.expanded.clear();
-  matchupUi.cache.clear();
-  matchupUi.statsOpen.clear();
-  matchupUi.statsCache.clear();
   const qs = queryString();
-  const matchupsUrl = state.view === "rank"
-    ? `/api/stats/matchups_by_rank?${qs}` : `/api/stats/matchups?${qs}`;
-  const [matchups, summary, rankHistory] = await Promise.all([
-    getJSON(matchupsUrl),
+  const [summary, rankHistory] = await Promise.all([
     getJSON(`/api/stats/summary?${qs}`),
     getJSON("/api/stats/rank-history"),
   ]);
   state.rankHistory = rankHistory;
-  renderMatchups(matchups);
   renderSummary(summary);
   renderChampionTable(summary.by_champion ?? []);
   renderRecent(summary.recent ?? []);
@@ -881,14 +763,17 @@ async function loadProgress() {
 function setMainView(view) {
   state.mainView = view;
   if (history.replaceState) {
-    const hash = { progress: "#progress", trends: "#trends", blocks: "#blocks" }[view] || "#";
+    const hash = { matchups: "#matchups", progress: "#progress",
+                   trends: "#trends", blocks: "#blocks" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "progress", "trends", "blocks", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
-  $("#account-tabs").classList.toggle("hidden", view !== "overview");
+  $("#account-tabs").classList.toggle("hidden",
+    view !== "overview" && view !== "matchups");
+  if (view === "matchups") initMatchups();
   if (view === "progress") loadProgressFilterOptions().then(loadProgress);
   if (view === "trends") initTrends();
   if (view === "blocks") initBlocks();
@@ -926,11 +811,11 @@ function renderAccountChips() {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "progress", "trends", "blocks"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "progress", "trends", "blocks"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
@@ -1016,6 +901,7 @@ async function initSettings() {
 
 function wireProgress() {
   $("#nav-overview").addEventListener("click", () => setMainView("overview"));
+  $("#nav-matchups").addEventListener("click", () => setMainView("matchups"));
   $("#nav-progress").addEventListener("click", () => setMainView("progress"));
   $("#nav-trends").addEventListener("click", () => setMainView("trends"));
   $("#nav-blocks").addEventListener("click", () => setMainView("blocks"));
@@ -1124,7 +1010,8 @@ async function refreshDuringCrawl() {
     return;
   }
   await init(false);
-  if (state.mainView === "progress") await loadProgress();
+  if (state.mainView === "matchups" && muState.editingNotes == null) await loadMatchups();
+  else if (state.mainView === "progress") await loadProgress();
   else if (state.mainView === "trends") await loadTrends();
 }
 
@@ -1152,7 +1039,8 @@ async function pollCrawl() {
       el.textContent = "up to date";
       await init(false);
       // refresh whichever view is active so new games appear immediately
-      if (state.mainView === "progress") await loadProgress();
+      if (state.mainView === "matchups") await loadMatchups();
+      else if (state.mainView === "progress") await loadProgress();
       else if (state.mainView === "blocks") await loadBlocks();
       else if (state.mainView === "trends") await loadTrends();
     } else {
@@ -1178,18 +1066,9 @@ function wireFilters() {
   $("#queue-select").addEventListener("change", (e) => { state.queue = e.target.value; refresh(); });
   $("#rank-select").addEventListener("change", (e) => { state.rankTier = e.target.value; refresh(); });
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
-  $("#view-flat").addEventListener("click", () => setView("flat"));
-  $("#view-rank").addEventListener("click", () => setView("rank"));
   renderColPicker($("#progress-cols"), "cp-cols-progress", PROGRESS_COLS, progressCols,
     () => renderProgress(segmentUi.segments));
   $("#crawl-btn").addEventListener("click", startCrawl);
-}
-
-function setView(view) {
-  state.view = view;
-  $("#view-flat").classList.toggle("active", view === "flat");
-  $("#view-rank").classList.toggle("active", view === "rank");
-  refresh();
 }
 
 async function loadDdragonVersion() {
@@ -1241,6 +1120,7 @@ async function init(firstLoad = true) {
   renderTabs();
   await loadFilterOptions();
   await refresh();
+  if (firstLoad && location.hash === "#matchups") setMainView("matchups");
   if (firstLoad && location.hash === "#progress") setMainView("progress");
   if (firstLoad && location.hash === "#trends") setMainView("trends");
   if (firstLoad && location.hash === "#blocks") setMainView("blocks");

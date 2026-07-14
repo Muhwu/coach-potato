@@ -31,21 +31,80 @@ def rank_value(tier, division, lp):
     return base + _DIVISION_OFFSET.get(division, 0) + (lp or 0)
 
 
+LP_PER_GAME = 20  # crude estimate: solo-queue gain/loss per ranked game
+
+_TIER_ORDER = ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND"]
+_DIVISION_ORDER = ["IV", "III", "II", "I"]
+
+
+def value_to_rank(value):
+    """Inverse of rank_value, for estimated points (apex collapses to MASTER)."""
+    value = max(0, int(value))
+    if value >= 2800:
+        return ("MASTER", None, value - 2800)
+    return (_TIER_ORDER[value // 400], _DIVISION_ORDER[(value % 400) // 100], value % 100)
+
+
+def _lp_delta(win):
+    return LP_PER_GAME if win else -LP_PER_GAME
+
+
+def _with_estimates(real, games):
+    """Interleave ±LP_PER_GAME estimates from ranked-solo results around the
+    real snapshots: backward from the first anchor (reconstructing history
+    that predates snapshotting), forward from each one. Each real snapshot
+    resets the accumulated drift."""
+    if not real:
+        return real
+
+    def est(t, value):
+        value = max(0, value)
+        tier, division, lp = value_to_rank(value)
+        return {"t": t, "tier": tier, "division": division, "lp": lp,
+                "value": value, "estimated": True}
+
+    points = []
+    back, value = [], real[0]["value"]
+    for g in reversed([g for g in games if g["t"] < real[0]["t"]]):
+        back.append(est(g["t"], value))  # value just after this game
+        value -= _lp_delta(g["win"])
+    points.extend(reversed(back))
+    for i, anchor in enumerate(real):
+        points.append({**anchor, "estimated": False})
+        end = real[i + 1]["t"] if i + 1 < len(real) else float("inf")
+        value = anchor["value"]
+        for g in (g for g in games if anchor["t"] < g["t"] < end):
+            value += _lp_delta(g["win"])
+            points.append(est(g["t"], value))
+    return points
+
+
 def rank_history(conn, puuids):
-    """Chronological rank snapshots per puuid: {puuid: [{t, tier, division,
-    lp, value}]}. Unranked snapshots (no tier) are skipped."""
+    """Chronological rank points per puuid: {puuid: [{t, tier, division, lp,
+    value, estimated}]}. Real snapshots come from rank_history (unranked ones
+    skipped); between them, ranked-solo win/loss results add ±LP_PER_GAME
+    estimated points."""
     series = {p: [] for p in puuids}
+    if not puuids:
+        return series
     slots = ", ".join("?" for _ in puuids)
     rows = conn.execute(
         f"""SELECT puuid, solo_tier, solo_division, solo_lp, fetched_at_ms
             FROM rank_history WHERE puuid IN ({slots}) AND solo_tier IS NOT NULL
-            ORDER BY fetched_at_ms""", list(puuids)) if puuids else []
+            ORDER BY fetched_at_ms""", list(puuids))
     for r in rows:
         series[r["puuid"]].append({
             "t": r["fetched_at_ms"], "tier": r["solo_tier"],
             "division": r["solo_division"], "lp": r["solo_lp"],
             "value": rank_value(r["solo_tier"], r["solo_division"], r["solo_lp"]),
         })
+    for puuid in puuids:
+        games = [dict(g) for g in conn.execute(
+            """SELECT m.game_creation_ms AS t, pa.win FROM participants pa
+               JOIN matches m ON m.match_id = pa.match_id
+               WHERE pa.puuid=? AND m.queue_id=420 AND m.game_duration_s >= ?
+               ORDER BY m.game_creation_ms""", (puuid, REMAKE_S))]
+        series[puuid] = _with_estimates(series[puuid], games)
     return series
 
 _METRIC_SELECT = ",\n       ".join(f"pm.{k} AS {k}" for k in metric_keys())

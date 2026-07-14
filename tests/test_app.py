@@ -515,5 +515,21 @@ def test_rank_history_endpoint(client, tmp_path, monkeypatch):
     assert len(data["series"]) == 1
     series = data["series"][0]
     assert series["account"] == "PlayerOne#EUW"
-    assert [p["value"] for p in series["points"]] == [1440, 1505]
+    real = [p for p in series["points"] if not p["estimated"]]
+    assert [p["value"] for p in real] == [1440, 1505]
+    # the ranked loss between the snapshots becomes a -20 estimated point
+    estimated = [p for p in series["points"] if p["estimated"]]
+    assert [(p["t"], p["value"]) for p in estimated] == [(1_700_000_100_000, 1420)]
     assert data["sessions"] == [{"date": "2026-07-01", "title": "wave management"}]
+
+
+def test_matchup_notes_endpoints(client):
+    assert client.get("/api/matchups/notes").json() == {}
+    r = client.put("/api/matchups/notes/Darius", json={"notes": "- respect level 2"})
+    assert r.status_code == 200
+    assert client.get("/api/matchups/notes").json() == {"Darius": "- respect level 2"}
+    client.put("/api/matchups/notes/Darius", json={"notes": ""})  # empty deletes
+    assert client.get("/api/matchups/notes").json() == {}
+    assert client.put("/api/matchups/notes/NotAChamp",
+                      json={"notes": "x"}).status_code == 400
+    assert client.put("/api/matchups/notes/Darius", json={}).status_code == 400

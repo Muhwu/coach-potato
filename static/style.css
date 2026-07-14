@@ -614,6 +614,25 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   display: inline-block; width: 10px; height: 10px;
   border-radius: 2px; margin-right: 5px;
 }
+.rk-line.rk-est { opacity: 0.35; stroke-width: 1.5; }
+.rk-dot.rk-est { opacity: 0.4; stroke-width: 0; }
+.rk-note { font-size: 12px; margin-top: 4px; }
+
+/* ---------- matchups view ---------- */
+.mu-panel-body { padding: 10px 4px 4px; }
+.mu-tabbar { margin-bottom: 4px; }
+.note-flag { font-size: 13px; }
+.wl-wrap { margin-bottom: 12px; }
+.wl-caption { font-size: 12px; margin-bottom: 4px; }
+.wl-scroll { overflow-x: auto; }
+.wl-mid { stroke: var(--baseline); stroke-width: 1; }
+.wl-bar.wl-win { fill: var(--good); }
+.wl-bar.wl-loss { fill: var(--critical); }
+.wl-hit { fill: transparent; cursor: pointer; }
+.mu-notes { max-width: 720px; }
+.mu-notes-head { display: flex; align-items: center; gap: 8px; }
+.mu-notes-head h4 { margin: 0; }
+.mu-notes textarea { width: 100%; margin-top: 6px; }
 
 /* ---------- trends ---------- */
 .trend-group { font-size: 14px; margin: 20px 0 8px; color: var(--text-secondary);

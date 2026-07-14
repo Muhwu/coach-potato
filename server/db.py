@@ -100,6 +100,12 @@ CREATE TABLE IF NOT EXISTS block_games (
     UNIQUE (match_id, puuid)
 );
 
+CREATE TABLE IF NOT EXISTS matchup_notes (
+    opp_champion TEXT PRIMARY KEY,
+    notes TEXT NOT NULL DEFAULT '',
+    updated_at_ms INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS rank_history (
     puuid TEXT NOT NULL,
     solo_tier TEXT,
@@ -215,6 +221,26 @@ def set_player_rank(conn, puuid, tier, division, lp, fetched_at_ms):
 
 def get_player_rank(conn, puuid):
     return conn.execute("SELECT * FROM player_ranks WHERE puuid=?", (puuid,)).fetchone()
+
+
+def get_matchup_notes(conn):
+    """All non-empty matchup notes: {opp_champion: notes}."""
+    return {r["opp_champion"]: r["notes"] for r in conn.execute(
+        "SELECT opp_champion, notes FROM matchup_notes WHERE notes != ''")}
+
+
+def set_matchup_note(conn, champion, notes):
+    """Upsert the notes for a matchup; empty notes delete the row."""
+    with conn:
+        if not notes.strip():
+            conn.execute("DELETE FROM matchup_notes WHERE opp_champion=?", (champion,))
+            return
+        conn.execute(
+            f"""INSERT INTO matchup_notes (opp_champion, notes, updated_at_ms)
+                VALUES (?, ?, {_now_expr()})
+                ON CONFLICT(opp_champion) DO UPDATE SET
+                  notes=excluded.notes, updated_at_ms=excluded.updated_at_ms""",
+            (champion, notes))
 
 
 def record_rank_history(conn, puuid, tier, division, lp, fetched_at_ms):

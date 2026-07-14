@@ -394,3 +394,15 @@ def test_crawl_watermark_round_trip(conn):
     assert db.get_crawl_watermark(conn, "pu1", 420) == (456, True)
     # different queue independent
     assert db.get_crawl_watermark(conn, "pu1", 440) == (None, False)
+
+
+def test_matchup_notes_roundtrip(conn):
+    assert db.get_matchup_notes(conn) == {}
+    db.set_matchup_note(conn, "Darius", "- care ghost timings")
+    db.set_matchup_note(conn, "Teemo", "ban it")
+    assert db.get_matchup_notes(conn) == {
+        "Darius": "- care ghost timings", "Teemo": "ban it"}
+    db.set_matchup_note(conn, "Darius", "updated")
+    assert db.get_matchup_notes(conn)["Darius"] == "updated"
+    db.set_matchup_note(conn, "Teemo", "  ")  # blank deletes
+    assert "Teemo" not in db.get_matchup_notes(conn)
