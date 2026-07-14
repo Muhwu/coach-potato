@@ -675,7 +675,8 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .bn-meta { font-size: 12px; margin-bottom: 2px; }
 .bn-meta .result-pill { transform: scale(0.85); }
 .bn-block-link { color: var(--series-1); }
-.bn-text { white-space: pre-wrap; }
+.bn-text { font-size: 14px; }
+.bn-text p { margin: 2px 0; }
 .bn-learnings { margin-top: 4px; font-size: 13px; }
 .bn-learnings summary { color: var(--muted); cursor: pointer; font-size: 12px; }
 .bn-learnings[open] summary { margin-bottom: 2px; }

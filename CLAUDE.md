@@ -135,6 +135,10 @@ from `server/metrics.py`
 
 ## Development rules
 
+- **All notes render as Markdown wherever they are displayed** — session
+  notes, block learnings, block-game notes, matchup notes, and any future
+  note field. Use `renderNotes(...)` (vendored marked) inside an
+  `md-body` element; never show raw/escaped note text in a read-only view.
 - **Every user-facing feature adds an entry to `static/changelog.json`**
   (newest first; main functionality only, not tiny tweaks). It drives the 📋
   "What's new" panel; entries newer than the latest GitHub release tag show a

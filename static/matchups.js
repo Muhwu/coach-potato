@@ -265,7 +265,7 @@ function blockNotesBlock(row) {
         ${displayName(n.my_champion)} vs ${displayName(n.opp_champion)} ·
         <span class="result-pill ${n.win ? "win" : "loss"}">${n.win ? "W" : "L"}</span>
       </div>
-      <div class="bn-text">${escapeHtml(n.notes)}</div>
+      <div class="bn-text md-body">${renderNotes(n.notes)}</div>
       ${n.block_learnings && n.block_learnings.trim() ? `<details class="bn-learnings">
         <summary>Block learnings</summary>
         <div class="md-body">${renderNotes(n.block_learnings)}</div>
