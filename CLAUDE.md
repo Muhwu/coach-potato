@@ -105,6 +105,12 @@ change, not a crawler change.
 `matches(match_id PK, queue_id, game_creation_ms, game_duration_s, game_version, crawled_at_ms)`
 `participants(match_id+puuid PK, champion_name, team_id, team_position, win, k/d/a, cs, gold_earned, damage_to_champions, riot_id_name)`
 `player_ranks(puuid PK, solo_tier/division/lp, fetched_at_ms)` — opponent rank cache
+`rank_history(puuid+fetched_at_ms PK, solo_tier/division/lp)` — tracked players'
+rank snapshots: appended by `refresh_tracked_ranks()` each crawl, seeded once
+from session/block `start_ranks`/`end_ranks` (`db.seed_rank_history`, runs on
+connect while empty). Feeds the Overview "Rank over time" chart via
+`/api/stats/rank-history` (`stats.rank_value` maps tier/division/LP to absolute
+ladder points; coaching sessions drawn as vertical lines client-side).
 `crawl_state(puuid+queue_id PK, newest_ms, complete)` — resume watermarks
 `participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
 metric key)` — coaching metrics, tracked players only, columns generated

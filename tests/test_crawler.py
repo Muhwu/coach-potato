@@ -214,3 +214,21 @@ def test_refresh_tracked_ranks_updates_players_table(conn):
     crawler.refresh_tracked_ranks()
     row = conn.execute("SELECT * FROM players WHERE puuid=?", (TRACKED_PUUID,)).fetchone()
     assert (row["solo_tier"], row["solo_division"], row["solo_lp"]) == ("DIAMOND", "IV", 12)
+
+
+def test_refresh_tracked_ranks_appends_rank_history(conn):
+    client = FakeClient([match_json("EUW1_1", 1_700_000_000_000)])
+    client.ranks[TRACKED_PUUID] = [
+        {"queueType": "RANKED_SOLO_5x5", "tier": "DIAMOND", "rank": "IV", "leaguePoints": 12},
+    ]
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    crawler.refresh_tracked_ranks()
+    client.ranks[TRACKED_PUUID][0]["leaguePoints"] = 30
+    crawler.now_ms = lambda: 1_800_000_100_000
+    crawler.refresh_tracked_ranks()
+    rows = conn.execute(
+        "SELECT * FROM rank_history WHERE puuid=? ORDER BY fetched_at_ms",
+        (TRACKED_PUUID,)).fetchall()
+    assert [(r["solo_tier"], r["solo_lp"], r["fetched_at_ms"]) for r in rows] == [
+        ("DIAMOND", 12, 1_800_000_000_000), ("DIAMOND", 30, 1_800_000_100_000)]

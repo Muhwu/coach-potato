@@ -238,6 +238,34 @@ def test_add_duplicate_game_raises_and_is_findable(conn):
     assert db.find_block_for_game(conn, "EUW1_none", "me") is None
 
 
+def test_record_rank_history_appends_and_ignores_same_ms(conn):
+    db.record_rank_history(conn, "p1", "GOLD", "II", 40, 1000)
+    db.record_rank_history(conn, "p1", "GOLD", "II", 40, 1000)  # same-ms duplicate
+    db.record_rank_history(conn, "p1", "GOLD", "II", 55, 2000)
+    rows = conn.execute("SELECT * FROM rank_history ORDER BY fetched_at_ms").fetchall()
+    assert [(r["solo_lp"], r["fetched_at_ms"]) for r in rows] == [(40, 1000), (55, 2000)]
+
+
+def test_seed_rank_history_backfills_from_snapshots(tmp_path):
+    c = db.connect(tmp_path / "x.sqlite")
+    db.upsert_player(c, "p1", "PlayerOne", "EUW", is_tracked=True)
+    c.execute("UPDATE players SET solo_tier='PLATINUM', solo_division='II', solo_lp=45,"
+              " rank_fetched_at_ms=5000 WHERE puuid='p1'")
+    c.commit()
+    db.add_session(c, "2026-07-05", "t")  # captures start_ranks at created_at_ms
+    assert not c.execute("SELECT 1 FROM rank_history").fetchone()
+    c.close()
+    c = db.connect(tmp_path / "x.sqlite")  # reconnect: empty table -> seeded
+    rows = c.execute("SELECT * FROM rank_history ORDER BY fetched_at_ms").fetchall()
+    assert len(rows) == 2  # session snapshot + current players rank
+    assert all(r["puuid"] == "p1" and r["solo_tier"] == "PLATINUM" for r in rows)
+    assert rows[0]["fetched_at_ms"] == 5000  # players.rank_fetched_at_ms
+    c.close()
+    c = db.connect(tmp_path / "x.sqlite")  # non-empty -> seed skipped, no dupes
+    assert c.execute("SELECT COUNT(*) n FROM rank_history").fetchone()["n"] == 2
+    c.close()
+
+
 def test_session_captures_tracked_ranks_at_creation(conn):
     import json
     db.upsert_player(conn, "p1", "PlayerOne", "EUW", is_tracked=True)

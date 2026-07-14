@@ -385,6 +385,25 @@ def api_trends(request: Request, bucket: str = "month"):
         conn.close()
 
 
+@app.get("/api/stats/rank-history")
+def api_rank_history():
+    conn = get_conn()
+    try:
+        players = conn.execute(
+            """SELECT puuid, game_name, tag_line FROM players
+               WHERE is_tracked=1 ORDER BY game_name""").fetchall()
+        history = stats.rank_history(conn, [p["puuid"] for p in players])
+        return {
+            "series": [{"puuid": p["puuid"],
+                        "account": f"{p['game_name']}#{p['tag_line']}",
+                        "points": history.get(p["puuid"], [])} for p in players],
+            "sessions": [{"date": s["session_date"], "title": s["title"]}
+                         for s in db.list_sessions(conn)],
+        }
+    finally:
+        conn.close()
+
+
 @app.get("/api/pool")
 def api_get_pool():
     conn = get_conn()

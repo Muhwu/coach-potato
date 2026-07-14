@@ -502,3 +502,18 @@ def test_index_served(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+
+
+def test_rank_history_endpoint(client, tmp_path, monkeypatch):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.record_rank_history(conn, ME, "GOLD", "II", 40, 1_700_000_000_000)
+    db.record_rank_history(conn, ME, "GOLD", "I", 5, 1_700_100_000_000)
+    db.add_session(conn, "2026-07-01", "wave management")
+    conn.close()
+    data = client.get("/api/stats/rank-history").json()
+    assert len(data["series"]) == 1
+    series = data["series"][0]
+    assert series["account"] == "PlayerOne#EUW"
+    assert [p["value"] for p in series["points"]] == [1440, 1505]
+    assert data["sessions"] == [{"date": "2026-07-01", "title": "wave management"}]

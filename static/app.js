@@ -288,6 +288,151 @@ function renderSummary(s) {
       <div class="sub">solo queue</div></div>`;
 }
 
+// ---------- rank-over-time chart ----------
+
+// tier -> base absolute LP (mirror of stats._TIER_BASE); apex tiers collapse
+const RANK_TIER_BASES = [
+  ["IRON", 0], ["BRONZE", 400], ["SILVER", 800], ["GOLD", 1200],
+  ["PLATINUM", 1600], ["EMERALD", 2000], ["DIAMOND", 2400], ["MASTER", 2800],
+];
+const RANK_SERIES_COLORS = ["var(--series-1)", "#e08a3c", "#3aa876", "#b06fd8", "#d05c5c"];
+
+const RANK_W = 860, RANK_H = 260;
+const RK_PAD = { l: 58, r: 12, t: 12, b: 24 };
+
+function overviewRangeBounds() {
+  // mirrors the server's period filter for the overview
+  const now = Date.now();
+  if (state.range === "custom") {
+    const from = state.from ? Date.parse(state.from + "T00:00:00Z") : null;
+    const to = state.to ? Date.parse(state.to + "T00:00:00Z") + 86_400_000 - 1 : now;
+    return [from, Math.min(to, now)];
+  }
+  if (state.range !== "all") return [now - parseInt(state.range, 10) * 86_400_000, now];
+  return [null, now];
+}
+
+// clip a series to [fromMs, toMs]: carry the last point before the window in
+// at the left edge, and extend the last value to the right edge ("now")
+function rankWindow(points, fromMs, toMs) {
+  const inWin = points.filter((p) => p.t >= fromMs && p.t <= toMs)
+    .map((p) => ({ ...p, x: p.t }));
+  const before = points.filter((p) => p.t < fromMs).pop();
+  if (before) inWin.unshift({ ...before, x: fromMs, carried: true });
+  if (inWin.length) {
+    const last = inWin[inWin.length - 1];
+    if (last.x < toMs) inWin.push({ ...last, x: toMs, carried: true });
+  }
+  return inWin;
+}
+
+function renderRankChart() {
+  const data = state.rankHistory;
+  const target = $("#rank-chart");
+  const legend = $("#rank-legend");
+  if (!data || !data.series.some((s) => s.points.length)) {
+    legend.innerHTML = "";
+    target.innerHTML = `<div class="table-wrap"><div class="empty">
+      No rank history yet — a snapshot is stored on every data update.</div></div>`;
+    return;
+  }
+  let [fromMs, toMs] = overviewRangeBounds();
+  if (fromMs == null) {
+    fromMs = Math.min(...data.series.flatMap((s) => s.points.map((p) => p.t)));
+  }
+  const series = data.series
+    .map((s, i) => ({ ...s, color: RANK_SERIES_COLORS[i % RANK_SERIES_COLORS.length],
+                      pts: rankWindow(s.points, fromMs, toMs) }))
+    .filter((s) => s.pts.length);
+
+  legend.innerHTML = data.series.map((s, i) => {
+    const player = state.players.find((p) => p.puuid === s.puuid);
+    const current = player && player.solo_tier
+      ? fmtRank({ tier: player.solo_tier, division: player.solo_division, lp: player.solo_lp })
+      : "Unranked";
+    return `<span><span class="swatch" style="background:${RANK_SERIES_COLORS[i % RANK_SERIES_COLORS.length]}"></span>
+      ${escapeHtml(s.account.split("#")[0])} · ${current}</span>`;
+  }).join("");
+
+  if (!series.length) {
+    target.innerHTML = `<div class="table-wrap"><div class="empty">
+      No rank snapshots in this period.</div></div>`;
+    return;
+  }
+
+  const values = series.flatMap((s) => s.pts.map((p) => p.value));
+  let lo = Math.floor(Math.min(...values) / 100) * 100;
+  let hi = Math.ceil(Math.max(...values) / 100) * 100;
+  if (lo === hi) hi += 100;
+  while (hi - lo < 200) { lo = Math.max(0, lo - 100); hi += 100; }
+
+  const iw = RANK_W - RK_PAD.l - RK_PAD.r, ih = RANK_H - RK_PAD.t - RK_PAD.b;
+  const x = (t) => RK_PAD.l + ((t - fromMs) / Math.max(1, toMs - fromMs)) * iw;
+  const y = (v) => RK_PAD.t + ih - ((v - lo) / (hi - lo)) * ih;
+
+  // horizontal gridlines: tier boundaries (labelled) + divisions when zoomed in
+  let grid = "";
+  const minor = hi - lo <= 1000;
+  for (let v = lo; v <= hi; v += 100) {
+    const boundary = RANK_TIER_BASES.find(([, base]) => base === v);
+    if (boundary) {
+      grid += `<line class="rk-grid" x1="${RK_PAD.l}" x2="${RANK_W - RK_PAD.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>`;
+    } else if (minor) {
+      grid += `<line class="rk-grid rk-grid-minor" x1="${RK_PAD.l}" x2="${RANK_W - RK_PAD.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>`;
+    }
+  }
+  // tier band labels, centred in the visible part of each band
+  for (const [tier, base] of RANK_TIER_BASES) {
+    const top = tier === "MASTER" ? Infinity : base + 400;
+    const a = Math.max(lo, base), b = Math.min(hi, top);
+    if (b - a >= 60) {
+      grid += `<text class="rk-tier-label" x="${RK_PAD.l - 6}" y="${(y((a + b) / 2) + 3).toFixed(1)}"
+        text-anchor="end">${TIER_SHORT[tier]}</text>`;
+    }
+  }
+
+  // coaching sessions as dashed vertical lines
+  let sessionLines = "";
+  for (const s of data.sessions || []) {
+    const t = Date.parse(s.date + "T00:00:00Z");
+    if (isNaN(t) || t < fromMs || t > toMs) continue;
+    const sx = x(t).toFixed(1);
+    sessionLines += `<line class="rk-session" x1="${sx}" x2="${sx}" y1="${RK_PAD.t}" y2="${RANK_H - RK_PAD.b}"/>
+      <line class="rk-session-hit" x1="${sx}" x2="${sx}" y1="${RK_PAD.t}" y2="${RANK_H - RK_PAD.b}"
+        data-tip="${escapeHtml(`${s.date}: ${s.title || "coaching session"}`)}"/>`;
+  }
+
+  const lines = series.map((s) => {
+    const path = s.pts.map((p) => `${x(p.x).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+    const dots = s.pts.filter((p) => !p.carried).map((p) =>
+      `<circle class="rk-dot" cx="${x(p.x).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3" style="fill:${s.color}"/>
+       <circle class="tl-hit" cx="${x(p.x).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="8"
+         data-tip="${escapeHtml(`${fmtDate(p.t)} · ${s.account.split("#")[0]}: ${fmtRank(p)}`)}"/>`).join("");
+    return `<polyline class="rk-line" style="stroke:${s.color}" points="${path}"/>${dots}`;
+  }).join("");
+
+  target.innerHTML = `<div class="rank-chart-box">
+    <svg viewBox="0 0 ${RANK_W} ${RANK_H}" role="img" aria-label="Rank over time">
+      ${grid}${sessionLines}${lines}
+      <line class="tl-axis" x1="${RK_PAD.l}" x2="${RANK_W - RK_PAD.r}" y1="${RANK_H - RK_PAD.b}" y2="${RANK_H - RK_PAD.b}"/>
+      <text class="rk-xlab" x="${RK_PAD.l}" y="${RANK_H - 6}">${escapeHtml(fmtDate(fromMs))}</text>
+      <text class="rk-xlab" x="${RANK_W - RK_PAD.r}" y="${RANK_H - 6}" text-anchor="end">${escapeHtml(fmtDate(toMs))}</text>
+    </svg>
+  </div>`;
+
+  const tip = $("#chart-tip");
+  target.querySelectorAll("[data-tip]").forEach((el) => {
+    el.addEventListener("mouseenter", () => {
+      tip.textContent = el.dataset.tip;
+      tip.classList.remove("hidden");
+      const r = el.getBoundingClientRect();
+      tip.style.left = `${r.left + window.scrollX + 12}px`;
+      tip.style.top = `${r.top + window.scrollY - 30}px`;
+    });
+    el.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+  });
+}
+
 function renderChampionTable(byChampion) {
   const target = $("#champion-table");
   if (!byChampion.length) {
@@ -375,14 +520,17 @@ async function refresh() {
   const qs = queryString();
   const matchupsUrl = state.view === "rank"
     ? `/api/stats/matchups_by_rank?${qs}` : `/api/stats/matchups?${qs}`;
-  const [matchups, summary] = await Promise.all([
+  const [matchups, summary, rankHistory] = await Promise.all([
     getJSON(matchupsUrl),
     getJSON(`/api/stats/summary?${qs}`),
+    getJSON("/api/stats/rank-history"),
   ]);
+  state.rankHistory = rankHistory;
   renderMatchups(matchups);
   renderSummary(summary);
   renderChampionTable(summary.by_champion ?? []);
   renderRecent(summary.recent ?? []);
+  renderRankChart();
 }
 
 // ---------- coaching progress ----------

@@ -142,12 +142,14 @@ class Crawler:
         rows = self.conn.execute("SELECT puuid FROM players WHERE is_tracked=1").fetchall()
         for row in rows:
             tier, division, lp = self._fetch_solo_rank(row["puuid"])
+            now_ms = self.now_ms()
             with self.conn:
                 self.conn.execute(
                     """UPDATE players SET solo_tier=?, solo_division=?, solo_lp=?,
                        rank_fetched_at_ms=? WHERE puuid=?""",
-                    (tier, division, lp, self.now_ms(), row["puuid"]),
+                    (tier, division, lp, now_ms, row["puuid"]),
                 )
+            db.record_rank_history(self.conn, row["puuid"], tier, division, lp, now_ms)
 
     def _fetch_solo_rank(self, puuid):
         entries = self.client.get_league_entries(puuid)

@@ -100,6 +100,15 @@ CREATE TABLE IF NOT EXISTS block_games (
     UNIQUE (match_id, puuid)
 );
 
+CREATE TABLE IF NOT EXISTS rank_history (
+    puuid TEXT NOT NULL,
+    solo_tier TEXT,
+    solo_division TEXT,
+    solo_lp INTEGER,
+    fetched_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (puuid, fetched_at_ms)
+);
+
 CREATE TABLE IF NOT EXISTS crawl_state (
     puuid TEXT NOT NULL,
     queue_id INTEGER NOT NULL,
@@ -120,6 +129,7 @@ def connect(db_path) -> sqlite3.Connection:
     _migrate(conn)
     metric_columns = ",\n    ".join(f"{k} REAL" for k in metric_keys())
     conn.executescript(SCHEMA.format(metric_columns=metric_columns))
+    seed_rank_history(conn)
     return conn
 
 
@@ -205,6 +215,53 @@ def set_player_rank(conn, puuid, tier, division, lp, fetched_at_ms):
 
 def get_player_rank(conn, puuid):
     return conn.execute("SELECT * FROM player_ranks WHERE puuid=?", (puuid,)).fetchone()
+
+
+def record_rank_history(conn, puuid, tier, division, lp, fetched_at_ms):
+    """Append a rank snapshot for a tracked player (same-ms duplicates ignored)."""
+    with conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO rank_history
+               (puuid, solo_tier, solo_division, solo_lp, fetched_at_ms)
+               VALUES (?, ?, ?, ?, ?)""",
+            (puuid, tier, division, lp, fetched_at_ms),
+        )
+
+
+def seed_rank_history(conn):
+    """One-time backfill of rank_history from snapshots taken before the table
+    existed: session/block start_ranks (captured at created_at_ms), block
+    end_ranks (~ when the last game was added) and the players' current rank.
+    Runs on connect but only while the table is empty."""
+    if conn.execute("SELECT 1 FROM rank_history LIMIT 1").fetchone():
+        return
+    by_account = {f"{r['game_name']}#{r['tag_line']}": r["puuid"]
+                  for r in conn.execute(
+                      "SELECT puuid, game_name, tag_line FROM players WHERE is_tracked=1")}
+
+    def entries(raw_json, at_ms):
+        if not raw_json or not at_ms:
+            return
+        for entry in json.loads(raw_json):
+            puuid = by_account.get(entry.get("account"))
+            if puuid and entry.get("tier"):
+                record_rank_history(conn, puuid, entry["tier"], entry.get("division"),
+                                    entry.get("lp"), at_ms)
+
+    for row in conn.execute("SELECT start_ranks, created_at_ms FROM coaching_sessions"):
+        entries(row["start_ranks"], row["created_at_ms"])
+    for row in conn.execute(
+            """SELECT b.start_ranks, b.end_ranks, b.created_at_ms,
+                      (SELECT MAX(added_at_ms) FROM block_games WHERE block_id=b.id) AS last_ms
+               FROM blocks b"""):
+        entries(row["start_ranks"], row["created_at_ms"])
+        entries(row["end_ranks"], row["last_ms"])
+    for row in conn.execute(
+            """SELECT puuid, solo_tier, solo_division, solo_lp, rank_fetched_at_ms
+               FROM players WHERE is_tracked=1 AND solo_tier IS NOT NULL
+                 AND rank_fetched_at_ms IS NOT NULL"""):
+        record_rank_history(conn, row["puuid"], row["solo_tier"], row["solo_division"],
+                            row["solo_lp"], row["rank_fetched_at_ms"])
 
 
 def insert_participant_metrics(conn, match_id, puuid, values):

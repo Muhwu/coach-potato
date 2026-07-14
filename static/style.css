@@ -594,6 +594,27 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   padding: 0 3px;
 }
 
+/* ---------- rank-over-time chart ---------- */
+.rank-chart-box {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+.rank-chart-box svg { width: 100%; height: auto; display: block; }
+.rk-line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.rk-dot { stroke: var(--surface-1); stroke-width: 1.5; }
+.rk-grid { stroke: var(--grid); stroke-width: 1; }
+.rk-grid-minor { opacity: 0.45; }
+.rk-tier-label, .rk-xlab { font-size: 10px; fill: var(--muted); }
+.rk-session { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.rk-session-hit { stroke: transparent; stroke-width: 12; cursor: help; }
+.rank-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
+.rank-legend .swatch {
+  display: inline-block; width: 10px; height: 10px;
+  border-radius: 2px; margin-right: 5px;
+}
+
 /* ---------- trends ---------- */
 .trend-group { font-size: 14px; margin: 20px 0 8px; color: var(--text-secondary);
   text-transform: uppercase; letter-spacing: 0.04em; }

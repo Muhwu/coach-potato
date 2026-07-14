@@ -449,3 +449,27 @@ def test_filter_options(conn):
     assert set(opts["champions"]) == {"Garen", "Kled"}
     assert set(opts["queues"]) == {420, 440}
     assert "GOLD" in opts["rank_tiers"] and "UNKNOWN" in opts["rank_tiers"]
+
+
+def test_rank_value_absolute_ladder_points():
+    assert stats.rank_value("IRON", "IV", 0) == 0
+    assert stats.rank_value("GOLD", "II", 54) == 1200 + 200 + 54
+    assert stats.rank_value("EMERALD", "I", 10) == 2000 + 300 + 10
+    assert stats.rank_value("MASTER", None, 120) == 2800 + 120
+    assert stats.rank_value("GRANDMASTER", None, 600) == 2800 + 600
+    assert stats.rank_value("PLATINUM", None, None) == 1600  # missing bits tolerated
+    assert stats.rank_value(None, None, None) is None
+    assert stats.rank_value("WOOD", "IV", 10) is None
+
+
+def test_rank_history_series_per_puuid(conn):
+    db.record_rank_history(conn, ME, "GOLD", "II", 40, 1000)
+    db.record_rank_history(conn, ME, None, None, None, 1500)  # unranked: skipped
+    db.record_rank_history(conn, ME, "GOLD", "I", 10, 2000)
+    db.record_rank_history(conn, "other", "SILVER", "IV", 0, 900)
+    series = stats.rank_history(conn, [ME])
+    assert list(series) == [ME]
+    assert [(p["t"], p["value"]) for p in series[ME]] == [
+        (1000, 1440), (2000, 1510)]
+    assert series[ME][0]["tier"] == "GOLD" and series[ME][0]["division"] == "II"
+    assert stats.rank_history(conn, []) == {}

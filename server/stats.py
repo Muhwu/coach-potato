@@ -13,6 +13,41 @@ from .metrics import METRICS, metric_keys
 
 REMAKE_S = 300
 
+# Absolute ladder points: 400 per tier (100 per division), apex tiers share a
+# base and are separated by raw LP.
+_TIER_BASE = {"IRON": 0, "BRONZE": 400, "SILVER": 800, "GOLD": 1200,
+              "PLATINUM": 1600, "EMERALD": 2000, "DIAMOND": 2400,
+              "MASTER": 2800, "GRANDMASTER": 2800, "CHALLENGER": 2800}
+_DIVISION_OFFSET = {"IV": 0, "III": 100, "II": 200, "I": 300}
+
+
+def rank_value(tier, division, lp):
+    """(tier, division, lp) -> absolute ladder points, None when unranked."""
+    if tier not in _TIER_BASE:
+        return None
+    base = _TIER_BASE[tier]
+    if tier in ("MASTER", "GRANDMASTER", "CHALLENGER"):
+        return base + (lp or 0)
+    return base + _DIVISION_OFFSET.get(division, 0) + (lp or 0)
+
+
+def rank_history(conn, puuids):
+    """Chronological rank snapshots per puuid: {puuid: [{t, tier, division,
+    lp, value}]}. Unranked snapshots (no tier) are skipped."""
+    series = {p: [] for p in puuids}
+    slots = ", ".join("?" for _ in puuids)
+    rows = conn.execute(
+        f"""SELECT puuid, solo_tier, solo_division, solo_lp, fetched_at_ms
+            FROM rank_history WHERE puuid IN ({slots}) AND solo_tier IS NOT NULL
+            ORDER BY fetched_at_ms""", list(puuids)) if puuids else []
+    for r in rows:
+        series[r["puuid"]].append({
+            "t": r["fetched_at_ms"], "tier": r["solo_tier"],
+            "division": r["solo_division"], "lp": r["solo_lp"],
+            "value": rank_value(r["solo_tier"], r["solo_division"], r["solo_lp"]),
+        })
+    return series
+
 _METRIC_SELECT = ",\n       ".join(f"pm.{k} AS {k}" for k in metric_keys())
 
 # One row per (my TOP game, enemy TOP opponent). LEFT JOIN keeps games
