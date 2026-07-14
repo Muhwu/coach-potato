@@ -261,6 +261,10 @@ function blockNotesBlock(row) {
         <span class="result-pill ${n.win ? "win" : "loss"}">${n.win ? "W" : "L"}</span>
       </div>
       <div class="bn-text">${escapeHtml(n.notes)}</div>
+      ${n.block_learnings && n.block_learnings.trim() ? `<details class="bn-learnings">
+        <summary>Block learnings</summary>
+        <div class="md-body">${renderNotes(n.block_learnings)}</div>
+      </details>` : ""}
     </div>`;
   }).join("");
   const empty = `<div class="muted">No block notes ${showAll ? "" : `with ${displayName(muState.champion)} `}vs ${displayName(row.opp_champion)} yet.</div>`;

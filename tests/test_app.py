@@ -585,13 +585,14 @@ def test_block_game_notes_endpoint(client):
     db.add_game_to_block(conn, m2, ME)
     entry = conn.execute("SELECT id FROM block_games WHERE match_id=?", (m1,)).fetchone()
     db.update_block_game(conn, entry["id"], "punished his E cooldown")
-    db.update_block(conn, 1, title="lane control")
+    db.update_block(conn, 1, title="lane control", learnings="- track ghost cd")
     conn.close()
     notes = client.get("/api/blocks/game-notes?opp_champion=Darius").json()
     assert len(notes) == 1  # the note-less game is skipped
     n = notes[0]
     assert n["notes"] == "punished his E cooldown"
     assert n["block_id"] == 1 and n["block_title"] == "lane control"
+    assert n["block_learnings"] == "- track ghost cd"
     assert n["my_champion"] == "Garen" and n["opp_champion"] == "Darius"
     assert n["match_id"] == m1 and n["account"] == "PlayerOne"
     assert client.get("/api/blocks/game-notes?opp_champion=Teemo").json() == []

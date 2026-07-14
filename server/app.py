@@ -643,12 +643,18 @@ def api_block_game_notes(opp_champion: str):
         raise HTTPException(400, "opp_champion query param required")
     conn = get_conn()
     try:
-        titles = {b["id"]: b["title"] for b in db.list_blocks(conn)}
+        blocks_by_id = {b["id"]: b for b in db.list_blocks(conn)}
         names = {r["puuid"]: r["game_name"] for r in
                  conn.execute("SELECT puuid, game_name FROM players WHERE is_tracked=1")}
+
+        def block_field(block_id, field):
+            block = blocks_by_id.get(block_id)
+            return block[field] if block else ""
+
         notes = [{
             "block_id": g["block_id"],
-            "block_title": titles.get(g["block_id"], ""),
+            "block_title": block_field(g["block_id"], "title"),
+            "block_learnings": block_field(g["block_id"], "learnings"),
             "match_id": g["match_id"],
             "puuid": g["puuid"],
             "account": names.get(g["puuid"], "?"),

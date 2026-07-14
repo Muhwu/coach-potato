@@ -650,6 +650,9 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .bn-meta .result-pill { transform: scale(0.85); }
 .bn-block-link { color: var(--series-1); }
 .bn-text { white-space: pre-wrap; }
+.bn-learnings { margin-top: 4px; font-size: 13px; }
+.bn-learnings summary { color: var(--muted); cursor: pointer; font-size: 12px; }
+.bn-learnings[open] summary { margin-bottom: 2px; }
 .block-flash { box-shadow: 0 0 0 2px var(--series-1); transition: box-shadow 0.4s; }
 .block-badge.block-closed { background: var(--muted); }
 
