@@ -17,7 +17,10 @@
     <button id="nav-trends" role="tab">Trends</button>
     <button id="nav-blocks" role="tab">Blocks</button>
   </div>
-  <nav id="account-tabs" aria-label="Accounts"></nav>
+  <details id="account-select" class="col-picker hidden" aria-label="Accounts">
+    <summary id="account-select-btn" class="preset">All accounts ▾</summary>
+    <div class="col-menu" id="account-select-menu"></div>
+  </details>
   <div class="crawl-box">
     <span id="crawl-status" class="muted"></span>
     <span id="crawl-indicator" class="hidden">
@@ -39,7 +42,7 @@
       <label class="filter-label" for="progress-queue">Queue</label>
       <select id="progress-queue"><option value="">All</option></select>
     </div>
-    <span class="muted">Both accounts combined · top lane only</span>
+    <span class="muted">Selected accounts · top lane only</span>
     <span id="progress-cols" style="margin-left:auto"></span>
   </section>
 
@@ -249,7 +252,7 @@
       <label class="filter-label" for="trend-queue">Queue</label>
       <select id="trend-queue"><option value="">All</option></select>
     </div>
-    <span class="muted">Both accounts combined · top lane only</span>
+    <span class="muted">Selected accounts · top lane only</span>
   </section>
 
   <div id="trend-charts"></div>

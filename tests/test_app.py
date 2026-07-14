@@ -595,3 +595,60 @@ def test_block_game_notes_endpoint(client):
     assert n["my_champion"] == "Garen" and n["opp_champion"] == "Darius"
     assert n["match_id"] == m1 and n["account"] == "PlayerOne"
     assert client.get("/api/blocks/game-notes?opp_champion=Teemo").json() == []
+
+
+def test_stats_endpoints_accept_multi_and_no_puuid(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.upsert_player(conn, "smurf-1", "Smurf", "EUW", is_tracked=True)
+    from tests.test_stats import add_match
+    add_match(conn, my_champ="Sett", opp_champ="Darius", win=True,
+              when=1_700_000_200_000, puuid="smurf-1")
+    conn.close()
+    # no puuid = all tracked accounts combined
+    s = client.get("/api/stats/summary").json()
+    assert s["games"] == 4
+    # repeated puuid params scope to that subset
+    s = client.get(f"/api/stats/summary?puuid={ME}&puuid=smurf-1").json()
+    assert s["games"] == 4
+    assert all("my_puuid" in g for g in s["recent"])
+    s = client.get("/api/stats/summary?puuid=smurf-1").json()
+    assert s["games"] == 1
+    rows = client.get("/api/stats/matchups?puuid=smurf-1").json()
+    assert [r["opp_champion"] for r in rows] == ["Darius"]
+    opts = client.get("/api/filters").json()  # union across all tracked
+    assert set(opts["champions"]) == {"Garen", "Kled", "Sett"}
+    opts = client.get("/api/filters?puuid=smurf-1").json()
+    assert opts["champions"] == ["Sett"]
+    # progress/metrics/trends scope too
+    games = client.get("/api/stats/games?puuid=smurf-1").json()
+    assert len(games) == 1 and games[0]["account"] == "Smurf"
+
+
+def test_close_block_endpoint(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    m1, _ = [r["match_id"] for r in conn.execute(
+        "SELECT match_id FROM participants WHERE puuid=? ORDER BY match_id", (ME,))][:2], None
+    db.add_game_to_block(conn, m1[0], ME)
+    conn.close()
+    assert client.post("/api/blocks/999/close").status_code == 404
+    assert client.post("/api/blocks/1/close").json() == {"closed": True}
+    blocks = client.get("/api/blocks").json()["blocks"]
+    assert blocks[0]["closed"] is True and blocks[0]["complete"] is True
+    assert client.post("/api/blocks/1/close").status_code == 409
+
+
+def test_matchup_notes_accept_match_v5_champion_spelling(client):
+    # match-v5 says FiddleSticks; DDragon says Fiddlesticks — both must save
+    assert client.put("/api/matchups/notes/FiddleSticks",
+                      json={"notes": "ban worthy"}).status_code == 200
+    assert client.get("/api/matchups/notes").json() == {"FiddleSticks": "ban worthy"}
+
+
+def test_close_block_rejects_empty_block(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    block_id = db.create_block(conn)
+    conn.close()
+    assert client.post(f"/api/blocks/{block_id}/close").status_code == 409

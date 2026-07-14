@@ -149,7 +149,8 @@ class Crawler:
                        rank_fetched_at_ms=? WHERE puuid=?""",
                     (tier, division, lp, now_ms, row["puuid"]),
                 )
-            db.record_rank_history(self.conn, row["puuid"], tier, division, lp, now_ms)
+            if tier is not None:  # unranked snapshots are noise for the chart
+                db.record_rank_history(self.conn, row["puuid"], tier, division, lp, now_ms)
 
     def _fetch_solo_rank(self, puuid):
         entries = self.client.get_league_entries(puuid)

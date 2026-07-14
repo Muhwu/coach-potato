@@ -2,7 +2,7 @@
 
 const state = {
   players: [],
-  puuid: null,
+  accounts: null, // null = all tracked accounts; else array of selected puuids
   range: "all",
   from: null,
   to: null,
@@ -21,6 +21,16 @@ const QUEUE_NAMES = { 400: "Normal Draft", 420: "Ranked Solo", 430: "Normal Blin
 const DISPLAY_NAME_FIXES = { MonkeyKing: "Wukong", FiddleSticks: "Fiddlesticks" };
 
 const $ = (sel) => document.querySelector(sel);
+
+function selectedPuuids() {
+  return state.accounts ?? state.players.map((p) => p.puuid);
+}
+
+// append the account scope to a query; no params = all tracked (server default)
+function accountParams(params = new URLSearchParams()) {
+  if (state.accounts) for (const p of state.accounts) params.append("puuid", p);
+  return params;
+}
 
 function displayName(champ) { return DISPLAY_NAME_FIXES[champ] || champ; }
 
@@ -92,7 +102,7 @@ function renderColPicker(target, storageKey, columns, visible, onChange) {
 }
 
 function queryString() {
-  const params = new URLSearchParams({ puuid: state.puuid });
+  const params = accountParams();
   if (state.range === "custom") {
     if (state.from) params.set("from", state.from);
     if (state.to) params.set("to", state.to);
@@ -136,11 +146,20 @@ function metricGroupsPanel(data) {
 }
 
 function renderSummary(s) {
-  const player = state.players.find((p) => p.puuid === state.puuid);
-  const rank = state.hideMyRank ? "Hidden"
-    : player && player.solo_tier
-    ? `${titleCase(player.solo_tier)} ${player.solo_division ?? ""} ${player.solo_lp ?? 0} LP`
-    : "Unranked / unknown";
+  const selected = state.players.filter((p) => selectedPuuids().includes(p.puuid));
+  let rank;
+  if (state.hideMyRank) {
+    rank = "Hidden";
+  } else if (selected.length === 1) {
+    const p = selected[0];
+    rank = p.solo_tier
+      ? `${titleCase(p.solo_tier)} ${p.solo_division ?? ""} ${p.solo_lp ?? 0} LP`
+      : "Unranked / unknown";
+  } else {
+    rank = selected.map((p) => `${escapeHtml(p.game_name)}: ${p.solo_tier
+      ? fmtRank({ tier: p.solo_tier, division: p.solo_division, lp: p.solo_lp })
+      : "–"}`).join("<br>") || "–";
+  }
   $("#summary-tiles").innerHTML = `
     <div class="tile"><div class="label">Top-lane games</div><div class="value">${s.games}</div>
       <div class="sub">${s.wins ?? 0}W ${s.games - (s.wins ?? 0)}L</div></div>
@@ -193,11 +212,12 @@ function rankWindow(points, fromMs, toMs) {
 }
 
 function renderRankChart() {
-  const data = state.rankHistory;
+  let data = state.rankHistory;
   const target = $("#rank-chart");
   const legend = $("#rank-legend");
   $("#rank-section").classList.toggle("hidden", Boolean(state.hideMyRank));
   if (state.hideMyRank) return;
+  if (data) data = { ...data, series: data.series.filter((s) => selectedPuuids().includes(s.puuid)) };
   if (!data || !data.series.some((s) => s.points.length)) {
     legend.innerHTML = "";
     target.innerHTML = `<div class="table-wrap"><div class="empty">
@@ -351,8 +371,11 @@ function renderRecent(recent) {
     target.innerHTML = `<div class="table-wrap"><div class="empty">No games.</div></div>`;
     return;
   }
+  const multi = selectedPuuids().length > 1;
+  const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
   const body = recent.map((g) => `<tr>
       <td>${fmtDate(g.game_creation_ms)}</td>
+      ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
       <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
       <td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>
@@ -361,10 +384,10 @@ function renderRecent(recent) {
       <td>${g.kills}/${g.deaths}/${g.assists}</td>
       <td>${fmtDuration(g.game_duration_s)}</td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
-        data-puuid="${state.puuid}" title="Add to current block">+ Block</button></td>
+        data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`).join("");
   target.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Queue</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
+    <thead><tr><th>Date</th>${multi ? "<th>Account</th>" : ""}<th>Queue</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
     <th>Result</th><th>K/D/A</th><th>Length</th><th></th></tr></thead>
     <tbody>${body}</tbody></table></div>`;
   wirePromoteButtons(target);
@@ -376,27 +399,70 @@ function wirePromoteButtons(container) {
       promoteGame(btn.dataset.match, btn.dataset.puuid, btn)));
 }
 
-function renderTabs() {
-  $("#account-tabs").innerHTML = state.players.map((p) => {
-    const rank = p.solo_tier ? `${titleCase(p.solo_tier)} ${p.solo_division ?? ""}` : "";
-    return `<button data-puuid="${p.puuid}" class="${p.puuid === state.puuid ? "active" : ""}">
-        ${p.game_name}#${p.tag_line}${rank ? `<span class="rank-badge">${rank}</span>` : ""}
-      </button>`;
-  }).join("");
-  document.querySelectorAll("#account-tabs button").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      state.puuid = btn.dataset.puuid;
-      state.champion = "";
-      renderTabs();
-      loadFilterOptions().then(refresh);
-      if (state.mainView === "matchups") initMatchups();
+function tierClass(player) {
+  // no class when unranked or when the rank is hidden (server nulls solo_tier)
+  return player && player.solo_tier ? ` tier-${player.solo_tier.toLowerCase()}` : "";
+}
+
+function renderAccountSelector() {
+  const box = $("#account-select");
+  box.classList.toggle("hidden", state.players.length < 2);
+  if (state.players.length < 2) return;
+  const btn = $("#account-select-btn");
+  const selected = selectedPuuids();
+  let label, cls = "";
+  if (state.accounts === null) {
+    label = "All accounts";
+  } else if (selected.length === 1) {
+    const p = state.players.find((q) => q.puuid === selected[0]);
+    label = p ? p.game_name : "1 account";
+    cls = tierClass(p);
+  } else {
+    label = `${selected.length} accounts`;
+  }
+  btn.innerHTML = `${escapeHtml(label)} ▾`;
+  btn.className = `preset${cls}`;
+  $("#account-select-menu").innerHTML =
+    `<label><input type="checkbox" data-all ${state.accounts === null ? "checked" : ""}>
+       All accounts</label>` +
+    state.players.map((p) => `<label class="${tierClass(p).trim()}">
+        <input type="checkbox" data-puuid="${p.puuid}"
+          ${state.accounts !== null && state.accounts.includes(p.puuid) ? "checked" : ""}>
+        ${escapeHtml(p.game_name)}#${escapeHtml(p.tag_line)}</label>`).join("");
+  $("#account-select-menu").querySelectorAll("input").forEach((cb) =>
+    cb.addEventListener("change", () => {
+      if (cb.dataset.all !== undefined) {
+        state.accounts = null;
+      } else {
+        const checked = [...$("#account-select-menu")
+          .querySelectorAll("input[data-puuid]:checked")].map((c) => c.dataset.puuid);
+        // none or every account selected collapses back to "all"
+        state.accounts = checked.length && checked.length < state.players.length
+          ? checked : null;
+      }
+      accountSelectionChanged();
     }));
+}
+
+function accountSelectionChanged() {
+  renderAccountSelector();
+  // overview is always refreshed (it doesn't reload on nav); the active
+  // stats view reloads its own data. Blocks/settings aren't account-scoped.
+  loadFilterOptions().then(refresh);
+  if (state.mainView === "matchups") initMatchups();
+  else if (state.mainView === "progress") loadProgressFilterOptions().then(loadProgress);
+  else if (state.mainView === "trends") initTrends(); // rebuilds filter options too
 }
 
 // ---------- data loading ----------
 
 async function loadFilterOptions() {
-  const opts = await getJSON(`/api/filters?puuid=${encodeURIComponent(state.puuid)}`);
+  const opts = await getJSON(`/api/filters?${accountParams()}`);
+  // a filter value the new account scope can't produce silently zeroes all
+  // stats while the dropdown shows "All" — reset instead
+  if (state.champion && !opts.champions.includes(state.champion)) state.champion = "";
+  if (state.queue && !opts.queues.map(String).includes(state.queue)) state.queue = "";
+  if (state.rankTier && !opts.rank_tiers.includes(state.rankTier)) state.rankTier = "";
   $("#champion-select").innerHTML = `<option value="">All</option>` +
     opts.champions.map((c) => `<option value="${c}" ${c === state.champion ? "selected" : ""}>${displayName(c)}</option>`).join("");
   $("#queue-select").innerHTML = `<option value="">All</option>` +
@@ -405,12 +471,16 @@ async function loadFilterOptions() {
     opts.rank_tiers.map((t) => `<option value="${t}" ${t === state.rankTier ? "selected" : ""}>${titleCase(t)}</option>`).join("");
 }
 
+let refreshSeq = 0;
+
 async function refresh() {
+  const seq = ++refreshSeq;
   const qs = queryString();
   const [summary, rankHistory] = await Promise.all([
     getJSON(`/api/stats/summary?${qs}`),
     getJSON("/api/stats/rank-history"),
   ]);
+  if (seq !== refreshSeq) return; // superseded by a newer refresh
   state.rankHistory = rankHistory;
   renderSummary(summary);
   renderChampionTable(summary.by_champion ?? []);
@@ -440,7 +510,8 @@ function segKey(segment) {
 }
 
 function progressFilterParams(segment) {
-  const params = new URLSearchParams({ from_ms: segment.from_ms, to_ms: segment.to_ms - 1 });
+  const params = accountParams(
+    new URLSearchParams({ from_ms: segment.from_ms, to_ms: segment.to_ms - 1 }));
   if (state.progressChampion) params.set("champion", state.progressChampion);
   if (state.progressQueue) params.set("queue", state.progressQueue);
   return params;
@@ -714,12 +785,9 @@ function renderSessions(sessionRows) {
 }
 
 async function unionFilterOptions() {
-  const all = await Promise.all(
-    state.players.map((p) => getJSON(`/api/filters?puuid=${encodeURIComponent(p.puuid)}`)));
-  return {
-    champions: [...new Set(all.flatMap((o) => o.champions))].sort(),
-    queues: [...new Set(all.flatMap((o) => o.queues))].sort(),
-  };
+  // server unions across the selected accounts (all tracked when unscoped)
+  const opts = await getJSON(`/api/filters?${accountParams()}`);
+  return { champions: opts.champions, queues: opts.queues };
 }
 
 async function loadProgressFilterOptions() {
@@ -734,7 +802,7 @@ async function loadProgressFilterOptions() {
 }
 
 async function loadProgress() {
-  const params = new URLSearchParams();
+  const params = accountParams();
   if (state.progressChampion) params.set("champion", state.progressChampion);
   if (state.progressQueue) params.set("queue", state.progressQueue);
   const [segments, sessionRows] = await Promise.all([
@@ -774,8 +842,6 @@ function setMainView(view) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
-  $("#account-tabs").classList.toggle("hidden",
-    view !== "overview" && view !== "matchups");
   if (view === "matchups") initMatchups();
   if (view === "progress") loadProgressFilterOptions().then(loadProgress);
   if (view === "trends") initTrends();
@@ -1047,11 +1113,19 @@ async function pollCrawl() {
     } else if (status.message === "done") {
       el.textContent = "up to date";
       await init(false);
-      // refresh whichever view is active so new games appear immediately
-      if (state.mainView === "matchups") await loadMatchups();
-      else if (state.mainView === "progress") await loadProgress();
-      else if (state.mainView === "blocks") await loadBlocks();
-      else if (state.mainView === "trends") await loadTrends();
+      // refresh whichever view is active so new games appear immediately —
+      // but never yank a half-written note out from under the user
+      if (state.mainView === "matchups") {
+        if (muState.editingNotes == null) await loadMatchups();
+      } else if (state.mainView === "progress") {
+        await loadProgress();
+      } else if (state.mainView === "blocks") {
+        if (blockState.editingNotes == null && blockState.editingLearnings == null) {
+          await loadBlocks();
+        }
+      } else if (state.mainView === "trends") {
+        await loadTrends();
+      }
     } else {
       el.textContent = "";
     }
@@ -1124,10 +1198,13 @@ async function init(firstLoad = true) {
     }
     return;
   }
-  if (!state.puuid || !state.players.some((p) => p.puuid === state.puuid)) {
-    state.puuid = state.players[0].puuid;
+  if (state.accounts !== null) {
+    // drop selections for accounts that no longer exist
+    state.accounts = state.accounts.filter((p) =>
+      state.players.some((q) => q.puuid === p));
+    if (!state.accounts.length) state.accounts = null;
   }
-  renderTabs();
+  renderAccountSelector();
   await loadFilterOptions();
   await refresh();
   if (firstLoad && location.hash === "#matchups") setMainView("matchups");

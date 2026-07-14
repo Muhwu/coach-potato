@@ -30,7 +30,7 @@ function muKey(row) {
 }
 
 function muQuery() {
-  const params = new URLSearchParams({ puuid: state.puuid });
+  const params = accountParams();
   if (muState.range !== "all") params.set("range", muState.range);
   if (muState.champion) params.set("champion", muState.champion);
   if (muState.queue) params.set("queue", muState.queue);
@@ -70,7 +70,10 @@ function setMatchupView(view) {
 }
 
 async function loadMatchupFilterOptions() {
-  const opts = await getJSON(`/api/filters?puuid=${encodeURIComponent(state.puuid)}`);
+  const opts = await getJSON(`/api/filters?${accountParams()}`);
+  if (muState.champion && !opts.champions.includes(muState.champion)) muState.champion = "";
+  if (muState.queue && !opts.queues.map(String).includes(muState.queue)) muState.queue = "";
+  if (muState.rankTier && !opts.rank_tiers.includes(muState.rankTier)) muState.rankTier = "";
   $("#mu-champion").innerHTML = `<option value="">All</option>` +
     opts.champions.map((c) => `<option value="${c}" ${c === muState.champion ? "selected" : ""}>${displayName(c)}</option>`).join("");
   $("#mu-queue").innerHTML = `<option value="">All</option>` +
@@ -80,6 +83,7 @@ async function loadMatchupFilterOptions() {
 }
 
 async function loadMatchups() {
+  const seq = (muState.seq = (muState.seq || 0) + 1);
   // filters, account or data changed — cached game lists are stale
   muState.games.clear();
   muState.blockNotes.clear();
@@ -89,6 +93,7 @@ async function loadMatchups() {
   const url = muState.view === "rank"
     ? `/api/stats/matchups_by_rank?${muQuery()}` : `/api/stats/matchups?${muQuery()}`;
   const [rows, notes] = await Promise.all([getJSON(url), getJSON("/api/matchups/notes")]);
+  if (seq !== muState.seq) return; // superseded by a newer load
   muState.notes = notes;
   renderMU(rows);
   // re-hydrate games for anything the user had expanded
@@ -160,14 +165,14 @@ const LANE_W = 340, LANE_H = 130;
 const LANE_PAD = { l: 32, r: 8, t: 8, b: 16 };
 
 function rollingLanePoints(games, metricKey) {
-  const window = [], points = [];
+  const recent = [], points = [];
   games.forEach((g, i) => {
     const value = g[metricKey];
     if (value == null) return;
-    window.push(value);
-    if (window.length > LANE_ROLL) window.shift();
+    recent.push(value);
+    if (recent.length > LANE_ROLL) recent.shift();
     points.push({ i, t: g.game_creation_ms,
-                  avg: 100 * window.reduce((a, b) => a + b, 0) / window.length });
+                  avg: 100 * recent.reduce((a, b) => a + b, 0) / recent.length });
   });
   return points;
 }

@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     pool_snapshot TEXT,
     start_ranks TEXT,
     end_ranks TEXT,
+    closed_at_ms INTEGER,
     created_at_ms INTEGER
 );
 
@@ -159,6 +160,8 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN start_ranks TEXT")
         if "end_ranks" not in block_columns:
             conn.execute("ALTER TABLE blocks ADD COLUMN end_ranks TEXT")
+        if "closed_at_ms" not in block_columns:
+            conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
     conn.commit()
 
 
@@ -405,13 +408,15 @@ def create_block(conn):
 
 def add_game_to_block(conn, match_id, puuid):
     """Add a game to the current (newest) block, opening a new block when the
-    current one is full or absent. Raises sqlite3.IntegrityError on duplicates."""
+    current one is full, closed early or absent. Raises sqlite3.IntegrityError
+    on duplicates."""
     current = conn.execute("SELECT MAX(id) AS id FROM blocks").fetchone()["id"]
     if current is not None:
-        count = conn.execute(
-            "SELECT COUNT(*) AS c FROM block_games WHERE block_id=?", (current,)
-        ).fetchone()["c"]
-        if count >= BLOCK_SIZE:
+        row = conn.execute(
+            """SELECT (SELECT COUNT(*) FROM block_games WHERE block_id=b.id) AS c,
+                      b.closed_at_ms
+               FROM blocks b WHERE b.id=?""", (current,)).fetchone()
+        if row["c"] >= BLOCK_SIZE or row["closed_at_ms"] is not None:
             current = None
     if current is None:
         current = create_block(conn)
@@ -429,18 +434,42 @@ def add_game_to_block(conn, match_id, puuid):
     return current
 
 
+def _stamp_block_snapshot(conn, block_id):
+    """Pool + end-ranks stamp (only once); caller owns the transaction."""
+    cursor = conn.execute(
+        "UPDATE blocks SET pool_snapshot=? WHERE id=? AND pool_snapshot IS NULL",
+        (json.dumps(get_pool(conn)), block_id),
+    )
+    conn.execute(
+        "UPDATE blocks SET end_ranks=? WHERE id=? AND end_ranks IS NULL",
+        (json.dumps(tracked_ranks(conn)), block_id),
+    )
+    return cursor.rowcount > 0
+
+
 def snapshot_pool_to_block(conn, block_id):
     """Stamp the current pool + end ranks onto a completed block (only once)."""
     with conn:
-        cursor = conn.execute(
-            "UPDATE blocks SET pool_snapshot=? WHERE id=? AND pool_snapshot IS NULL",
-            (json.dumps(get_pool(conn)), block_id),
-        )
-        conn.execute(
-            "UPDATE blocks SET end_ranks=? WHERE id=? AND end_ranks IS NULL",
-            (json.dumps(tracked_ranks(conn)), block_id),
-        )
-    return cursor.rowcount > 0
+        return _stamp_block_snapshot(conn, block_id)
+
+
+def close_block(conn, block_id):
+    """Close a block early (irreversible for now). Stamps the pool/end-ranks
+    snapshot like a naturally-completed block, in the same transaction.
+    Returns False when the block doesn't exist, is empty, or is already
+    closed/complete."""
+    row = conn.execute(
+        """SELECT closed_at_ms,
+                  (SELECT COUNT(*) FROM block_games WHERE block_id=b.id) AS c
+           FROM blocks b WHERE b.id=?""", (block_id,)).fetchone()
+    if (row is None or row["closed_at_ms"] is not None
+            or row["c"] >= BLOCK_SIZE or row["c"] == 0):
+        return False
+    with conn:
+        conn.execute(f"UPDATE blocks SET closed_at_ms={_now_expr()} WHERE id=?",
+                     (block_id,))
+        _stamp_block_snapshot(conn, block_id)
+    return True
 
 
 def find_block_for_game(conn, match_id, puuid):

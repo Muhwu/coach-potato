@@ -18,7 +18,8 @@ _counter = {"n": 0}
 
 def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_000_000_000,
               queue=420, duration=1800, my_pos="TOP", opp_pos="TOP", opp_puuid=None,
-              kills=6, deaths=3, assists=9, cs=210, gold=12000, dmg=18000):
+              kills=6, deaths=3, assists=9, cs=210, gold=12000, dmg=18000, puuid=None):
+    me = puuid or ME
     _counter["n"] += 1
     match_id = f"EUW1_{_counter['n']}"
     opp_puuid = opp_puuid or f"opp-{_counter['n']}"
@@ -37,7 +38,7 @@ def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_0
     parts = []
     for i, pos in enumerate(positions):
         if pos == my_pos:
-            parts.append(part(ME, my_champ, 100, pos, win, kills=kills, deaths=deaths,
+            parts.append(part(me, my_champ, 100, pos, win, kills=kills, deaths=deaths,
                               assists=assists, cs=cs, gold=gold, dmg=dmg))
         else:
             parts.append(part(f"ally-{_counter['n']}-{i}", "Ahri", 100, pos, win))

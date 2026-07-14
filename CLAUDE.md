@@ -131,6 +131,19 @@ notes delete the row).
 metric key)` — coaching metrics, tracked players only, columns generated
 from `server/metrics.py`
 
+## Development rules
+
+- **Schema changes must be incremental and non-destructive.** Users upgrade
+  the packaged app against a live database: new tables via
+  `CREATE TABLE IF NOT EXISTS` (in `db.SCHEMA`), new columns via
+  `ALTER TABLE ... ADD COLUMN` guarded by a `PRAGMA table_info` check in
+  `db._migrate`. Never `DROP`, recreate, or bulk-`DELETE`/`UPDATE` tables
+  holding user content (sessions, block notes/learnings, matchup notes,
+  rank history). One-time backfills must be idempotent and additive (see
+  `seed_rank_history`). `tests/test_db.py::
+  test_upgrade_from_older_db_preserves_all_notes` guards this — extend it
+  when adding user-content tables.
+
 ## Testing conventions
 
 - TDD: tests exist for every module; no network in tests (FakeClient /

@@ -406,3 +406,48 @@ def test_matchup_notes_roundtrip(conn):
     assert db.get_matchup_notes(conn)["Darius"] == "updated"
     db.set_matchup_note(conn, "Teemo", "  ")  # blank deletes
     assert "Teemo" not in db.get_matchup_notes(conn)
+
+
+def test_close_block_early_and_next_game_starts_new_block(conn):
+    ids = _seed_block_matches(conn, 3)
+    assert db.add_game_to_block(conn, ids[0], "me") == 1
+    assert db.close_block(conn, 1) is True
+    row = conn.execute("SELECT closed_at_ms, pool_snapshot, end_ranks FROM blocks WHERE id=1").fetchone()
+    assert row["closed_at_ms"] is not None
+    assert row["end_ranks"] is not None  # snapshot stamped like a full block
+    assert db.close_block(conn, 1) is False   # already closed
+    assert db.close_block(conn, 999) is False # missing
+    assert db.add_game_to_block(conn, ids[1], "me") == 2  # closed block skipped
+
+
+def test_close_block_refused_when_naturally_complete(conn):
+    ids = _seed_block_matches(conn, 3)
+    for match_id in ids:
+        db.add_game_to_block(conn, match_id, "me")
+    assert db.close_block(conn, 1) is False
+
+
+def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
+    """Simulate an app upgrade: reconnecting to an existing db must never
+    clear user content (sessions, block notes, learnings, matchup notes)."""
+    path = tmp_path / "old.sqlite"
+    c = db.connect(path)
+    db.upsert_player(c, "p1", "PlayerOne", "EUW", is_tracked=True)
+    db.add_session(c, "2026-07-01", "waves", notes="# keep me")
+    ids = _seed_block_matches(c, 1)
+    db.add_game_to_block(c, ids[0], "me")
+    entry = c.execute("SELECT id FROM block_games").fetchone()["id"]
+    db.update_block_game(c, entry, "game note")
+    db.update_block(c, 1, learnings="learned things")
+    db.set_matchup_note(c, "Darius", "matchup note")
+    # drop a column added by a later version to mimic an older schema
+    c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
+    c.commit()
+    c.close()
+    c = db.connect(path)  # "upgrade": _migrate + SCHEMA re-run
+    assert db.list_sessions(c)[0]["notes"] == "# keep me"
+    assert c.execute("SELECT notes FROM block_games").fetchone()["notes"] == "game note"
+    assert c.execute("SELECT learnings FROM blocks").fetchone()["learnings"] == "learned things"
+    assert db.get_matchup_notes(c) == {"Darius": "matchup note"}
+    assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
+    c.close()

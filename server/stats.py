@@ -242,7 +242,7 @@ def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
     recent = [
         dict(r) for r in conn.execute(
             f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
-                       my_champion, opp_champion, rank_tier, win,
+                       my_puuid, my_champion, opp_champion, rank_tier, win,
                        kills, deaths, assists, cs
                 FROM ({base}) ORDER BY game_creation_ms DESC LIMIT 20""",
             params,

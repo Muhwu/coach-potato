@@ -54,22 +54,6 @@ header {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--grid);
 }
-#account-tabs { display: flex; gap: 8px; }
-#account-tabs button {
-  border: 1px solid var(--border);
-  background: var(--surface-1);
-  color: var(--text-primary);
-  border-radius: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font: inherit;
-}
-#account-tabs button.active {
-  background: var(--accent-wash);
-  border-color: var(--series-1);
-  font-weight: 600;
-}
-#account-tabs .rank-badge { color: var(--text-secondary); font-size: 12px; margin-left: 6px; }
 .crawl-box { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 #crawl-btn {
   border: 1px solid var(--series-1);
@@ -594,6 +578,21 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   padding: 0 3px;
 }
 
+/* ---------- account selector (top bar) ---------- */
+#account-select summary { font-weight: 600; }
+#account-select .col-menu label { padding: 2px 0; }
+/* league tier colors — readable on both themes; applied to selector text */
+.tier-iron { color: #8a8681; }
+.tier-bronze { color: #b06a34; }
+.tier-silver { color: #7f909b; }
+.tier-gold { color: #c98f18; }
+.tier-platinum { color: #3a9d94; }
+.tier-emerald { color: #1f9e58; }
+.tier-diamond { color: #4f6ee6; }
+.tier-master { color: #a24ee0; }
+.tier-grandmaster { color: #d03b3b; }
+.tier-challenger { color: #23a6d5; }
+
 /* ---------- rank-over-time chart ---------- */
 .rank-chart-box {
   background: var(--surface-1);
@@ -652,6 +651,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .bn-block-link { color: var(--series-1); }
 .bn-text { white-space: pre-wrap; }
 .block-flash { box-shadow: 0 0 0 2px var(--series-1); transition: box-shadow 0.4s; }
+.block-badge.block-closed { background: var(--muted); }
 
 /* ---------- trends ---------- */
 .trend-group { font-size: 14px; margin: 20px 0 8px; color: var(--text-secondary);

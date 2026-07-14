@@ -37,20 +37,26 @@ async function initTrends() {
       }));
     $("#trend-champion").addEventListener("change", (e) => { trendState.champion = e.target.value; loadTrends(); });
     $("#trend-queue").addEventListener("change", (e) => { trendState.queue = e.target.value; loadTrends(); });
-    const { champions, queues } = await unionFilterOptions();
-    $("#trend-champion").innerHTML = `<option value="">All</option>` +
-      champions.map((c) => `<option value="${c}">${displayName(c)}</option>`).join("");
-    $("#trend-queue").innerHTML = `<option value="">All</option>` +
-      queues.map((q) => `<option value="${q}">${QUEUE_NAMES[q] ?? q}</option>`).join("");
   }
+  // options rebuild on every entry so account-scope changes are reflected
+  const { champions, queues } = await unionFilterOptions();
+  if (trendState.champion && !champions.includes(trendState.champion)) trendState.champion = "";
+  if (trendState.queue && !queues.map(String).includes(trendState.queue)) trendState.queue = "";
+  $("#trend-champion").innerHTML = `<option value="">All</option>` +
+    champions.map((c) => `<option value="${c}" ${c === trendState.champion ? "selected" : ""}>${displayName(c)}</option>`).join("");
+  $("#trend-queue").innerHTML = `<option value="">All</option>` +
+    queues.map((q) => `<option value="${q}" ${String(q) === trendState.queue ? "selected" : ""}>${QUEUE_NAMES[q] ?? q}</option>`).join("");
   loadTrends();
 }
 
 async function loadTrends() {
-  const params = new URLSearchParams({ bucket: trendState.bucket });
+  const seq = (trendState.seq = (trendState.seq || 0) + 1);
+  const params = accountParams(new URLSearchParams({ bucket: trendState.bucket }));
   if (trendState.champion) params.set("champion", trendState.champion);
   if (trendState.queue) params.set("queue", trendState.queue);
-  trendState.data = await getJSON(`/api/stats/trends?${params}`);
+  const data = await getJSON(`/api/stats/trends?${params}`);
+  if (seq !== trendState.seq) return; // superseded by a newer load
+  trendState.data = data;
   renderTrendCharts();
   renderTrendTable();
 }

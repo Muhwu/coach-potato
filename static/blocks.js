@@ -359,11 +359,16 @@ function blockCard(block, isCurrent) {
         ${collapsed ? "▸" : "▾"}</button>
       <span class="session-date">Block #${block.id}</span>
       ${isCurrent ? `<span class="block-badge">current</span>` : ""}
+      ${block.closed ? `<span class="block-badge block-closed"
+        title="Closed before reaching ${blockState.blockSize} games">closed early</span>` : ""}
       <span class="muted">${block.games.length}/${blockState.blockSize} games
         ${block.games.length ? `· ${wins}–${block.games.length - wins}` : ""}</span>
       <input type="text" class="block-title" data-id="${block.id}"
         value="${escapeHtml(block.title)}" placeholder="block title…">
       <span class="session-actions">
+        ${isCurrent && !block.complete && block.games.length ? `<button class="preset block-close"
+          data-id="${block.id}" title="Close this block before it reaches ${blockState.blockSize} games">
+          Close early</button>` : ""}
         <details class="col-picker">
           <summary class="preset icon-btn" title="Export this block"
             aria-label="Export block ${block.id}">📤</summary>
@@ -403,8 +408,20 @@ function renderBlocks() {
   }
   const currentId = Math.max(...blockState.blocks.map((b) => b.id));
   target.innerHTML = blockState.blocks
-    .map((b) => blockCard(b, b.id === currentId)).join("");
+    .map((b) => blockCard(b, b.id === currentId && !b.closed)).join("");
 
+  target.querySelectorAll(".block-close").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Close this block early? A closed block can't be reopened — "
+                   + "the next game you add will start a new block.")) return;
+      const response = await fetch(`/api/blocks/${btn.dataset.id}/close`, { method: "POST" });
+      if (response.ok) {
+        await loadBlocks();
+      } else {
+        const body = await response.json().catch(() => ({}));
+        alert(body.detail || `Could not close the block (error ${response.status}).`);
+      }
+    }));
   target.querySelectorAll(".block-collapse").forEach((btn) =>
     btn.addEventListener("click", () => {
       const id = +btn.dataset.id;

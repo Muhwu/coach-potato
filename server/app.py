@@ -63,15 +63,14 @@ def parse_time_range(params: dict, now_ms: int | None = None):
     return (from_ms, to_ms)
 
 
-def stat_filters(request: Request):
+def stat_filters(request: Request, conn):
+    """Common stat query params. `puuid` may repeat (multi-account) or be
+    absent (= all tracked accounts)."""
     params = dict(request.query_params)
-    puuid = params.get("puuid")
-    if not puuid:
-        raise HTTPException(400, "puuid query param required")
     from_ms, to_ms = parse_time_range(params)
     queues = [int(q) for q in request.query_params.getlist("queue")] or None
     return {
-        "puuid": puuid,
+        "puuid": request.query_params.getlist("puuid") or _tracked_puuids(conn),
         "from_ms": from_ms,
         "to_ms": to_ms,
         "champion": params.get("champion") or None,
@@ -128,22 +127,29 @@ def _scrub_my_ranks(value):
     return value
 
 
+_MY_RANK_KEY_BYTES = [f'"{k}"'.encode() for k in _MY_RANK_KEYS]
+
+
 @app.middleware("http")
 async def redact_my_rank(request: Request, call_next):
     response = await call_next(request)
     if (not request.url.path.startswith("/api")
             or "application/json" not in response.headers.get("content-type", "")):
         return response
-    conn = get_conn()
-    try:
-        hidden = _hide_my_rank(conn)
-    finally:
-        conn.close()
-    if not hidden:
-        return response
     body = b"".join([chunk async for chunk in response.body_iterator])
-    return JSONResponse(_scrub_my_ranks(json.loads(body)),
-                        status_code=response.status_code)
+    headers = {k: v for k, v in response.headers.items() if k != "content-length"}
+    # cheap sniff: only payloads that mention a rank key need the settings
+    # lookup (keeps e.g. the 2 s crawl-status poll off the db)
+    if any(key in body for key in _MY_RANK_KEY_BYTES):
+        conn = get_conn()
+        try:
+            hidden = _hide_my_rank(conn)
+        finally:
+            conn.close()
+        if hidden:
+            return JSONResponse(_scrub_my_ranks(json.loads(body)),
+                                status_code=response.status_code, headers=headers)
+    return Response(content=body, status_code=response.status_code, headers=headers)
 
 
 @app.get("/api/settings")
@@ -221,39 +227,37 @@ def players():
 
 @app.get("/api/stats/matchups")
 def api_matchups(request: Request):
-    filters = stat_filters(request)
     conn = get_conn()
     try:
-        return stats.matchups(conn, **filters)
+        return stats.matchups(conn, **stat_filters(request, conn))
     finally:
         conn.close()
 
 
 @app.get("/api/stats/matchups_by_rank")
 def api_matchups_by_rank(request: Request):
-    filters = stat_filters(request)
     conn = get_conn()
     try:
-        return stats.matchups_by_rank(conn, **filters)
+        return stats.matchups_by_rank(conn, **stat_filters(request, conn))
     finally:
         conn.close()
 
 
 @app.get("/api/stats/summary")
 def api_summary(request: Request):
-    filters = stat_filters(request)
     conn = get_conn()
     try:
-        return stats.summary(conn, **filters)
+        return stats.summary(conn, **stat_filters(request, conn))
     finally:
         conn.close()
 
 
 @app.get("/api/filters")
-def api_filters(puuid: str):
+def api_filters(request: Request):
     conn = get_conn()
     try:
-        return stats.filter_options(conn, puuid)
+        puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
+        return stats.filter_options(conn, puuids)
     finally:
         conn.close()
 
@@ -344,9 +348,8 @@ def api_progress(request: Request):
     queues = [int(q) for q in request.query_params.getlist("queue")] or None
     conn = get_conn()
     try:
-        puuids = [r["puuid"] for r in
-                  conn.execute("SELECT puuid FROM players WHERE is_tracked=1")]
-        sessions = [dict(r) for r in db.list_sessions(conn)]
+        puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
+        sessions = [dict(r) for r in db.list_sessions(conn)]  # sessions are global
         return stats.progress_segments(
             conn, puuids, sessions,
             champion=params.get("champion") or None, queues=queues)
@@ -365,7 +368,7 @@ def api_games(request: Request, from_ms: int | None = None, to_ms: int | None = 
         players = conn.execute(
             "SELECT puuid, game_name FROM players WHERE is_tracked=1").fetchall()
         names = {r["puuid"]: r["game_name"] for r in players}
-        puuids = [params["puuid"]] if params.get("puuid") else list(names)
+        puuids = request.query_params.getlist("puuid") or list(names)
         games = stats.games_in_range(
             conn, puuids, from_ms=from_ms, to_ms=to_ms,
             champion=params.get("champion") or None, queues=queues,
@@ -389,8 +392,9 @@ def api_metrics(request: Request, from_ms: int | None = None, to_ms: int | None 
     queues = [int(q) for q in request.query_params.getlist("queue")] or None
     conn = get_conn()
     try:
+        puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
         result = stats.segment_metrics(
-            conn, _tracked_puuids(conn), from_ms=from_ms, to_ms=to_ms,
+            conn, puuids, from_ms=from_ms, to_ms=to_ms,
             champion=params.get("champion") or None, queues=queues)
         result["meta"] = METRICS
         return result
@@ -417,8 +421,9 @@ def api_trends(request: Request, bucket: str = "month"):
     conn = get_conn()
     try:
         try:
+            puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
             buckets = stats.trend_buckets(
-                conn, _tracked_puuids(conn), bucket=bucket,
+                conn, puuids, bucket=bucket,
                 champion=params.get("champion") or None, queues=queues)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
@@ -441,7 +446,10 @@ def api_put_matchup_note(champion: str, body: dict):
     notes = (body or {}).get("notes")
     if notes is None:
         raise HTTPException(400, "provide notes")
-    if CHAMPION_IDS and champion not in CHAMPION_IDS:
+    # match-v5 names differ in case from DDragon ids (FiddleSticks vs
+    # Fiddlesticks) — validate case-insensitively, store the name as given
+    # because reads key by the match-v5 spelling
+    if CHAMPION_IDS and champion.lower() not in {c.lower() for c in CHAMPION_IDS}:
         raise HTTPException(400, f"not a champion: {champion}")
     conn = get_conn()
     try:
@@ -520,8 +528,9 @@ def _blocks_payload(conn):
     blocks = []
     for row in db.list_blocks(conn):
         games = games_by_block.get(row["id"], [])
-        record = {**dict(row), "games": games,
-                  "complete": len(games) >= db.BLOCK_SIZE}
+        closed = row["closed_at_ms"] is not None
+        record = {**dict(row), "games": games, "closed": closed,
+                  "complete": closed or len(games) >= db.BLOCK_SIZE}
         snapshot = record.pop("pool_snapshot", None)
         record["pool"] = json.loads(snapshot) if snapshot else None
         for key in ("start_ranks", "end_ranks"):
@@ -675,6 +684,20 @@ def api_add_block_game(body: dict):
             holder = db.find_block_for_game(conn, match_id, puuid)
             raise HTTPException(409, f"game is already in Block #{holder}")
         return {"block_id": block_id}
+    finally:
+        conn.close()
+
+
+@app.post("/api/blocks/{block_id}/close")
+def api_close_block(block_id: int):
+    conn = get_conn()
+    try:
+        exists = conn.execute("SELECT 1 FROM blocks WHERE id=?", (block_id,)).fetchone()
+        if not exists:
+            raise HTTPException(404, "no such block")
+        if not db.close_block(conn, block_id):
+            raise HTTPException(409, "block is already closed or complete")
+        return {"closed": True}
     finally:
         conn.close()
 
