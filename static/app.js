@@ -904,6 +904,7 @@ async function initSettings() {
     cb.checked = !(data.hidden_views || []).includes(cb.value);
   });
   $("#setting-auto-crawl").value = data.auto_crawl_hours;
+  $("#setting-block-size").value = data.block_size;
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
@@ -950,6 +951,7 @@ async function initSettings() {
         platform: $("#setting-platform").value,
         hidden_views: hiddenViews,
         auto_crawl_hours: Math.max(0, parseInt($("#setting-auto-crawl").value, 10) || 0),
+        block_size: Math.min(10, Math.max(1, parseInt($("#setting-block-size").value, 10) || 3)),
         hide_my_rank: $("#setting-hide-rank").checked,
       }),
     });
@@ -1004,6 +1006,52 @@ function wireProgress() {
     $("#session-date").value = "";
     $("#session-title").value = "";
     loadProgress();
+  });
+}
+
+// ---------- patch notes ----------
+
+async function ensureChangelog() {
+  if (state.changelog) return;
+  try {
+    state.changelog = (await getJSON("changelog.json")).entries || [];
+  } catch {
+    state.changelog = [];
+  }
+}
+
+async function openChangelog() {
+  await ensureChangelog();
+  const latestRelease = (localStorage.getItem("cp-latest-tag") || "").replace(/^v/, "");
+  $("#changelog-body").innerHTML = state.changelog.map((entry) => {
+    const unreleased = latestRelease && isNewerVersion(entry.version, latestRelease);
+    return `<div class="changelog-entry">
+      <h3>v${escapeHtml(entry.version)}
+        <span class="muted">${escapeHtml(entry.date)}</span>
+        ${unreleased ? `<span class="block-badge">not yet released</span>` : ""}</h3>
+      <ul>${entry.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </div>`;
+  }).join("") || `<p class="muted">No entries yet.</p>`;
+  $("#changelog-overlay").classList.remove("hidden");
+  if (state.changelog.length) {
+    localStorage.setItem("cp-changelog-seen", state.changelog[0].version);
+    $("#nav-changelog").classList.remove("has-news");
+  }
+}
+
+function wireChangelog() {
+  $("#nav-changelog").addEventListener("click", openChangelog);
+  const overlay = $("#changelog-overlay");
+  $("#changelog-close").addEventListener("click", () => overlay.classList.add("hidden"));
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.classList.add("hidden");
+  });
+  // dot on the icon while the newest entry hasn't been opened yet
+  ensureChangelog().then(() => {
+    const seen = localStorage.getItem("cp-changelog-seen");
+    if (state.changelog.length && state.changelog[0].version !== seen) {
+      $("#nav-changelog").classList.add("has-news");
+    }
   });
 }
 
@@ -1177,6 +1225,7 @@ async function init(firstLoad = true) {
     await loadDdragonVersion();
     wireFilters();
     wireProgress();
+    wireChangelog();
     pollCrawl();
     checkForUpdates();
     const settings = await getJSON("/api/settings");

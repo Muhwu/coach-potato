@@ -28,9 +28,20 @@
       <button id="rate-warn" class="rate-warn hidden" aria-label="Why is this slow?">!</button>
     </span>
     <button id="crawl-btn" title="Update data now" aria-label="Update data now">⟳</button>
+    <button id="nav-changelog" class="preset icon-btn" title="What's new" aria-label="What's new">📋</button>
     <button id="nav-settings" class="preset icon-btn" title="Settings" aria-label="Settings">⚙</button>
   </div>
 </header>
+
+<div id="changelog-overlay" class="overlay hidden">
+  <div class="overlay-card">
+    <div class="section-head">
+      <h2>What's new</h2>
+      <button id="changelog-close" class="preset icon-btn" title="Close" aria-label="Close">✕</button>
+    </div>
+    <div id="changelog-body"></div>
+  </div>
+</div>
 
 <div id="progress-view" class="hidden">
   <section class="filter-row" aria-label="Progress filters">
@@ -119,6 +130,12 @@
         (data collection is unaffected).</p>
     </div>
     <div class="settings-field">
+      <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
+      <input type="number" id="setting-block-size" min="1" max="10" step="1" value="3" style="width:6em">
+      <p class="muted">Blocks auto-advance after this many games (1–10). Changing it
+        applies to the current and future blocks; finished blocks keep their size.</p>
+    </div>
+    <div class="settings-field">
       <label><input type="checkbox" id="setting-hide-rank"> Hide my rank / LP</label>
       <p class="muted">Hides your own solo-queue rank and LP everywhere — summary
         tile, account tabs, rank chart, coaching/block rank columns. Rank history
@@ -187,8 +204,8 @@
 
   <section>
     <h2>Add a game to the current block</h2>
-    <p class="muted">Latest games not yet in any block. Blocks hold 3 games;
-      adding to a full block starts the next one.</p>
+    <p class="muted">Latest games not yet in any block. Adding to a full block
+      starts the next one (block size is set in Settings).</p>
     <div id="block-picker"></div>
   </section>
 </div>

@@ -105,6 +105,7 @@ def _extra_settings(conn):
         "auto_crawl_hours": int(hours) if hours is not None else DEFAULT_AUTO_CRAWL_HOURS,
         "last_crawl_ms": int(last) if last else None,
         "hide_my_rank": stored.get("hide_my_rank") == "1",
+        "block_size": db.get_block_size(conn),
     }
 
 
@@ -191,6 +192,10 @@ def api_put_settings(body: dict):
     hide_my_rank = body.get("hide_my_rank", False)
     if not isinstance(hide_my_rank, bool):
         raise HTTPException(400, "hide_my_rank must be a boolean")
+    block_size = body.get("block_size", db.BLOCK_SIZE)
+    if (not isinstance(block_size, int) or isinstance(block_size, bool)
+            or not 1 <= block_size <= db.MAX_BLOCK_SIZE):
+        raise HTTPException(400, f"block_size must be 1..{db.MAX_BLOCK_SIZE}")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -200,6 +205,7 @@ def api_put_settings(body: dict):
             "hidden_views": json.dumps(hidden_views),
             "auto_crawl_hours": str(hours),
             "hide_my_rank": "1" if hide_my_rank else "0",
+            "block_size": str(block_size),
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -510,7 +516,7 @@ def api_put_pool(body: dict):
             """SELECT b.id FROM blocks b WHERE b.pool_snapshot IS NULL
                AND b.id = (SELECT MAX(id) FROM blocks)
                AND (SELECT COUNT(*) FROM block_games WHERE block_id = b.id) >= ?""",
-            (db.BLOCK_SIZE,)).fetchone()
+            (db.get_block_size(conn),)).fetchone()
         if current:
             db.snapshot_pool_to_block(conn, current["id"])
         return db.get_pool(conn)
@@ -526,11 +532,14 @@ def _blocks_payload(conn):
         game["account"] = names.get(game["puuid"], "?")
         games_by_block.setdefault(game["block_id"], []).append(game)
     blocks = []
+    size = db.get_block_size(conn)
     for row in db.list_blocks(conn):
         games = games_by_block.get(row["id"], [])
         closed = row["closed_at_ms"] is not None
+        # pool_snapshot marks a block finalized under an earlier size setting
+        finalized = closed or row["pool_snapshot"] is not None
         record = {**dict(row), "games": games, "closed": closed,
-                  "complete": closed or len(games) >= db.BLOCK_SIZE}
+                  "complete": finalized or len(games) >= size}
         snapshot = record.pop("pool_snapshot", None)
         record["pool"] = json.loads(snapshot) if snapshot else None
         for key in ("start_ranks", "end_ranks"):
@@ -544,7 +553,7 @@ def _blocks_payload(conn):
 def api_blocks():
     conn = get_conn()
     try:
-        return {"blocks": _blocks_payload(conn), "block_size": db.BLOCK_SIZE}
+        return {"blocks": _blocks_payload(conn), "block_size": db.get_block_size(conn)}
     finally:
         conn.close()
 

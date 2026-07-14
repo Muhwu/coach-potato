@@ -670,3 +670,13 @@ def test_block_noted_champions_endpoint(client):
     db.update_block_game(conn, entry, "respect his Q")
     conn.close()
     assert client.get("/api/blocks/noted-champions").json() == ["Darius"]
+
+
+def test_block_size_setting_endpoint(client):
+    assert client.get("/api/settings").json()["block_size"] == 3
+    assert _put_settings(client, block_size=5).status_code == 200
+    assert client.get("/api/settings").json()["block_size"] == 5
+    assert client.get("/api/blocks").json()["block_size"] == 5
+    assert _put_settings(client, block_size=11).status_code == 400
+    assert _put_settings(client, block_size=0).status_code == 400
+    assert _put_settings(client, block_size="3").status_code == 400

@@ -369,7 +369,18 @@ def set_settings(conn, mapping):
             list(mapping.items()))
 
 
-BLOCK_SIZE = 3
+BLOCK_SIZE = 3  # default games per block
+MAX_BLOCK_SIZE = 10
+
+
+def get_block_size(conn):
+    """Games per block from settings, clamped to 1..MAX_BLOCK_SIZE."""
+    raw = get_settings(conn).get("block_size")
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        return BLOCK_SIZE
+    return max(1, min(MAX_BLOCK_SIZE, size))
 
 
 def get_pool(conn):
@@ -408,15 +419,19 @@ def create_block(conn):
 
 def add_game_to_block(conn, match_id, puuid):
     """Add a game to the current (newest) block, opening a new block when the
-    current one is full, closed early or absent. Raises sqlite3.IntegrityError
-    on duplicates."""
+    current one is full, closed early, already finalized, or absent. Raises
+    sqlite3.IntegrityError on duplicates."""
+    size = get_block_size(conn)
     current = conn.execute("SELECT MAX(id) AS id FROM blocks").fetchone()["id"]
     if current is not None:
         row = conn.execute(
             """SELECT (SELECT COUNT(*) FROM block_games WHERE block_id=b.id) AS c,
-                      b.closed_at_ms
+                      b.closed_at_ms, b.pool_snapshot
                FROM blocks b WHERE b.id=?""", (current,)).fetchone()
-        if row["c"] >= BLOCK_SIZE or row["closed_at_ms"] is not None:
+        # pool_snapshot marks a block finalized at its size at the time —
+        # raising the block-size setting must not reopen it
+        if (row["c"] >= size or row["closed_at_ms"] is not None
+                or row["pool_snapshot"] is not None):
             current = None
     if current is None:
         current = create_block(conn)
@@ -429,7 +444,7 @@ def add_game_to_block(conn, match_id, puuid):
     count = conn.execute(
         "SELECT COUNT(*) AS c FROM block_games WHERE block_id=?", (current,)
     ).fetchone()["c"]
-    if count >= BLOCK_SIZE:
+    if count >= size:
         snapshot_pool_to_block(conn, current)  # pool as committed when finalized
     return current
 
@@ -459,11 +474,12 @@ def close_block(conn, block_id):
     Returns False when the block doesn't exist, is empty, or is already
     closed/complete."""
     row = conn.execute(
-        """SELECT closed_at_ms,
+        """SELECT closed_at_ms, pool_snapshot,
                   (SELECT COUNT(*) FROM block_games WHERE block_id=b.id) AS c
            FROM blocks b WHERE b.id=?""", (block_id,)).fetchone()
     if (row is None or row["closed_at_ms"] is not None
-            or row["c"] >= BLOCK_SIZE or row["c"] == 0):
+            or row["pool_snapshot"] is not None
+            or row["c"] >= get_block_size(conn) or row["c"] == 0):
         return False
     with conn:
         conn.execute(f"UPDATE blocks SET closed_at_ms={_now_expr()} WHERE id=?",

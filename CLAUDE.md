@@ -94,7 +94,9 @@ change, not a crawler change.
   `/api/stats/metrics` and `/api/stats/trends` (both include `meta`).
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
   wholesale), `blocks` + `block_games` (UNIQUE match_id+puuid). Current block
-  = newest; complete = ≥3 games (derived, `db.BLOCK_SIZE`);
+  = newest; block size is a setting (`db.get_block_size`, 1–10, default
+  `db.BLOCK_SIZE`=3); complete = closed early, pool-snapshot stamped
+  (finalized under an earlier size), or ≥size games;
   `db.add_game_to_block` auto-advances. Hydration via
   `stats.block_games_detailed`. API: `/api/pool`, `/api/blocks`,
   `POST /api/blocks/games` (409 names holding block),
@@ -132,6 +134,11 @@ metric key)` — coaching metrics, tracked players only, columns generated
 from `server/metrics.py`
 
 ## Development rules
+
+- **Every user-facing feature adds an entry to `static/changelog.json`**
+  (newest first; main functionality only, not tiny tweaks). It drives the 📋
+  "What's new" panel; entries newer than the latest GitHub release tag show a
+  "not yet released" badge.
 
 - **Schema changes must be incremental and non-destructive.** Users upgrade
   the packaged app against a live database: new tables via

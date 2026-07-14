@@ -1,0 +1,74 @@
+{
+  "entries": [
+    {
+      "version": "1.11.0",
+      "date": "2026-07-15",
+      "items": [
+        "Patch notes panel — this one! 📋 in the top bar",
+        "Adjustable block size in Settings (1–10 games, default 3)"
+      ]
+    },
+    {
+      "version": "1.10.0",
+      "date": "2026-07-15",
+      "items": [
+        "Matchups table marks champions that have block notes (🧱) alongside manual notes (📝)"
+      ]
+    },
+    {
+      "version": "1.9.0",
+      "date": "2026-07-15",
+      "items": [
+        "Block notes in the matchup overview can expand the block's learnings inline"
+      ]
+    },
+    {
+      "version": "1.8.0",
+      "date": "2026-07-15",
+      "items": [
+        "Account selector: multi-select dropdown in the top bar, works in every view, tier-colored, 'All accounts' default",
+        "Blocks can be closed early (with confirmation; irreversible)",
+        "Coaching sessions always shown in full; stats scope to the selected accounts"
+      ]
+    },
+    {
+      "version": "1.7.0",
+      "date": "2026-07-14",
+      "items": [
+        "Block notes vs each champion shown inside the matchup overview, with links to their blocks",
+        "MIT license"
+      ]
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-07-14",
+      "items": [
+        "'Hide my rank / LP' setting hides your own rank everywhere, including graphs"
+      ]
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-07-14",
+      "items": [
+        "Matchup overview split into two columns: notes left, win/loss timeline right",
+        "Win/loss bars click through to that game's details",
+        "Rolling 10-game graph of lane won @7/@14 min per matchup"
+      ]
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-07-14",
+      "items": [
+        "Matchups moved to their own tab with per-matchup notes (Markdown) and win/loss timeline",
+        "Rank chart estimates LP between snapshots from ranked wins/losses (fainter line)"
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-07-14",
+      "items": [
+        "Rank over time chart on the Overview with a vertical line for every coaching session"
+      ]
+    }
+  ]
+}

@@ -451,3 +451,28 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert db.get_matchup_notes(c) == {"Darius": "matchup note"}
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
     c.close()
+
+
+def test_block_size_setting_clamped_and_respected(conn):
+    assert db.get_block_size(conn) == 3  # default
+    db.set_settings(conn, {"block_size": "2"})
+    assert db.get_block_size(conn) == 2
+    db.set_settings(conn, {"block_size": "99"})
+    assert db.get_block_size(conn) == 10  # clamped to MAX_BLOCK_SIZE
+    db.set_settings(conn, {"block_size": "junk"})
+    assert db.get_block_size(conn) == 3
+    # auto-advance follows the setting
+    db.set_settings(conn, {"block_size": "2"})
+    ids = _seed_block_matches(conn, 3)
+    assert db.add_game_to_block(conn, ids[0], "me") == 1
+    assert db.add_game_to_block(conn, ids[1], "me") == 1  # fills block of 2
+    assert db.add_game_to_block(conn, ids[2], "me") == 2
+
+
+def test_raising_block_size_does_not_reopen_finalized_block(conn):
+    ids = _seed_block_matches(conn, 4)
+    for match_id in ids[:3]:
+        db.add_game_to_block(conn, match_id, "me")  # block 1 finalized at 3
+    db.set_settings(conn, {"block_size": "5"})
+    assert db.add_game_to_block(conn, ids[3], "me") == 2  # new block, not reopened
+    assert db.close_block(conn, 1) is False  # finalized blocks can't be closed
