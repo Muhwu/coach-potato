@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.16.1",
+      "date": "2026-07-15",
+      "items": [
+        "Recent games in the Champ guide now show the full rune page actually played (keystone, minors, secondary tree, shards), not just the keystone"
+      ]
+    },
+    {
       "version": "1.16.0",
       "date": "2026-07-15",
       "items": [

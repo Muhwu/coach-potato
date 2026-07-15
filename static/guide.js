@@ -289,26 +289,47 @@ function runePagesBuilder() {
 
 // ---------- read-only display ----------
 
-function runePageCard(page, i) {
+// shared icon-strip builder for a rune page — used both for saved guide
+// pages (runePageCard) and the runes actually played in a past game
+// (recentGamesColumn's compact variant)
+function runeIconImg(name, tree, size, cls) {
+  return name
+    ? `<img class="${cls || ""}" src="${runeIconUrl(runeIcon(name, tree))}"
+        alt="${escapeHtml(name)}" title="${escapeHtml(name)}" width="${size}" height="${size}">`
+    : "";
+}
+
+function shardIconImg(name, row, size) {
+  if (!name) return "";
+  const shard = SHARD_ROWS[row].shards.find((s) => s.name === name);
+  return shard
+    ? `<img src="${shardIconUrl(shard.icon)}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}" width="${size}" height="${size}">`
+    : "";
+}
+
+function runePageIcons(page, { keystoneSize, minorSize, treeSize, shardSize }) {
   const primaryTree = treeByName(page.primary_tree);
   const secondaryTree = treeByName(page.secondary_tree);
-  const primaryMinorIcons = page.primary_runes.map((name) =>
-    name ? `<img src="${runeIconUrl(runeIcon(name, primaryTree))}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}" width="20" height="20">` : "").join("");
-  const secondaryMinorIcons = page.secondary_runes.map((name) =>
-    `<img src="${runeIconUrl(runeIcon(name, secondaryTree))}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}" width="20" height="20">`).join("");
-  const shardIcons = page.shards.map((name, r) => {
-    if (!name) return "";
-    const shard = SHARD_ROWS[r].shards.find((s) => s.name === name);
-    return shard ? `<img src="${shardIconUrl(shard.icon)}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}" width="16" height="16">` : "";
-  }).join("");
+  const primaryMinorIcons = page.primary_runes
+    .map((name) => runeIconImg(name, primaryTree, minorSize)).join("");
+  const secondaryMinorIcons = page.secondary_runes
+    .map((name) => runeIconImg(name, secondaryTree, minorSize)).join("");
+  const shardIcons = page.shards
+    .map((name, r) => shardIconImg(name, r, shardSize)).join("");
+  return `${runeIconImg(page.keystone, primaryTree, keystoneSize, "rune-keystone-icon")}
+    <div class="rune-page-minors">${primaryMinorIcons}</div>
+    ${secondaryTree ? `<img class="rune-tree-icon" src="${runeIconUrl(secondaryTree.icon)}"
+      alt="${escapeHtml(secondaryTree.name)}" title="${escapeHtml(secondaryTree.name)}"
+      width="${treeSize}" height="${treeSize}">` : ""}
+    <div class="rune-page-minors">${secondaryMinorIcons}</div>
+    <div class="rune-page-shards">${shardIcons}</div>`;
+}
+
+function runePageCard(page, i) {
   return `<div class="rune-page-card">
     <div class="rune-page-title${page.label ? "" : " muted"}">${escapeHtml(page.label || `Page ${i + 1}`)}</div>
-    <div class="rune-page-display">
-      ${page.keystone ? `<img class="rune-keystone-icon" src="${runeIconUrl(runeIcon(page.keystone, primaryTree))}" alt="${escapeHtml(page.keystone)}" title="${escapeHtml(page.keystone)}" width="34" height="34">` : ""}
-      <div class="rune-page-minors">${primaryMinorIcons}</div>
-      ${secondaryTree ? `<img class="rune-tree-icon" src="${runeIconUrl(secondaryTree.icon)}" alt="${escapeHtml(secondaryTree.name)}" title="${escapeHtml(secondaryTree.name)}" width="24" height="24">` : ""}
-      <div class="rune-page-minors">${secondaryMinorIcons}</div>
-      <div class="rune-page-shards">${shardIcons}</div>
+    <div class="rune-page-display">${
+      runePageIcons(page, { keystoneSize: 34, minorSize: 20, treeSize: 24, shardSize: 16 })}
     </div>
   </div>`;
 }
@@ -371,22 +392,19 @@ function recentGamesColumn(champ) {
   if (!games.length) return `<h5>Recent games</h5><div class="muted">No games recorded yet.</div>`;
   const rows = games.slice(0, 10).map((g) => {
     const csMin = (g.cs * 60 / g.game_duration_s).toFixed(1);
-    const primaryTree = g.runes ? treeByName(g.runes.primary_tree) : null;
-    const secondaryTree = g.runes ? treeByName(g.runes.secondary_tree) : null;
-    const runesLine = g.runes && (g.runes.keystone || secondaryTree)
-      ? `<span class="guide-game-runes">${
-          g.runes.keystone ? `<img src="${runeIconUrl(runeIcon(g.runes.keystone, primaryTree))}"
-            width="16" height="16" title="${escapeHtml(g.runes.keystone)}">` : ""}${
-          secondaryTree ? `<img src="${runeIconUrl(secondaryTree.icon)}"
-            width="14" height="14" title="${escapeHtml(secondaryTree.name)}">` : ""}</span>`
+    const runesStrip = g.runes
+      ? `<div class="guide-game-runes">${
+          runePageIcons(g.runes, { keystoneSize: 18, minorSize: 14, treeSize: 16, shardSize: 12 })}</div>`
       : "";
-    return `<div class="guide-game-row">
-      <span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span>
-      <span class="muted">${fmtDate(g.game_creation_ms)}</span>
-      <span>${g.kills}/${g.deaths}/${g.assists}</span>
-      <span class="muted">${csMin} cs/min</span>
-      <span class="muted">${fmtDuration(g.game_duration_s)}</span>
-      ${runesLine}
+    return `<div class="guide-game-entry">
+      <div class="guide-game-row">
+        <span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span>
+        <span class="muted">${fmtDate(g.game_creation_ms)}</span>
+        <span>${g.kills}/${g.deaths}/${g.assists}</span>
+        <span class="muted">${csMin} cs/min</span>
+        <span class="muted">${fmtDuration(g.game_duration_s)}</span>
+      </div>
+      ${runesStrip}
     </div>`;
   }).join("");
   return `<h5>Recent games</h5>${rows}`;
