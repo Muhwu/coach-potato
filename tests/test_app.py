@@ -535,14 +535,23 @@ def test_rank_history_endpoint(client, tmp_path, monkeypatch):
 
 def test_matchup_notes_endpoints(client):
     assert client.get("/api/matchups/notes").json() == {}
-    r = client.put("/api/matchups/notes/Darius", json={"notes": "- respect level 2"})
+    r = client.put("/api/matchups/notes/Darius", json={
+        "notes": "- respect level 2", "primary_keystone": "Conqueror",
+        "secondary_tree": "Resolve", "patch_version": "14.14"})
     assert r.status_code == 200
-    assert client.get("/api/matchups/notes").json() == {"Darius": "- respect level 2"}
-    client.put("/api/matchups/notes/Darius", json={"notes": ""})  # empty deletes
-    assert client.get("/api/matchups/notes").json() == {}
+    assert client.get("/api/matchups/notes").json() == {"Darius": {
+        "notes": "- respect level 2", "primary_keystone": "Conqueror",
+        "secondary_tree": "Resolve", "patch_version": "14.14"}}
+    client.put("/api/matchups/notes/Darius", json={
+        "notes": "", "primary_keystone": "", "secondary_tree": "", "patch_version": ""})
+    assert client.get("/api/matchups/notes").json() == {}  # all-blank deletes
     assert client.put("/api/matchups/notes/NotAChamp",
                       json={"notes": "x"}).status_code == 400
     assert client.put("/api/matchups/notes/Darius", json={}).status_code == 400
+    assert client.put("/api/matchups/notes/Darius",
+                      json={"primary_keystone": "Not A Rune"}).status_code == 400
+    assert client.put("/api/matchups/notes/Darius",
+                      json={"secondary_tree": "Not A Tree"}).status_code == 400
 
 
 def _put_settings(client, **extra):
@@ -654,7 +663,7 @@ def test_matchup_notes_accept_match_v5_champion_spelling(client):
     # match-v5 says FiddleSticks; DDragon says Fiddlesticks — both must save
     assert client.put("/api/matchups/notes/FiddleSticks",
                       json={"notes": "ban worthy"}).status_code == 200
-    assert client.get("/api/matchups/notes").json() == {"FiddleSticks": "ban worthy"}
+    assert client.get("/api/matchups/notes").json()["FiddleSticks"]["notes"] == "ban worthy"
 
 
 def test_close_block_rejects_empty_block(client):

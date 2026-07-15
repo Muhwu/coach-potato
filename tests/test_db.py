@@ -398,13 +398,22 @@ def test_crawl_watermark_round_trip(conn):
 
 def test_matchup_notes_roundtrip(conn):
     assert db.get_matchup_notes(conn) == {}
-    db.set_matchup_note(conn, "Darius", "- care ghost timings")
-    db.set_matchup_note(conn, "Teemo", "ban it")
+    db.set_matchup_note(conn, "Darius", notes="- care ghost timings",
+                         primary_keystone="Conqueror", secondary_tree="Resolve",
+                         patch_version="14.14")
+    db.set_matchup_note(conn, "Teemo", notes="ban it")
     assert db.get_matchup_notes(conn) == {
-        "Darius": "- care ghost timings", "Teemo": "ban it"}
-    db.set_matchup_note(conn, "Darius", "updated")
-    assert db.get_matchup_notes(conn)["Darius"] == "updated"
-    db.set_matchup_note(conn, "Teemo", "  ")  # blank deletes
+        "Darius": {"notes": "- care ghost timings", "primary_keystone": "Conqueror",
+                    "secondary_tree": "Resolve", "patch_version": "14.14"},
+        "Teemo": {"notes": "ban it", "primary_keystone": "", "secondary_tree": "",
+                   "patch_version": ""},
+    }
+    db.set_matchup_note(conn, "Darius", notes="updated")
+    assert db.get_matchup_notes(conn)["Darius"]["notes"] == "updated"
+    # a matchup with only structured fields (no freeform notes) still counts
+    db.set_matchup_note(conn, "Renekton", primary_keystone="Grasp of the Undying")
+    assert db.get_matchup_notes(conn)["Renekton"]["primary_keystone"] == "Grasp of the Undying"
+    db.set_matchup_note(conn, "Teemo", notes="  ")  # all-blank deletes
     assert "Teemo" not in db.get_matchup_notes(conn)
 
 
@@ -439,16 +448,21 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     entry = c.execute("SELECT id FROM block_games").fetchone()["id"]
     db.update_block_game(c, entry, "game note")
     db.update_block(c, 1, learnings="learned things")
-    db.set_matchup_note(c, "Darius", "matchup note")
-    # drop a column added by a later version to mimic an older schema
+    db.set_matchup_note(c, "Darius", notes="matchup note")
+    # drop columns added by later versions to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
+    c.execute("ALTER TABLE matchup_notes DROP COLUMN primary_keystone")
+    c.execute("ALTER TABLE matchup_notes DROP COLUMN secondary_tree")
+    c.execute("ALTER TABLE matchup_notes DROP COLUMN patch_version")
     c.commit()
     c.close()
     c = db.connect(path)  # "upgrade": _migrate + SCHEMA re-run
     assert db.list_sessions(c)[0]["notes"] == "# keep me"
     assert c.execute("SELECT notes FROM block_games").fetchone()["notes"] == "game note"
     assert c.execute("SELECT learnings FROM blocks").fetchone()["learnings"] == "learned things"
-    assert db.get_matchup_notes(c) == {"Darius": "matchup note"}
+    assert db.get_matchup_notes(c) == {"Darius": {
+        "notes": "matchup note", "primary_keystone": "", "secondary_tree": "",
+        "patch_version": ""}}
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
     c.close()
 

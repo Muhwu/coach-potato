@@ -1,0 +1,24 @@
+{
+  "trees": [
+    {
+      "name": "Precision",
+      "keystones": ["Press the Attack", "Lethal Tempo", "Fleet Footwork", "Conqueror"]
+    },
+    {
+      "name": "Domination",
+      "keystones": ["Electrocute", "Dark Harvest", "Hail of Blades"]
+    },
+    {
+      "name": "Sorcery",
+      "keystones": ["Summon Aery", "Arcane Comet", "Phase Rush"]
+    },
+    {
+      "name": "Resolve",
+      "keystones": ["Grasp of the Undying", "Aftershock", "Guardian"]
+    },
+    {
+      "name": "Inspiration",
+      "keystones": ["Glacial Augment", "Unsealed Spellbook", "First Strike"]
+    }
+  ]
+}

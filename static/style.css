@@ -703,6 +703,17 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .mu-notes-head { display: flex; align-items: center; gap: 8px; }
 .mu-notes-head h4 { margin: 0; }
 .mu-notes textarea { width: 100%; margin-top: 6px; }
+.mu-guide-fields {
+  display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 10px;
+}
+.mu-guide-fields > div { display: flex; flex-direction: column; gap: 2px; }
+.mu-guide-fields select, .mu-guide-fields input[type="text"] { min-width: 180px; }
+.mu-guide-runes { display: flex; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+.mu-guide-pill {
+  font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  background: var(--chip-bg, var(--grid)); color: var(--text-secondary);
+}
+.mu-guide-patch { font-size: 12px; margin-bottom: 4px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 .bn-all-label { font-size: 12px; font-weight: 400; }
 .bn-item { margin: 10px 0; padding-left: 10px; border-left: 3px solid var(--grid); }

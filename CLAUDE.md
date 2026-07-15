@@ -109,8 +109,9 @@ change, not a crawler change.
   card). UI in `blocks.js`; "+ Block" promote buttons on Recent-games and
   segment game rows.
 - `static/` — no build step; state + fetch + innerHTML render in `app.js`;
-  matchups view (own tab: per-matchup notes, expanded rows with Overview
-  [win/loss strip + notes] / Games tabs) in `matchups.js`;
+  matchups view (own tab: expanded rows with Overview [win/loss strip + block
+  notes] / Games / Champ guide [runes, patch, how-to-play notes] tabs) in
+  `matchups.js`;
   trends view (SVG small-multiple charts + breakdown table) in `trends.js`;
   blocks view in `blocks.js`.
 
@@ -129,9 +130,15 @@ ladder points; coaching sessions drawn as vertical lines client-side).
 Between/before snapshots, `stats._with_estimates` interleaves ±20 LP estimated
 points from ranked-solo win/loss (`estimated: true`, rendered faint; each real
 snapshot resets the drift, backward walk reconstructs pre-snapshot history).
-`matchup_notes(opp_champion PK, notes, updated_at_ms)` — per-matchup Markdown
-notes (`GET /api/matchups/notes`, `PUT /api/matchups/notes/{champion}`; empty
-notes delete the row).
+`matchup_notes(opp_champion PK, notes, primary_keystone, secondary_tree,
+patch_version, updated_at_ms)` — per-matchup "Champ guide": Markdown notes on
+how to play the matchup plus a rune keystone/secondary-tree pick (from
+`static/runes.json`, mirrored server-side as `RUNE_KEYSTONE_NAMES`/
+`RUNE_TREE_NAMES` in app.py for validation) and a freeform patch string.
+`GET /api/matchups/notes` returns `{champion: {notes, primary_keystone,
+secondary_tree, patch_version}}`; `PUT /api/matchups/notes/{champion}` is a
+full-row upsert (all fields blank deletes the row) — shown in its own
+"Champ guide" tab in the matchup detail panel (`matchups.js`).
 `crawl_state(puuid+queue_id PK, newest_ms, complete)` — resume watermarks
 `participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
 metric key)` — coaching metrics, tracked players only, columns generated

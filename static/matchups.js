@@ -1,6 +1,7 @@
 "use strict";
-/* Matchups view: matchup table with per-matchup notes and a tabbed expansion
-   (overview: win/loss timeline + notes; games: per-game list).
+/* Matchups view: matchup table with a tabbed expansion (overview: win/loss
+   timeline + block notes; games: per-game list; champ guide: runes, patch,
+   freeform notes on how to play the matchup).
    Uses globals from app.js: state, $, getJSON, QUEUE_NAMES, escapeHtml,
    displayName, champIcon, fmt, pct, wrCell, fmtDate, fmtDuration, titleCase,
    renderNotes, metricGroupsPanel, wirePromoteButtons. */
@@ -14,16 +15,25 @@ const muState = {
   minGames: 1,
   view: "flat", // flat | rank
   rows: [],
-  notes: {},            // opp_champion -> markdown
-  editingNotes: null,   // matchup key currently in note-edit mode
+  notes: {},            // opp_champion -> {notes, primary_keystone, secondary_tree, patch_version}
+  editingGuide: null,   // matchup key currently in champ-guide edit mode
   expanded: new Set(),
-  tab: new Map(),       // matchup key -> "overview" | "games"
+  tab: new Map(),       // matchup key -> "overview" | "games" | "guide"
   games: new Map(),     // matchup key -> games list
   blockNotes: new Map(),    // opp_champion -> block-game notes (all my picks)
   blockNotesAll: new Set(), // matchup keys with "all my picks" checked
   statsOpen: new Set(),
   statsCache: new Map(),
 };
+
+// keystone/secondary-tree options for the champ-guide tab, loaded once
+const RUNE_TREES = [];
+
+async function loadRuneTrees() {
+  if (RUNE_TREES.length) return;
+  const data = await getJSON("/runes.json");
+  RUNE_TREES.push(...data.trees);
+}
 
 function muKey(row) {
   return muState.view === "rank" ? `${row.rank_tier}:${row.opp_champion}` : row.opp_champion;
@@ -58,7 +68,7 @@ async function initMatchups() {
     $("#mu-view-flat").addEventListener("click", () => setMatchupView("flat"));
     $("#mu-view-rank").addEventListener("click", () => setMatchupView("rank"));
   }
-  await loadMatchupFilterOptions();
+  await Promise.all([loadMatchupFilterOptions(), loadRuneTrees()]);
   await loadMatchups();
 }
 
@@ -89,7 +99,7 @@ async function loadMatchups() {
   muState.blockNotes.clear();
   muState.statsOpen.clear();
   muState.statsCache.clear();
-  muState.editingNotes = null;
+  muState.editingGuide = null;
   const url = muState.view === "rank"
     ? `/api/stats/matchups_by_rank?${muQuery()}` : `/api/stats/matchups?${muQuery()}`;
   const [rows, notes, blockNoted] = await Promise.all([
@@ -217,30 +227,74 @@ function laneTrendGraph(games) {
   </div>`;
 }
 
-function matchupNotesBlock(row) {
+function guideFor(champ) {
+  return muState.notes[champ] || { notes: "", primary_keystone: "", secondary_tree: "", patch_version: "" };
+}
+
+function hasGuide(champ) {
+  const g = muState.notes[champ];
+  return Boolean(g && (g.notes || g.primary_keystone || g.secondary_tree || g.patch_version));
+}
+
+function keystoneOptions(selected) {
+  return RUNE_TREES.map((t) => `<optgroup label="${escapeHtml(t.name)}">${
+    t.keystones.map((k) =>
+      `<option value="${escapeHtml(k)}" ${k === selected ? "selected" : ""}>${escapeHtml(k)}</option>`
+    ).join("")}</optgroup>`).join("");
+}
+
+function treeOptions(selected) {
+  return RUNE_TREES.map((t) =>
+    `<option value="${escapeHtml(t.name)}" ${t.name === selected ? "selected" : ""}>${escapeHtml(t.name)}</option>`
+  ).join("");
+}
+
+function champGuideBlock(row) {
   const key = muKey(row);
   const champ = row.opp_champion;
-  const notes = muState.notes[champ] || "";
-  if (muState.editingNotes === key) {
-    return `<div class="mu-notes">
-      <div class="mu-notes-head"><h4>Notes vs ${displayName(champ)}</h4></div>
-      <textarea id="mu-notes-input" rows="8"
+  const { notes, primary_keystone, secondary_tree, patch_version } = guideFor(champ);
+  if (muState.editingGuide === key) {
+    return `<div class="mu-notes mu-guide">
+      <div class="mu-notes-head"><h4>Champ guide vs ${displayName(champ)}</h4></div>
+      <div class="mu-guide-fields">
+        <div>
+          <label class="filter-label" for="mu-guide-keystone">Keystone</label>
+          <select id="mu-guide-keystone"><option value="">—</option>${keystoneOptions(primary_keystone)}</select>
+        </div>
+        <div>
+          <label class="filter-label" for="mu-guide-tree">Secondary tree</label>
+          <select id="mu-guide-tree"><option value="">—</option>${treeOptions(secondary_tree)}</select>
+        </div>
+        <div>
+          <label class="filter-label" for="mu-guide-patch">Patch</label>
+          <input type="text" id="mu-guide-patch" placeholder="e.g. 14.14" value="${escapeHtml(patch_version)}">
+        </div>
+      </div>
+      <label class="filter-label" for="mu-guide-notes">How to play this matchup</label>
+      <textarea id="mu-guide-notes" rows="8"
         placeholder="Markdown supported — game plan, power spikes, bans…">${escapeHtml(notes)}</textarea>
       <div class="session-actions">
-        <button class="preset mu-notes-save" data-key="${escapeHtml(key)}">Save</button>
-        <button class="preset mu-notes-cancel">Cancel</button>
-        <span class="muted mu-notes-status"></span>
+        <button class="preset mu-guide-save" data-key="${escapeHtml(key)}">Save</button>
+        <button class="preset mu-guide-cancel">Cancel</button>
+        <span class="muted mu-guide-status"></span>
       </div>
     </div>`;
   }
+  const runeLine = (primary_keystone || secondary_tree)
+    ? `<div class="mu-guide-runes">${
+        primary_keystone ? `<span class="mu-guide-pill">${escapeHtml(primary_keystone)}</span>` : ""}${
+        secondary_tree ? `<span class="mu-guide-pill">${escapeHtml(secondary_tree)}</span>` : ""}</div>`
+    : "";
+  const patchLine = patch_version
+    ? `<div class="muted mu-guide-patch">Patch ${escapeHtml(patch_version)}</div>` : "";
   const body = notes
     ? `<div class="md-body">${renderNotes(notes)}</div>`
-    : `<p class="muted">No notes for this matchup yet.</p>`;
-  return `<div class="mu-notes">
-    <div class="mu-notes-head"><h4>Notes vs ${displayName(champ)}</h4>
-      <button class="preset icon-btn mu-notes-edit" data-key="${escapeHtml(key)}"
-        title="Edit matchup notes" aria-label="Edit matchup notes">✎</button>
-    </div>${body}</div>`;
+    : (runeLine || patchLine ? "" : `<p class="muted">No champ guide for this matchup yet.</p>`);
+  return `<div class="mu-notes mu-guide">
+    <div class="mu-notes-head"><h4>Champ guide vs ${displayName(champ)}</h4>
+      <button class="preset icon-btn mu-guide-edit" data-key="${escapeHtml(key)}"
+        title="Edit champ guide" aria-label="Edit champ guide">✎</button>
+    </div>${runeLine}${patchLine}${body}</div>`;
 }
 
 function blockNotesBlock(row) {
@@ -316,18 +370,25 @@ function matchupPanel(row) {
   const key = muKey(row);
   const tab = muState.tab.get(key) || "overview";
   const games = muState.games.get(key);
-  const body = tab === "games"
-    ? matchupGamesTable(key)
-    : `<div class="mu-overview-grid">
-        <div>${matchupNotesBlock(row)}${blockNotesBlock(row)}</div>
+  let body;
+  if (tab === "games") {
+    body = matchupGamesTable(key);
+  } else if (tab === "guide") {
+    body = champGuideBlock(row);
+  } else {
+    body = `<div class="mu-overview-grid">
+        <div>${blockNotesBlock(row)}</div>
         <div>${winLossStrip(games, key)}${laneTrendGraph(games)}</div>
       </div>`;
+  }
   return `<div class="mu-panel">
     <div class="view-toggle mu-tabbar" role="tablist">
       <button class="mu-tab ${tab === "overview" ? "active" : ""}" data-key="${escapeHtml(key)}"
         data-tab="overview" role="tab">Overview</button>
       <button class="mu-tab ${tab === "games" ? "active" : ""}" data-key="${escapeHtml(key)}"
         data-tab="games" role="tab">Games${games ? ` (${games.length})` : ""}</button>
+      <button class="mu-tab ${tab === "guide" ? "active" : ""}" data-key="${escapeHtml(key)}"
+        data-tab="guide" role="tab">Champ guide</button>
     </div>
     <div class="mu-panel-body">${body}</div>
   </div>`;
@@ -344,13 +405,13 @@ const MU_COLS = 11;
 function matchupRow(row) {
   const key = muKey(row);
   const expanded = muState.expanded.has(key);
-  const hasNotes = Boolean(muState.notes[row.opp_champion]);
+  const hasNotes = hasGuide(row.opp_champion);
   const hasBlockNotes = muState.blockNoted && muState.blockNoted.has(row.opp_champion);
   let html = `<tr>
     <td><button class="preset seg-toggle matchup-toggle" data-key="${escapeHtml(key)}"
       aria-expanded="${expanded}" title="Matchup details">${expanded ? "▾" : "▸"}</button></td>
     <td><span class="champ-cell">${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span></td>
-    <td>${hasNotes ? `<span class="note-flag" title="Has matchup notes">📝</span>` : ""}${
+    <td>${hasNotes ? `<span class="note-flag" title="Has champ guide">📝</span>` : ""}${
       hasBlockNotes ? `<span class="note-flag" title="Has block notes">🧱</span>` : ""}</td>
     <td>${row.games}</td>
     <td>${row.wins}–${row.games - row.wins}</td>
@@ -401,7 +462,7 @@ function wireMUHandlers(target) {
       const key = btn.dataset.key;
       if (muState.expanded.has(key)) {
         muState.expanded.delete(key);
-        if (muState.editingNotes === key) muState.editingNotes = null;
+        if (muState.editingGuide === key) muState.editingGuide = null;
       } else {
         muState.expanded.add(key);
         const row = rowFor(key);
@@ -426,36 +487,43 @@ function wireMUHandlers(target) {
       muState.tab.set(btn.dataset.key, btn.dataset.tab);
       renderMU(muState.rows);
     }));
-  target.querySelectorAll(".mu-notes-edit").forEach((btn) =>
+  target.querySelectorAll(".mu-guide-edit").forEach((btn) =>
     btn.addEventListener("click", () => {
-      muState.editingNotes = btn.dataset.key;
+      muState.editingGuide = btn.dataset.key;
       renderMU(muState.rows);
     }));
-  target.querySelectorAll(".mu-notes-cancel").forEach((btn) =>
+  target.querySelectorAll(".mu-guide-cancel").forEach((btn) =>
     btn.addEventListener("click", () => {
-      muState.editingNotes = null;
+      muState.editingGuide = null;
       renderMU(muState.rows);
     }));
-  target.querySelectorAll(".mu-notes-save").forEach((btn) =>
+  target.querySelectorAll(".mu-guide-save").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const row = rowFor(btn.dataset.key);
       if (!row) return;
-      const notes = $("#mu-notes-input").value;
+      const payload = {
+        notes: $("#mu-guide-notes").value,
+        primary_keystone: $("#mu-guide-keystone").value,
+        secondary_tree: $("#mu-guide-tree").value,
+        patch_version: $("#mu-guide-patch").value,
+      };
       const response = await fetch(
         `/api/matchups/notes/${encodeURIComponent(row.opp_champion)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notes }),
+          body: JSON.stringify(payload),
         });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        btn.parentElement.querySelector(".mu-notes-status").textContent =
+        btn.parentElement.querySelector(".mu-guide-status").textContent =
           body.detail || `error ${response.status}`;
         return;
       }
-      if (notes.trim()) muState.notes[row.opp_champion] = notes;
+      const hasAny = payload.notes.trim() || payload.primary_keystone
+        || payload.secondary_tree || payload.patch_version.trim();
+      if (hasAny) muState.notes[row.opp_champion] = payload;
       else delete muState.notes[row.opp_champion];
-      muState.editingNotes = null;
+      muState.editingGuide = null;
       renderMU(muState.rows);
     }));
   target.querySelectorAll(".mg-stats-toggle").forEach((btn) =>

@@ -104,6 +104,9 @@ CREATE TABLE IF NOT EXISTS block_games (
 CREATE TABLE IF NOT EXISTS matchup_notes (
     opp_champion TEXT PRIMARY KEY,
     notes TEXT NOT NULL DEFAULT '',
+    primary_keystone TEXT NOT NULL DEFAULT '',
+    secondary_tree TEXT NOT NULL DEFAULT '',
+    patch_version TEXT NOT NULL DEFAULT '',
     updated_at_ms INTEGER
 );
 
@@ -162,6 +165,17 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN end_ranks TEXT")
         if "closed_at_ms" not in block_columns:
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
+    matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
+    if matchup_notes_columns:
+        if "primary_keystone" not in matchup_notes_columns:
+            conn.execute(
+                "ALTER TABLE matchup_notes ADD COLUMN primary_keystone TEXT NOT NULL DEFAULT ''")
+        if "secondary_tree" not in matchup_notes_columns:
+            conn.execute(
+                "ALTER TABLE matchup_notes ADD COLUMN secondary_tree TEXT NOT NULL DEFAULT ''")
+        if "patch_version" not in matchup_notes_columns:
+            conn.execute(
+                "ALTER TABLE matchup_notes ADD COLUMN patch_version TEXT NOT NULL DEFAULT ''")
     conn.commit()
 
 
@@ -227,23 +241,38 @@ def get_player_rank(conn, puuid):
 
 
 def get_matchup_notes(conn):
-    """All non-empty matchup notes: {opp_champion: notes}."""
-    return {r["opp_champion"]: r["notes"] for r in conn.execute(
-        "SELECT opp_champion, notes FROM matchup_notes WHERE notes != ''")}
+    """Champ guide (notes, runes, patch) for every matchup with any field set:
+    {opp_champion: {notes, primary_keystone, secondary_tree, patch_version}}."""
+    rows = conn.execute(
+        """SELECT opp_champion, notes, primary_keystone, secondary_tree, patch_version
+           FROM matchup_notes
+           WHERE notes != '' OR primary_keystone != '' OR secondary_tree != ''
+              OR patch_version != ''""")
+    return {r["opp_champion"]: {
+        "notes": r["notes"], "primary_keystone": r["primary_keystone"],
+        "secondary_tree": r["secondary_tree"], "patch_version": r["patch_version"],
+    } for r in rows}
 
 
-def set_matchup_note(conn, champion, notes):
-    """Upsert the notes for a matchup; empty notes delete the row."""
+def set_matchup_note(conn, champion, notes="", primary_keystone="", secondary_tree="",
+                      patch_version=""):
+    """Upsert the champ guide for a matchup; all-blank fields delete the row."""
     with conn:
-        if not notes.strip():
+        if not any(f.strip() for f in (notes, primary_keystone, secondary_tree, patch_version)):
             conn.execute("DELETE FROM matchup_notes WHERE opp_champion=?", (champion,))
             return
         conn.execute(
-            f"""INSERT INTO matchup_notes (opp_champion, notes, updated_at_ms)
-                VALUES (?, ?, {_now_expr()})
+            f"""INSERT INTO matchup_notes
+                (opp_champion, notes, primary_keystone, secondary_tree, patch_version,
+                 updated_at_ms)
+                VALUES (?, ?, ?, ?, ?, {_now_expr()})
                 ON CONFLICT(opp_champion) DO UPDATE SET
-                  notes=excluded.notes, updated_at_ms=excluded.updated_at_ms""",
-            (champion, notes))
+                  notes=excluded.notes,
+                  primary_keystone=excluded.primary_keystone,
+                  secondary_tree=excluded.secondary_tree,
+                  patch_version=excluded.patch_version,
+                  updated_at_ms=excluded.updated_at_ms""",
+            (champion, notes, primary_keystone, secondary_tree, patch_version))
 
 
 def record_rank_history(conn, puuid, tier, division, lp, fetched_at_ms):

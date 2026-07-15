@@ -34,6 +34,20 @@ def _champion_ids():
 
 CHAMPION_IDS = _champion_ids()
 
+
+def _rune_names():
+    """Valid keystone/tree names from the static rune data file, for loose
+    validation of champ-guide rune fields (see static/runes.json)."""
+    try:
+        trees = json.loads((PROJECT_ROOT / "static" / "runes.json").read_text())["trees"]
+        return ({t["name"] for t in trees},
+                {k for t in trees for k in t["keystones"]})
+    except (OSError, KeyError, ValueError):
+        return set(), set()  # roster file missing/corrupt: skip validation rather than break
+
+
+RUNE_TREE_NAMES, RUNE_KEYSTONE_NAMES = _rune_names()
+
 RANGE_PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
 
 
@@ -460,17 +474,29 @@ def api_matchup_notes():
 
 @app.put("/api/matchups/notes/{champion}")
 def api_put_matchup_note(champion: str, body: dict):
-    notes = (body or {}).get("notes")
-    if notes is None:
-        raise HTTPException(400, "provide notes")
+    body = body or {}
+    if not any(k in body for k in ("notes", "primary_keystone", "secondary_tree", "patch_version")):
+        raise HTTPException(400, "provide at least one of: notes, primary_keystone, "
+                                  "secondary_tree, patch_version")
     # match-v5 names differ in case from DDragon ids (FiddleSticks vs
     # Fiddlesticks) — validate case-insensitively, store the name as given
     # because reads key by the match-v5 spelling
     if CHAMPION_IDS and champion.lower() not in {c.lower() for c in CHAMPION_IDS}:
         raise HTTPException(400, f"not a champion: {champion}")
+    primary_keystone = str(body.get("primary_keystone") or "")
+    secondary_tree = str(body.get("secondary_tree") or "")
+    if RUNE_KEYSTONE_NAMES and primary_keystone and primary_keystone not in RUNE_KEYSTONE_NAMES:
+        raise HTTPException(400, f"not a keystone: {primary_keystone}")
+    if RUNE_TREE_NAMES and secondary_tree and secondary_tree not in RUNE_TREE_NAMES:
+        raise HTTPException(400, f"not a rune tree: {secondary_tree}")
     conn = get_conn()
     try:
-        db.set_matchup_note(conn, champion, str(notes))
+        db.set_matchup_note(
+            conn, champion,
+            notes=str(body.get("notes") or ""),
+            primary_keystone=primary_keystone,
+            secondary_tree=secondary_tree,
+            patch_version=str(body.get("patch_version") or ""))
         return {"saved": True}
     finally:
         conn.close()
