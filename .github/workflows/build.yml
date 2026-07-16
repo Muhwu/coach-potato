@@ -49,10 +49,22 @@ jobs:
       - name: Package macOS app bundle
         if: matrix.os == 'macos-latest'
         run: ditto -c -k --sequesterRsrc --keepParent dist/coach-potato.app dist/coach-potato-macos.zip
+      - name: Build Windows installer
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=$version" packaging\windows-installer.iss
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.binary }}
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          name: coach-potato-windows-installer
+          path: dist/installer/CoachPotatoSetup.exe
       - name: Attach binary to release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -66,3 +78,9 @@ jobs:
           cp "${{ matrix.binary }}" "$OUT"
           gh release create "$GITHUB_REF_NAME" --generate-notes 2>/dev/null || true
           gh release upload "$GITHUB_REF_NAME" "$OUT" --clobber
+      - name: Attach Windows installer to release
+        if: matrix.os == 'windows-latest' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "$GITHUB_REF_NAME" dist/installer/CoachPotatoSetup.exe --clobber

@@ -32,7 +32,13 @@ change, not a crawler change.
   `None`, and uvicorn's logging setup crashes calling `.isatty()` on `None`
   before the app window ever opens. Any future PyInstaller/`--windowed`
   build issue that looks like a startup crash touching logging/stdout is
-  probably this same class of bug.
+  probably this same class of bug. CI also builds a Windows installer
+  (`packaging/windows-installer.iss`, Inno Setup 6 — preinstalled on the
+  `windows-latest` runner image, no setup step needed) that wraps the same
+  PyInstaller exe; per-user install under `%LOCALAPPDATA%` (no admin/UAC),
+  matching where the app's own data already lives (`%APPDATA%\CoachPotato`).
+  Uploaded as its own `coach-potato-windows-installer` artifact alongside
+  the plain portable `.exe`, not replacing it.
 
 - **Dev API key expires every 24 h.** 403 → `ApiKeyExpiredError`. Refresh at
   developer.riotgames.com, update `RIOT_API_KEY=` in `.env` (gitignored).
