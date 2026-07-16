@@ -1,6 +1,7 @@
 """FastAPI app: JSON API over the sqlite db + static frontend."""
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -117,6 +118,7 @@ def api_version():
 
 
 HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "guide"}
+HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def _hidden_views(conn):
@@ -141,6 +143,7 @@ def _extra_settings(conn):
         "block_gap_confirm": stored.get("block_gap_confirm") != "0",
         "ui_opacity": int(stored.get("ui_opacity") or 100),
         "background_image": bool(stored.get("background_image_file")),
+        "accent_color": stored.get("accent_color") or None,
     }
 
 
@@ -241,6 +244,10 @@ def api_put_settings(body: dict):
     if (not isinstance(ui_opacity, int) or isinstance(ui_opacity, bool)
             or not 20 <= ui_opacity <= 100):
         raise HTTPException(400, "ui_opacity must be a whole number 20..100")
+    accent_color = body.get("accent_color")
+    if accent_color is not None and (not isinstance(accent_color, str)
+                                      or not HEX_COLOR_RE.match(accent_color)):
+        raise HTTPException(400, "accent_color must be a #rrggbb hex string or null")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -254,6 +261,7 @@ def api_put_settings(body: dict):
             "block_gap_hours": str(gap_hours),
             "block_gap_confirm": "1" if gap_confirm else "0",
             "ui_opacity": str(ui_opacity),
+            "accent_color": accent_color or "",
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)

@@ -104,7 +104,14 @@ change, not a crawler change.
   through `color-mix(...)` — every existing `var(--surface-1)`/`var(--page)`
   usage becomes translucent for free, no per-component changes — plus a
   fixed, full-viewport `#bg-image` div (z-index -1) behind everything for the
-  picture itself. Session CRUD at `/api/sessions`;
+  picture itself. `accent_color` (optional `#rrggbb` hex, `HEX_COLOR_RE`
+  validated; `None`/unset = theme default) overrides `--series-1` the same
+  way — set inline on `:root` from JS, removed to fall back to the
+  stylesheet's light/dark default. `--accent-wash` derives from `--series-1`
+  via `color-mix(...)` too, so every accent-tinted background/border (active
+  tabs, buttons, chip highlights) follows a custom color for free — watch
+  for new one-off `rgba(42, 120, 214, ...)`-style literals bypassing this.
+  Session CRUD at `/api/sessions`;
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
 - Sessions have `title` + Markdown `notes` (legacy `note` column auto-migrates
   in `db._migrate`). `PATCH /api/sessions/{id}` edits them;

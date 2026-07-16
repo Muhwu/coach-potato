@@ -1010,15 +1010,32 @@ function renderAccountChips() {
     }));
 }
 
+function rgbToHex(colorString) {
+  const nums = colorString.match(/\d+/g);
+  if (!nums) return colorString.trim();
+  return "#" + nums.slice(0, 3).map((n) => (+n).toString(16).padStart(2, "0")).join("");
+}
+
 function applyAppearance(data) {
-  document.documentElement.style.setProperty("--ui-opacity", (data.ui_opacity ?? 100) / 100);
-  const bg = $("#bg-image");
-  if (data.background_image) {
-    bg.style.backgroundImage = `url(/api/settings/background/file?v=${Date.now()})`;
-    bg.classList.add("active");
-  } else {
-    bg.style.backgroundImage = "";
-    bg.classList.remove("active");
+  if (data.ui_opacity !== undefined) {
+    document.documentElement.style.setProperty("--ui-opacity", data.ui_opacity / 100);
+  }
+  if ("accent_color" in data) {
+    if (data.accent_color) {
+      document.documentElement.style.setProperty("--series-1", data.accent_color);
+    } else {
+      document.documentElement.style.removeProperty("--series-1");
+    }
+  }
+  if ("background_image" in data) {
+    const bg = $("#bg-image");
+    if (data.background_image) {
+      bg.style.backgroundImage = `url(/api/settings/background/file?v=${Date.now()})`;
+      bg.classList.add("active");
+    } else {
+      bg.style.backgroundImage = "";
+      bg.classList.remove("active");
+    }
   }
 }
 
@@ -1052,6 +1069,9 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
+  $("#setting-accent-color").value = data.accent_color
+    || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
+  $("#setting-accent-reset").classList.toggle("hidden", !data.accent_color);
   $("#setting-ui-opacity").value = data.ui_opacity;
   $("#setting-ui-opacity-value").textContent = `${data.ui_opacity}%`;
   $("#setting-bg-remove").classList.toggle("hidden", !data.background_image);
@@ -1059,6 +1079,16 @@ async function initSettings() {
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  $("#setting-accent-color").addEventListener("input", (e) => {
+    document.documentElement.style.setProperty("--series-1", e.target.value);
+    $("#setting-accent-reset").classList.remove("hidden");
+  });
+  $("#setting-accent-reset").addEventListener("click", () => {
+    document.documentElement.style.removeProperty("--series-1");
+    $("#setting-accent-color").value =
+      rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
+    $("#setting-accent-reset").classList.add("hidden");
+  });
   $("#setting-ui-opacity").addEventListener("input", (e) => {
     $("#setting-ui-opacity-value").textContent = `${e.target.value}%`;
     document.documentElement.style.setProperty("--ui-opacity", e.target.value / 100);
@@ -1074,7 +1104,7 @@ async function initSettings() {
     if (response.ok) {
       $("#setting-bg-status").textContent = "saved ✓";
       $("#setting-bg-remove").classList.remove("hidden");
-      applyAppearance({ ui_opacity: $("#setting-ui-opacity").value, background_image: true });
+      applyAppearance({ background_image: true });
     } else {
       $("#setting-bg-status").textContent = body.detail || `error ${response.status}`;
     }
@@ -1084,7 +1114,7 @@ async function initSettings() {
     await fetch("/api/settings/background", { method: "DELETE" });
     $("#setting-bg-remove").classList.add("hidden");
     $("#setting-bg-status").textContent = "";
-    applyAppearance({ ui_opacity: $("#setting-ui-opacity").value, background_image: false });
+    applyAppearance({ background_image: false });
   });
   $("#key-reveal").addEventListener("click", () => {
     const input = $("#setting-key");
@@ -1133,6 +1163,8 @@ async function initSettings() {
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
+        accent_color: $("#setting-accent-reset").classList.contains("hidden")
+          ? null : $("#setting-accent-color").value,
       }),
     });
     const body = await response.json().catch(() => ({}));

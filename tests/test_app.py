@@ -832,6 +832,17 @@ def test_ui_opacity_setting_endpoint(client):
     assert _put_settings(client, ui_opacity="60").status_code == 400
 
 
+def test_accent_color_setting_endpoint(client):
+    assert client.get("/api/settings").json()["accent_color"] is None
+    assert _put_settings(client, accent_color="#ff8800").status_code == 200
+    assert client.get("/api/settings").json()["accent_color"] == "#ff8800"
+    assert _put_settings(client, accent_color=None).status_code == 200
+    assert client.get("/api/settings").json()["accent_color"] is None
+    assert _put_settings(client, accent_color="ff8800").status_code == 400
+    assert _put_settings(client, accent_color="#fff").status_code == 400
+    assert _put_settings(client, accent_color=123).status_code == 400
+
+
 def test_background_image_upload_roundtrip(client):
     assert client.get("/api/settings").json()["background_image"] is False
     assert client.get("/api/settings/background/file").status_code == 404

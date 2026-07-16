@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.22.0",
+      "date": "2026-07-16",
+      "items": [
+        "Accent color customization in Settings — pick any color for buttons, active tabs, links, and chart lines"
+      ]
+    },
+    {
       "version": "1.21.0",
       "date": "2026-07-16",
       "items": [
