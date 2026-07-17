@@ -113,23 +113,21 @@ async function initGuide() {
 }
 
 async function loadGuideChampionOptions() {
-  // full roster, so you can prep a guide for a champion you haven't (or
-  // haven't yet) played — the initial selection is the default champion from
-  // Settings when set, else one you have played, so the page opens on real data
-  const all = [...roster.nameById.keys()].sort(
-    (a, b) => champDisplay(a).localeCompare(champDisplay(b)));
+  // full roster (pool grouped on top), so you can prep a guide for a champion
+  // you haven't played — the initial selection is the Settings default
+  // champion, else the pool's first pick, else one you have played
   if (!guideState.myChampion) {
     if (state.defaultChampion) {
       guideState.myChampion = state.defaultChampion;
     } else {
-      const played = await getJSON(`/api/filters?${accountParams()}`);
-      guideState.myChampion = played.champions[0] || all[0] || "";
+      const [pool, played] = await Promise.all([
+        poolChampionOrder(), getJSON(`/api/filters?${accountParams()}`)]);
+      guideState.myChampion = pool[0] || played.champions[0]
+        || [...roster.nameById.keys()][0] || "";
     }
   }
-  $("#guide-champion").innerHTML = all.length
-    ? all.map((c) =>
-        `<option value="${c}" ${c === guideState.myChampion ? "selected" : ""}>${escapeHtml(champDisplay(c))}</option>`).join("")
-    : `<option value="">No champions found</option>`;
+  const options = await championOptions(guideState.myChampion);
+  $("#guide-champion").innerHTML = options || `<option value="">No champions found</option>`;
 }
 
 async function loadGuide() {

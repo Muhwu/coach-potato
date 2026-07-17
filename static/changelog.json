@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.29.0",
+      "date": "2026-07-17",
+      "items": [
+        "Champion dropdowns (Champ guide, default champion, note migration) group your Champion Pool at the top, in pool priority order; the Champ guide also defaults to your pool's first pick when no default champion is set"
+      ]
+    },
+    {
       "version": "1.28.0",
       "date": "2026-07-17",
       "items": [
