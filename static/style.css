@@ -765,9 +765,9 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 #guide-list .guide-row-collapsed:hover { background: var(--accent-wash); }
 #guide-list .guide-row-collapsed .mu-notes-head {
   display: grid;
-  grid-template-columns: 32px minmax(180px, 260px) 56px 1fr;
+  grid-template-columns: 28px minmax(130px, 170px) 44px 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 #guide-list .guide-row-collapsed .guide-stat { justify-self: end; }
 .guide-flags {
