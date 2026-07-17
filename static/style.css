@@ -1000,6 +1000,18 @@ footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px;
 .sg-cell:hover { border-color: var(--series-1); }
 .sg-cell.active { background: var(--series-1); border-color: var(--series-1); }
 .cd-grid-status { grid-column: 1 / -1; font-size: 11px; color: var(--critical); min-height: 14px; }
+/* matrix view: cells widen into value bubbles (cooldown from that level on) */
+.skill-grid-values .sg-row { grid-template-columns: 16px repeat(18, 28px); }
+.skill-grid-values .sg-cell {
+  width: 28px; height: 20px; font-size: 9.5px; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--text-primary);
+  border-radius: 999px;
+}
+.skill-grid-values .sg-cell.active { color: #fff; font-weight: 650; }
+.cd-grid-stacked { grid-template-columns: 1fr; }
+.cd-grid-stacked .cd-side { border-top: 1px solid var(--grid); padding-top: 12px; }
+.cd-grid-stacked .cd-side:first-child { border-top: none; padding-top: 0; }
+.cd-view-toggle { margin-left: auto; margin-right: 10px; }
 .skill-grid-mini { margin: 4px 0; }
 .skill-grid-mini .sg-row { grid-template-columns: 12px repeat(18, 11px); gap: 1px; }
 .skill-grid-mini .sg-cell { width: 11px; height: 11px; cursor: default; border-radius: 2px; }

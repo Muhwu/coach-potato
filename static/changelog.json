@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.33.0",
+      "date": "2026-07-18",
+      "items": [
+        "Cooldown comparison gets a \"Level matrix\" view — level × ability grid where each rank-up bubble shows the ability's (haste-reduced) cooldown from that level on; cells stay clickable for editing the build, and the view choice is remembered"
+      ]
+    },
+    {
       "version": "1.32.0",
       "date": "2026-07-18",
       "items": [

@@ -177,11 +177,16 @@ change, not a crawler change.
   a ⏱ button per matchup row (also on Champ-guide rows) opens the
   cooldown-comparison modal (`cooldowns.js`: generic
   `#modal-overlay`/`#modal-box` shell in index.html; spell data fetched
-  from DDragon `champion/<id>.json` at open time, session-cached; per-side
-  level slider + an 18×4 skill-order grid [level × Q/W/E/R, click to spend
-  that level's point; validated client- AND server-side — basics max 5,
-  point k needs level 2k-1, R at 6/11/16] + freeform haste sources; reduced
-  cd = base/(1+haste/100), R adds ult haste. Grid persists per champion in
+  from DDragon `champion/<id>.json` at open time, session-cached; two view
+  modes ["At level": per-side level slider + per-spell table; "Level
+  matrix": sides stacked, the skill grid's active cells become value
+  bubbles showing each ability's haste-reduced cooldown from that level on
+  — `cp-cd-view` in localStorage]; both share an 18×4 skill-order grid
+  [level × Q/W/E/R, click to spend that level's point — delegated listener
+  on #modal-box, since matrix-mode haste edits re-render the grid;
+  validated client- AND server-side — basics max 5, point k needs level
+  2k-1, R at 6/11/16] + freeform haste sources; reduced cd =
+  base/(1+haste/100), R adds ult haste. Grid persists per champion in
   localStorage `cp-skill-grid-<champ>` [legacy `cp-skill-order-<champ>`
   priority lists auto-convert]; "Save build to champ guide" writes it to
   `matchup_notes.skill_order` for the open matchup — saved builds preload

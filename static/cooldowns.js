@@ -20,6 +20,10 @@ const GRID_LEVELS = 18;
 const cdState = {
   sides: { me: null, opp: null }, // {champ, level, grid, haste[], detail, error}
   options: { me: "", opp: "" },   // champion <select> options per side
+  // "levels": level slider + per-spell table. "matrix": the skill grid
+  // doubles as the visualization — each rank-up cell shows the cooldown
+  // (haste-reduced) the ability has from that level on.
+  view: localStorage.getItem("cp-cd-view") === "matrix" ? "matrix" : "levels",
 };
 
 const champDetailCache = new Map();
@@ -145,18 +149,46 @@ function cdHasteSummary(side) {
 
 function skillGridHtml(sideKey) {
   const side = cdState.sides[sideKey];
+  const matrix = cdState.view === "matrix" && side.detail;
+  const { ah, ultAh } = hasteTotals(side);
+  // cooldown the ability has once the point at `lvl` is spent (its rank
+  // there), haste-reduced; null when the cell holds no point
+  const cellCd = (key, lvl) => {
+    const cds = side.detail.spells[SPELL_KEYS.indexOf(key)].cooldown || [];
+    let rank = 0;
+    for (let i = 0; i < lvl; i++) if (side.grid[i] === key) rank++;
+    if (!rank || !cds.length) return null;
+    const base = cds[Math.min(rank, cds.length) - 1];
+    const haste = key === "R" ? ah + ultAh : ah;
+    return { base, reduced: reducedCd(base, haste), rank };
+  };
   const head = `<div class="sg-row sg-head"><span class="sg-label"></span>${
     Array.from({ length: GRID_LEVELS }, (_, i) =>
-      `<span class="sg-lvl ${i + 1 === side.level ? "sg-now" : ""}">${i + 1}</span>`).join("")}</div>`;
-  const rows = SPELL_KEYS.map((key) => `<div class="sg-row">
-    <span class="sg-label">${key}</span>
-    ${Array.from({ length: GRID_LEVELS }, (_, i) =>
-      `<button type="button" class="sg-cell ${side.grid[i] === key ? "active" : ""}"
+      `<span class="sg-lvl ${!matrix && i + 1 === side.level ? "sg-now" : ""}">${i + 1}</span>`).join("")}</div>`;
+  const rows = SPELL_KEYS.map((key, ki) => {
+    const spellName = side.detail ? side.detail.spells[ki].name : "";
+    const cells = Array.from({ length: GRID_LEVELS }, (_, i) => {
+      const active = side.grid[i] === key;
+      let label = "";
+      let title = `${key} at level ${i + 1}`;
+      if (matrix && active) {
+        const cd = cellCd(key, i + 1);
+        if (cd) {
+          label = fmtCd(cd.reduced);
+          title = `${key} rank ${cd.rank} from level ${i + 1}: ${fmtCd(cd.base)}s`
+            + (cd.reduced !== cd.base ? ` → ${fmtCd(cd.reduced)}s` : "");
+        }
+      }
+      return `<button type="button" class="sg-cell ${active ? "active" : ""}"
         data-side="${sideKey}" data-key="${key}" data-lvl="${i + 1}"
-        title="${key} at level ${i + 1}" aria-label="${key} at level ${i + 1}"
-        aria-pressed="${side.grid[i] === key}"></button>`).join("")}
-  </div>`).join("");
-  return `<div class="skill-grid">${head}${rows}
+        title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"
+        aria-pressed="${active}">${label}</button>`;
+    }).join("");
+    return `<div class="sg-row">
+      <span class="sg-label" title="${escapeHtml(spellName)}">${key}</span>${cells}
+    </div>`;
+  }).join("");
+  return `<div class="skill-grid ${matrix ? "skill-grid-values" : ""}">${head}${rows}
     <span class="cd-grid-status" data-side="${sideKey}"></span></div>`;
 }
 
@@ -230,15 +262,17 @@ function cdSidePanel(sideKey, title) {
       <select class="cd-champ-select" data-side="${sideKey}" aria-label="${title}">
         ${cdState.options[sideKey]}</select>
     </div>
-    <div class="cd-control-row">
+    ${cdState.view === "levels" ? `<div class="cd-control-row">
       <label>Level <strong class="cd-level-value" data-side="${sideKey}">${side.level}</strong></label>
       <input type="range" class="cd-level" data-side="${sideKey}" min="1" max="18" value="${side.level}">
-    </div>
+    </div>` : ""}
     <div class="cd-control-row">
       <span>Skill order</span>
-      <span class="muted">click a cell to spend that level's point</span>
+      <span class="muted">${cdState.view === "matrix"
+        ? "bubbles = cooldown from that level on; click cells to edit the build"
+        : "click a cell to spend that level's point"}</span>
     </div>
-    ${skillGridHtml(sideKey)}
+    <div class="cd-skillgrid" data-side="${sideKey}">${skillGridHtml(sideKey)}</div>
     ${saveBtn}
     <div class="cd-haste">
       <div class="cd-control-row">
@@ -250,26 +284,38 @@ function cdSidePanel(sideKey, title) {
       ${hasteRows}
       <button type="button" class="preset cd-haste-add" data-side="${sideKey}">+ Add haste source</button>
     </div>
-    <div class="cd-table" data-side="${sideKey}">${cdSpellsTable(side)}</div>
+    ${cdState.view === "levels"
+      ? `<div class="cd-table" data-side="${sideKey}">${cdSpellsTable(side)}</div>`
+      : `<div class="cd-table" data-side="${sideKey}">${
+          side.error ? `<p class="muted">${escapeHtml(side.error)}</p>`
+          : !side.champ ? `<p class="muted">Pick a champion.</p>` : ""}</div>`}
   </div>`;
 }
 
 function updateCdSide(sideKey) {
   const side = cdState.sides[sideKey];
   const table = $(`.cd-table[data-side="${sideKey}"]`);
-  if (table) table.innerHTML = cdSpellsTable(side);
+  if (table && cdState.view === "levels") table.innerHTML = cdSpellsTable(side);
+  const grid = $(`.cd-skillgrid[data-side="${sideKey}"]`);
+  if (grid && cdState.view === "matrix") grid.innerHTML = skillGridHtml(sideKey);
   const totals = $(`.cd-haste-totals[data-side="${sideKey}"]`);
   if (totals) totals.textContent = cdHasteSummary(side);
 }
 
 function renderCooldowns() {
   const box = $("#modal-box");
+  const viewBtn = (view, label) => `<button type="button" data-view="${view}"
+    class="${cdState.view === view ? "active" : ""}">${label}</button>`;
   box.innerHTML = `
     <div class="modal-head">
       <h3>Cooldown comparison</h3>
+      <div class="view-toggle cd-view-toggle" role="tablist">
+        ${viewBtn("levels", "At level")}${viewBtn("matrix", "Level matrix")}
+      </div>
       <button type="button" class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
     </div>
-    <div class="cd-grid">${cdSidePanel("me", "You")}${cdSidePanel("opp", "Opponent")}</div>`;
+    <div class="cd-grid ${cdState.view === "matrix" ? "cd-grid-stacked" : ""}">${
+      cdSidePanel("me", "You")}${cdSidePanel("opp", "Opponent")}</div>`;
   wireCooldowns(box);
 }
 
@@ -307,23 +353,10 @@ function wireCooldowns(box) {
         el.classList.toggle("sg-now", idx + 1 === side.level));
       updateCdSide(input.dataset.side);
     }));
-  box.querySelectorAll(".sg-cell").forEach((cell) =>
-    cell.addEventListener("click", () => {
-      const sideKey = cell.dataset.side;
-      const side = cdState.sides[sideKey];
-      const i = +cell.dataset.lvl - 1;
-      const key = cell.dataset.key;
-      const next = [...side.grid];
-      next[i] = next[i] === key ? "" : key; // second click clears the point
-      const problem = validateSkillGrid(next);
-      if (problem) {
-        flashGridStatus(sideKey, problem);
-        return;
-      }
-      side.grid = next;
-      if (side.champ) {
-        localStorage.setItem(`cp-skill-grid-${side.champ}`, JSON.stringify(next));
-      }
+  box.querySelectorAll(".cd-view-toggle button").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      cdState.view = btn.dataset.view;
+      localStorage.setItem("cp-cd-view", cdState.view);
       renderCooldowns();
     }));
   const saveBtn = box.querySelector(".cd-save-build");
@@ -392,6 +425,29 @@ async function openCooldowns(me, opp) {
 function closeModal() {
   $("#modal-overlay").classList.add("hidden");
 }
+
+// skill-grid cell clicks are delegated (the grid re-renders on haste edits
+// in matrix mode, so per-cell listeners would go stale)
+$("#modal-box").addEventListener("click", (e) => {
+  const cell = e.target.closest("button.sg-cell");
+  if (!cell) return;
+  const sideKey = cell.dataset.side;
+  const side = cdState.sides[sideKey];
+  const i = +cell.dataset.lvl - 1;
+  const key = cell.dataset.key;
+  const next = [...side.grid];
+  next[i] = next[i] === key ? "" : key; // second click clears the point
+  const problem = validateSkillGrid(next);
+  if (problem) {
+    flashGridStatus(sideKey, problem);
+    return;
+  }
+  side.grid = next;
+  if (side.champ) {
+    localStorage.setItem(`cp-skill-grid-${side.champ}`, JSON.stringify(next));
+  }
+  renderCooldowns();
+});
 
 // overlay click (outside the box) and Esc close the modal
 $("#modal-overlay").addEventListener("click", (e) => {
