@@ -26,6 +26,16 @@ app = FastAPI(title="Coach Potato")
 
 CRAWL_STATE = {"running": False, "message": "idle", "last_result": None, "error": None,
                "rate_limited": False}
+# Background fetch of match timelines for block games (deeper lane-delta
+# stats), separate from the full crawl but sharing the same Riot rate budget.
+TIMELINE_STATE = {"running": False, "done": 0, "total": 0, "error": None}
+
+
+def _riot_job_running():
+    """True while any background job is making Riot API calls — a full crawl
+    or the block-timeline backfill. Both must not run at once or they'd each
+    drive their own rate limiter and together exceed Riot's limits."""
+    return CRAWL_STATE["running"] or TIMELINE_STATE["running"]
 
 
 def _champion_ids():
@@ -1822,6 +1832,7 @@ def _run_crawl():
         CRAWL_STATE["message"] = "fetching opponent ranks"
         crawler.enrich_ranks()
         crawler.backfill_metrics()
+        crawler.backfill_lane_deltas(block_games_only=True)  # deepen block-game stats
         crawler.refresh_tracked_ranks()
         db.set_settings(conn, {"last_crawl_ms": str(int(time.time() * 1000))})
         conn.close()
@@ -1837,12 +1848,67 @@ def _run_crawl():
 
 @app.post("/api/crawl")
 def api_crawl():
-    if CRAWL_STATE["running"]:
-        return JSONResponse({"detail": "crawl already running"}, status_code=409)
+    if _riot_job_running():
+        return JSONResponse({"detail": "a crawl or timeline fetch is already running"},
+                            status_code=409)
     CRAWL_STATE.update({"running": True, "message": "starting", "error": None,
                         "rate_limited": False})
     threading.Thread(target=_run_crawl, daemon=True).start()
     return {"started": True}
+
+
+def _run_timeline_backfill():
+    try:
+        from .crawler import Crawler
+        from .riot_client import RateLimiter, RiotClient
+
+        conn = db.connect(get_db_path())
+        settings = config.resolve_settings(conn)
+        if not settings["configured"]:
+            raise RuntimeError("not configured")
+        client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+                            limiter=RateLimiter())
+
+        def status_cb(msg):  # "lane-delta backfill: 3/8 matches"
+            head, _, tail = msg.partition(": ")
+            done, _, total = tail.replace(" matches", "").partition("/")
+            TIMELINE_STATE["done"] = int(done or 0)
+            TIMELINE_STATE["total"] = int(total or 0)
+
+        crawler = Crawler(client, conn, status_cb=status_cb)
+        crawler.backfill_lane_deltas(block_games_only=True)
+        conn.close()
+        TIMELINE_STATE["error"] = None
+    except Exception as exc:  # surfaced via /api/blocks/timeline-status
+        TIMELINE_STATE["error"] = str(exc)
+    finally:
+        TIMELINE_STATE["running"] = False
+
+
+@app.post("/api/blocks/backfill-timelines")
+def api_backfill_block_timelines():
+    """Kick off a background fetch of match timelines for block games missing
+    lane deltas (has_timeline=0). No-op (not an error) if nothing is pending
+    or a Riot job is already running."""
+    conn = get_conn()
+    try:
+        pending = conn.execute(
+            """SELECT COUNT(*) c FROM participant_metrics pm
+               WHERE pm.has_timeline = 0 AND EXISTS (
+                 SELECT 1 FROM block_games bg
+                 WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)""").fetchone()["c"]
+    finally:
+        conn.close()
+    if _riot_job_running() or not pending:
+        return {"started": False, "pending": pending}
+    TIMELINE_STATE.update({"running": True, "done": 0, "total": pending, "error": None})
+    threading.Thread(target=_run_timeline_backfill, daemon=True).start()
+    return {"started": True, "pending": pending}
+
+
+@app.get("/api/blocks/timeline-status")
+def api_block_timeline_status():
+    return TIMELINE_STATE
 
 
 @app.get("/api/crawl/status")

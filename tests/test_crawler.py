@@ -322,6 +322,29 @@ def test_backfill_lane_deltas_fills_missing_only(conn):
     assert other == 2
 
 
+def test_backfill_lane_deltas_block_games_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)  # will be added to a block
+    m2 = match_json("EUW1_2", 1_700_000_100_000)  # not in any block
+    client = FakeClient([m1, m2])  # no timelines during crawl -> has_timeline=0 after reset
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    conn.execute("UPDATE participant_metrics SET has_timeline=0")
+    conn.commit()
+    db.add_game_to_block(conn, "EUW1_1", TRACKED_PUUID)  # only m1 is in a block
+    client.timelines = {t["metadata"]["matchId"]: t
+                        for t in (timeline_json("EUW1_1"), timeline_json("EUW1_2"))}
+    client.timeline_calls = 0
+    # block-only backfill touches just the block game
+    assert crawler.backfill_lane_deltas(block_games_only=True) == 1
+    assert client.timeline_calls == 1
+    assert conn.execute("SELECT cs_diff_7 FROM participant_metrics WHERE match_id='EUW1_1' "
+                        "AND puuid=?", (TRACKED_PUUID,)).fetchone()["cs_diff_7"] == 15
+    assert conn.execute("SELECT has_timeline FROM participant_metrics WHERE match_id='EUW1_2' "
+                        "AND puuid=?", (TRACKED_PUUID,)).fetchone()["has_timeline"] == 0
+    # an unscoped run then handles the remaining (non-block) game
+    assert crawler.backfill_lane_deltas() == 1
+
+
 def test_backfill_metrics_fetches_missing_only(conn):
     m1 = match_json("EUW1_1", 1_700_000_000_000)
     m2 = match_json("EUW1_2", 1_700_000_100_000)

@@ -1161,6 +1161,28 @@ def _make_block_game_entry(client):
     return entry["entry_id"], block_id
 
 
+def test_block_timeline_backfill_endpoint_no_pending(client):
+    # nothing in any block → nothing to fetch; must not start a background job
+    assert client.post("/api/blocks/backfill-timelines").json() == {"started": False, "pending": 0}
+    status = client.get("/api/blocks/timeline-status").json()
+    assert status["running"] is False and "done" in status and "total" in status
+
+
+def test_block_timeline_backfill_counts_pending_without_starting_when_busy(client, monkeypatch):
+    # a block game with a metrics row lacking timeline data is "pending"
+    entry_id, _ = _make_block_game_entry(client)
+    game = client.get("/api/blocks").json()["blocks"][0]["games"][0]
+    conn = db.connect(app_module.get_db_path())
+    from tests.test_stats import add_metrics
+    add_metrics(conn, game["match_id"], puuid=game["puuid"], has_timeline=0)
+    conn.close()
+    # pretend a crawl is already running → endpoint reports pending but doesn't start
+    monkeypatch.setitem(app_module.CRAWL_STATE, "running", True)
+    body = client.post("/api/blocks/backfill-timelines").json()
+    assert body == {"started": False, "pending": 1}
+    monkeypatch.setitem(app_module.CRAWL_STATE, "running", False)
+
+
 def test_clip_link_roundtrip_for_session(client):
     session_id = _make_session(client)
     assert client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json() == []

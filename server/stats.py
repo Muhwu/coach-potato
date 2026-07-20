@@ -397,7 +397,9 @@ def block_games_detailed(conn):
                   m.game_creation_ms, m.game_duration_s, m.queue_id,
                   me.champion_name AS my_champion, me.win,
                   me.kills, me.deaths, me.assists, me.cs,
-                  pm.lane_adv_early, pm.lane_adv_late,
+                  pm.lane_adv_early, pm.lane_adv_late, pm.has_timeline,
+                  pm.cs_diff_7, pm.level_diff_7, pm.gold_diff_7,
+                  pm.cs_diff_14, pm.level_diff_14, pm.gold_diff_14,
                   opp.champion_name AS opp_champion,
                   myr.runes AS my_runes_json,
                   oppr.runes AS opp_runes_json

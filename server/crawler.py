@@ -189,23 +189,27 @@ class Crawler:
             self.status_cb(f"runes backfill: {count}/{len(rows)} matches")
         return count
 
-    def backfill_lane_deltas(self, limit=None):
+    def backfill_lane_deltas(self, limit=None, block_games_only=False):
         """Fetch the match timeline for tracked-participant metrics rows that
         don't have lane deltas yet (has_timeline=0) and fill in the ΔCS/level/
         gold-vs-opponent columns. The lane opponent comes from the stored
         participants (same team_position, other team), so this needs only the
         timeline — not the match detail. A missing/failed timeline still marks
-        the row done (blank deltas) so it isn't retried forever. Returns the
-        number of matches fetched."""
+        the row done (blank deltas) so it isn't retried forever.
+        block_games_only restricts to games sitting in a block (used by the
+        web app to deepen block insights proactively). Returns matches fetched."""
+        block_filter = ("AND EXISTS (SELECT 1 FROM block_games bg "
+                        "WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)"
+                        if block_games_only else "")
         rows = self.conn.execute(
-            """SELECT me.match_id, me.puuid, opp.puuid AS opp_puuid
+            f"""SELECT me.match_id, me.puuid, opp.puuid AS opp_puuid
                FROM participant_metrics pm
                JOIN participants me ON me.match_id = pm.match_id AND me.puuid = pm.puuid
                JOIN players pl ON pl.puuid = me.puuid AND pl.is_tracked = 1
                LEFT JOIN participants opp
                  ON opp.match_id = me.match_id AND opp.team_id != me.team_id
                     AND opp.team_position = me.team_position AND me.team_position != ''
-               WHERE pm.has_timeline = 0"""
+               WHERE pm.has_timeline = 0 {block_filter}"""
         ).fetchall()
         count = 0
         for row in rows:

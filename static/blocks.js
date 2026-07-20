@@ -33,6 +33,13 @@ const BLOCK_COLS = [
   { key: "opponent", label: "Opponent" },
   { key: "lane7", label: "Lane (7m)", off: true },
   { key: "lane14", label: "Lane (14m)" },
+  // lane deltas vs the opponent from the match timeline — off by default
+  { key: "cs_diff_7", label: "ΔCS (7m)", off: true },
+  { key: "level_diff_7", label: "ΔLvl (7m)", off: true },
+  { key: "gold_diff_7", label: "ΔGold (7m)", off: true },
+  { key: "cs_diff_14", label: "ΔCS (14m)", off: true },
+  { key: "level_diff_14", label: "ΔLvl (14m)", off: true },
+  { key: "gold_diff_14", label: "ΔGold (14m)", off: true },
   { key: "result", label: "Result" },
   { key: "kda", label: "K/D/A" },
   { key: "cs", label: "CS/min" },
@@ -40,9 +47,11 @@ const BLOCK_COLS = [
   { key: "rank", label: "Rank (start → end)" },
 ];
 const GAME_COL_KEYS = ["date", "account", "me", "opponent", "lane7", "lane14",
+                       "cs_diff_7", "level_diff_7", "gold_diff_7",
+                       "cs_diff_14", "level_diff_14", "gold_diff_14",
                        "result", "kda", "cs", "notes"];
-// v2 storage key: new columns get their intended defaults for existing installs
-const blockCols = colPrefs("cp-cols-blocks-v2", BLOCK_COLS.map((c) => c.key),
+// v3 storage key: new delta columns get their intended defaults for existing installs
+const blockCols = colPrefs("cp-cols-blocks-v3", BLOCK_COLS.map((c) => c.key),
   BLOCK_COLS.filter((c) => !c.off).map((c) => c.key));
 
 const POOL_ROLES = {
@@ -69,10 +78,8 @@ async function initBlocks() {
       // download links inside export menus should also collapse the menu
       if (e.target.matches(".col-menu a")) closeMenus();
     });
-    renderColPicker($("#blocks-cols"), "cp-cols-blocks", BLOCK_COLS, blockCols,
+    renderColPicker($("#blocks-cols"), "cp-cols-blocks-v3", BLOCK_COLS, blockCols,
       () => renderBlocks());
-    renderMetricColPicker($("#blocks-metric-cols"), "cp-metriccols-blocks",
-      () => renderBlocks());  // app.js — refilters expanded game stat panels
     await loadChampionRoster();
   }
   await Promise.all([loadPool(), loadBlocks()]);
@@ -292,6 +299,7 @@ async function loadBlocks() {
   blockState.blocks = data.blocks;
   blockState.blockSize = data.block_size;
   renderBlocks();
+  maybeBackfillBlockTimelines();
   if (blockState.focusId != null) {
     const card = $(`#block-card-${blockState.focusId}`);
     blockState.focusId = null;
@@ -306,10 +314,10 @@ async function loadBlocks() {
 
 function gameMetricsPanel(entryId, game) {
   const data = blockState.gameMetricsCache.get(entryId);
-  // metricGroupsPanel (app.js) handles loading/empty/filtering by the view's
-  // visible metric set (undefined cache entry → "Loading…")
-  const metrics = metricGroupsPanel(data === undefined ? undefined : data,
-                                    "cp-metriccols-blocks");
+  // expanded panel shows ALL stats (no column picker here — the picker is on
+  // the block table's row columns instead); metricGroupsPanel handles the
+  // loading/empty states (undefined cache entry → "Loading…")
+  const metrics = metricGroupsPanel(data === undefined ? undefined : data);
   const runes = (game.runes || game.opp_runes) ? `<div class="runes-compare">${
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
@@ -342,6 +350,45 @@ function laneCell(value) {
     : `<td><span class="lane-no" title="Behind in lane">✗</span></td>`;
 }
 
+// signed lane-delta cell. Until the game's timeline has been fetched
+// (has_timeline !== 1) the value is unknown, not zero — show a "crawling"
+// marker rather than a misleading number.
+function deltaCell(game, value, decimals) {
+  if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
+  if (value == null) return `<td class="muted" title="No lane opponent / data">–</td>`;
+  const sign = value > 0 ? "+" : "";
+  const cls = value > 0 ? "delta-up" : value < 0 ? "delta-down" : "";
+  return `<td class="${cls}">${sign}${value.toFixed(decimals)}</td>`;
+}
+
+// Kick off (once per session) a background fetch of match timelines for block
+// games still missing lane deltas, and poll until it's done — refreshing the
+// block list so the ⏳ markers resolve into real numbers.
+async function maybeBackfillBlockTimelines() {
+  const el = $("#blocks-timeline-status");
+  const games = blockState.blocks.flatMap((b) => b.games);
+  const pending = games.filter((g) => g.has_timeline === 0).length;
+  if (!pending) { if (!blockState.timelinePolling) el.textContent = ""; return; }
+  if (blockState.timelinePolling || blockState.timelineTriggered) return;
+  blockState.timelineTriggered = true; // one auto-attempt per page load
+  const resp = await fetch("/api/blocks/backfill-timelines", { method: "POST" })
+    .then((r) => r.json()).catch(() => ({}));
+  if (!resp.started) return; // a full crawl is running (it'll fill them) or none pending
+  blockState.timelinePolling = true;
+  const poll = async () => {
+    const s = await getJSON("/api/blocks/timeline-status").catch(() => null);
+    if (s && s.running) {
+      el.innerHTML = `<span class="spinner"></span> Fetching deeper stats… ${s.done}/${s.total}`;
+      setTimeout(poll, 2000);
+    } else {
+      blockState.timelinePolling = false;
+      el.textContent = s && s.error ? "Couldn't fetch some timelines — try Update data." : "";
+      if (!(s && s.error)) loadBlocks(); // refresh has_timeline + delta values
+    }
+  };
+  poll();
+}
+
 function blockGameRow(g) {
   const statsOpen = blockState.expandedGameStats.has(g.entry_id);
   const cells = {
@@ -354,6 +401,12 @@ function blockGameRow(g) {
     cs: `<td>${(g.cs * 60 / g.game_duration_s).toFixed(1)}</td>`,
     lane7: laneCell(g.lane_adv_early),
     lane14: laneCell(g.lane_adv_late),
+    cs_diff_7: deltaCell(g, g.cs_diff_7, 1),
+    level_diff_7: deltaCell(g, g.level_diff_7, 0),
+    gold_diff_7: deltaCell(g, g.gold_diff_7, 0),
+    cs_diff_14: deltaCell(g, g.cs_diff_14, 1),
+    level_diff_14: deltaCell(g, g.level_diff_14, 0),
+    gold_diff_14: deltaCell(g, g.gold_diff_14, 0),
     notes: `<td class="notes-cell">${blockState.editingNotes === g.entry_id
       ? `<textarea class="game-notes" data-entry="${g.entry_id}" rows="1"
            placeholder="notes… (Markdown, Enter saves, Shift+Enter new line)">${escapeHtml(g.notes)}</textarea>`
@@ -361,10 +414,14 @@ function blockGameRow(g) {
           g.notes ? renderNotes(g.notes) : `<span class="muted">notes…</span>`}</div>`}</td>`,
   };
   const visible = GAME_COL_KEYS.filter((k) => blockCols.has(k));
+  // always-visible cue (independent of the Δ columns) that deeper timeline
+  // stats for this game are still being fetched
+  const pendingMark = g.has_timeline === 0 || g.has_timeline == null
+    ? `<span class="timeline-pending" title="Fetching deeper stats…">⏳</span>` : "";
   let html = `<tr>
     <td><button class="preset seg-toggle game-stats-toggle" data-entry="${g.entry_id}"
       data-match="${g.match_id}" data-puuid="${g.puuid}" aria-expanded="${statsOpen}"
-      title="Per-game stats">${statsOpen ? "▾" : "▸"}</button></td>` +
+      title="Per-game stats">${statsOpen ? "▾" : "▸"}</button>${pendingMark}</td>` +
     visible.map((k) => cells[k]).join("") +
     `<td><button class="preset game-remove" data-entry="${g.entry_id}" title="Remove from block">×</button></td>
   </tr>`;

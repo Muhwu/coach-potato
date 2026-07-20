@@ -165,10 +165,19 @@ change, not a crawler change.
   `./crawl.sh --backfill-lane-deltas` fills existing rows (has_timeline=0)
   using only the timeline + stored participants for the lane opponent, via
   `db.update_participant_timeline` (which never clobbers challenge metrics).
-  These six are `default_hidden` — each metric view (matchups per-game,
-  blocks per-game, trends, coaching progress) has its own column picker
-  (`renderMetricColPicker`, localStorage `cp-metriccols-<view>`) that starts
-  them off.
+  These six are `default_hidden` — matchups per-game, trends and coaching
+  progress each have a metric column picker (`renderMetricColPicker`,
+  localStorage `cp-metriccols-<view>`) that starts them off. Blocks is the
+  exception: its expanded per-game panel shows ALL metrics (no picker), and
+  the deltas are instead selectable as columns on the block-games TABLE
+  (`BLOCK_COLS`, off by default). The web app deepens block-game stats
+  proactively: `_run_crawl` calls `backfill_lane_deltas(block_games_only=True)`,
+  and opening Blocks fires `POST /api/blocks/backfill-timelines` (background
+  thread `_run_timeline_backfill` → `TIMELINE_STATE`, guarded by
+  `_riot_job_running()` so it never runs alongside a full crawl and
+  double-drives the rate limiter). `block_games_detailed` returns
+  `has_timeline` per game; blocks.js shows a ⏳ marker on games still being
+  fetched and polls `/api/blocks/timeline-status`.
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
   wholesale, `sort` column = user-set priority order via drag'n'drop chips;
   the EDITOR lives in Settings — `#pool-card`, wired by `initSettings`,

@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.39.0",
+      "date": "2026-07-20",
+      "items": [
+        "Blocks: the lane Δ (CS/level/gold at 7 & 14 min) are now selectable columns on the games table itself, next to result/opponent/KDA; the expanded per-game panel simply shows every stat (no separate column filter)",
+        "Blocks fetch the match timeline in the background to fill in those deeper lane stats, with a ⏳ marker on games still being crawled"
+      ]
+    },
+    {
       "version": "1.38.0",
       "date": "2026-07-20",
       "items": [

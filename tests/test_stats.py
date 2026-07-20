@@ -488,6 +488,19 @@ def test_block_games_detailed_includes_runes_actually_played(conn):
     assert games[0]["opp_runes"]["keystone"] == "Grasp of the Undying"
 
 
+def test_block_games_detailed_includes_lane_deltas_and_timeline_flag(conn):
+    match_id, _ = add_match(conn, opp_champ="Darius")
+    db.add_game_to_block(conn, match_id, ME)
+    # no metrics row yet -> has_timeline null, deltas null (the ⏳ state client-side)
+    g = stats.block_games_detailed(conn)[0]
+    assert g["has_timeline"] is None and g["cs_diff_7"] is None
+    add_metrics(conn, match_id, has_timeline=1, cs_diff_7=15.0, level_diff_7=1.0,
+                gold_diff_7=420.0, cs_diff_14=33.0, level_diff_14=2.0, gold_diff_14=900.0)
+    g = stats.block_games_detailed(conn)[0]
+    assert g["has_timeline"] == 1
+    assert g["cs_diff_7"] == 15.0 and g["gold_diff_14"] == 900.0
+
+
 def test_single_game_metrics_transforms_per_agg_kind(conn):
     m1, _ = add_match(conn, when=1_000, duration=1800)
     add_metrics(conn, m1, cs_at_10=80, lane_adv_early=1, team_dmg_pct=0.25,

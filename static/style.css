@@ -755,6 +755,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .mu-notes-head { display: flex; align-items: center; gap: 8px; }
 .mu-notes-head h4 { margin: 0; }
 .legacy-notes-row { display: flex; align-items: center; gap: 8px; }
+.timeline-pending { margin-left: 4px; font-size: 11px; opacity: 0.7; }
 .import-all-row { display: flex; align-items: center; gap: 8px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 
