@@ -174,6 +174,7 @@ def _extra_settings(conn):
         "ui_opacity": int(stored.get("ui_opacity") or 100),
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
+        "date_format": stored.get("date_format") or "iso",
     }
 
 
@@ -281,6 +282,9 @@ def api_put_settings(body: dict):
     if accent_color is not None and (not isinstance(accent_color, str)
                                       or not HEX_COLOR_RE.match(accent_color)):
         raise HTTPException(400, "accent_color must be a #rrggbb hex string or null")
+    date_format = body.get("date_format", "iso")
+    if date_format not in ("iso", "us", "eu"):
+        raise HTTPException(400, "date_format must be one of: iso, us, eu")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -296,6 +300,7 @@ def api_put_settings(body: dict):
             "block_series_enabled": "1" if series_enabled else "0",
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
+            "date_format": date_format,
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)

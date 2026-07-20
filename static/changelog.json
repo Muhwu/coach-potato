@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.42.0",
+      "date": "2026-07-21",
+      "items": [
+        "Selectable date format in Settings — ISO (2026-07-20), US (7/20/2026, 12h) or EU (20/7/2026, 24h) — applied everywhere dates and times show",
+        "Block header redesigned: editable block name on the left (defaults to the block's date), its number beside it, the series shown as a bubble on the right, and the current block highlighted; the active series name now shows next to the + New series button"
+      ]
+    },
+    {
       "version": "1.41.0",
       "date": "2026-07-20",
       "items": [

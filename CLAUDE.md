@@ -189,7 +189,13 @@ change, not a crawler change.
   continuous `#global_index`. BOTH indices are positional/gapless (computed
   in `_blocks_payload`, not `blocks.id`) — deleting then recreating a block
   never skips a number. `/api/blocks` returns `series_title`/`series_index`/
-  `global_index` per block + top-level `series_enabled`.
+  `global_index` per block + top-level `series_enabled`. Block header: the
+  editable per-block title on the left (placeholder = the block's date, from
+  its earliest game) with the muted `#index` beside it, series shown as a
+  right-aligned bubble, and the current block tinted (`.block-current`); the
+  active series name sits by the "+ New series" button. Dates/times render
+  via `fmtDate`/`fmtTime` per the `date_format` setting (`iso` default / `us`
+  / `eu`; us=12h, iso&eu=24h; `state.dateFormat`).
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
   wholesale, `sort` column = user-set priority order via drag'n'drop chips;
   the EDITOR lives in Settings — `#pool-card`, wired by `initSettings`,

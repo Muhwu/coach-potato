@@ -213,6 +213,15 @@
 
     <h3 class="settings-group-head">Appearance</h3>
     <div class="settings-field">
+      <label class="filter-label" for="setting-date-format">Date format</label>
+      <select id="setting-date-format" style="max-width:16em">
+        <option value="iso">ISO — 2026-07-20 (24h)</option>
+        <option value="us">US — 7/20/2026 (12h)</option>
+        <option value="eu">EU — 20/7/2026 (24h)</option>
+      </select>
+      <p class="muted">How dates and times are shown throughout the app.</p>
+    </div>
+    <div class="settings-field">
       <label class="filter-label" for="setting-accent-color">Accent color</label>
       <div class="accent-color-row">
         <input type="color" id="setting-accent-color" value="#2a78d6">
@@ -296,6 +305,7 @@
       <span id="blocks-timeline-status" class="muted"></span>
       <div class="head-actions">
         <span id="blocks-export-status" class="muted"></span>
+        <span id="active-series-name" class="muted" title="Current block series"></span>
         <button id="new-series-btn" class="preset hidden" type="button"
           title="Start a new block series (e.g. a 2-week challenge)">+ New series</button>
         <span id="blocks-cols"></span>

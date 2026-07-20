@@ -760,8 +760,25 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .mu-notes-head h4 { margin: 0; }
 .legacy-notes-row { display: flex; align-items: center; gap: 8px; }
 .timeline-pending { margin-left: 4px; font-size: 11px; opacity: 0.7; }
-.block-index { margin-left: 5px; font-weight: 400; font-size: 12px; color: var(--muted); }
-.block-index-plain { font-weight: 600; }
+.block-index { font-weight: 400; font-size: 12px; color: var(--muted); }
+/* block name input, now the leftmost/prominent element in the header */
+.block-title {
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--text-primary);
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  padding: 2px 6px; min-width: 8em; max-width: 16em;
+}
+.block-title:hover { border-color: var(--border); }
+.block-title:focus { border-color: var(--series-1); background: var(--page); outline: none; }
+.block-title::placeholder { color: var(--text-secondary); font-weight: 600; opacity: 1; }
+.block-head-right { margin-left: auto; }
+.block-series-bubble {
+  font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+  background: var(--accent-wash); border: 1px solid var(--border);
+  color: var(--text-secondary); white-space: nowrap;
+}
+/* current block: subtle accent tint + left border so it stands out */
+.block-card.block-current { border-left: 3px solid var(--series-1); }
+.block-card.block-current > .session-head { background: var(--accent-wash); }
 .import-all-row { display: flex; align-items: center; gap: 8px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 

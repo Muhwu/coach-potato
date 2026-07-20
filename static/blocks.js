@@ -483,19 +483,22 @@ function blockPoolChips(pool) {
   return `<div class="block-pool"><span class="muted">Pool at completion:</span> ${chips}</div>`;
 }
 
-// Header label: with series on, the series title with a less-prominent index
-// after it (per-series, gapless); with series off, just the continuous
-// global "#index" (no "Block " prefix).
-function blockLabel(block) {
-  if (blockState.seriesEnabled) {
-    return `${escapeHtml(block.series_title || "Series")}<span class="block-index">#${block.series_index}</span>`;
-  }
-  return `<span class="block-index-plain">#${block.global_index}</span>`;
+// a block's default date (earliest game, else when it was created) — used as
+// the placeholder/name when the block hasn't been given a title
+function blockDate(block) {
+  const times = block.games.map((g) => g.game_creation_ms).filter(Boolean);
+  const ms = times.length ? Math.min(...times) : block.created_at_ms;
+  return ms ? fmtDate(ms) : "";  // fmtDate from app.js
+}
+
+// the muted "#index" shown after the name (per-series when series are on,
+// else the continuous global number)
+function blockIndex(block) {
+  return blockState.seriesEnabled ? block.series_index : block.global_index;
 }
 
 async function startNewSeries() {
-  const d = new Date();
-  const suggested = `Since ${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+  const suggested = `Since ${fmtDate(Date.now())}`;  // app.js — honours the date-format setting
   const title = prompt("Name this block series (blocks in it number from #1):", suggested);
   if (title === null) return; // cancelled
   await fetch("/api/blocks/series", {
@@ -531,19 +534,24 @@ function blockCard(block, isCurrent) {
         : `<p class="muted">No learnings recorded yet.</p>`}</div>
     </div>`;
   }
+  const seriesBubble = blockState.seriesEnabled
+    ? `<span class="block-series-bubble" title="Block series">${
+        escapeHtml(block.series_title || "Series")}</span>` : "";
   const head = `<div class="session-head">
       <button class="preset session-toggle block-collapse" data-id="${block.id}"
         aria-expanded="${!collapsed}" title="${collapsed ? "Expand" : "Collapse"} block">
         ${collapsed ? "▸" : "▾"}</button>
-      <span class="session-date">${blockLabel(block)}</span>
+      <input type="text" class="block-title" data-id="${block.id}"
+        value="${escapeHtml(block.title)}" placeholder="${escapeHtml(blockDate(block))}"
+        title="Block name (defaults to its date)">
+      <span class="block-index" title="Block number">#${blockIndex(block)}</span>
       ${isCurrent ? `<span class="block-badge">current</span>` : ""}
       ${block.closed ? `<span class="block-badge block-closed"
         title="Closed before reaching ${blockState.blockSize} games">closed early</span>` : ""}
       <span class="muted">${block.games.length}/${blockState.blockSize} games
         ${block.games.length ? `· ${wins}–${block.games.length - wins}` : ""}</span>
-      <input type="text" class="block-title" data-id="${block.id}"
-        value="${escapeHtml(block.title)}" placeholder="block title…">
-      <span class="session-actions">
+      <span class="session-actions block-head-right">
+        ${seriesBubble}
         ${isCurrent && !block.complete && block.games.length ? `<button class="preset block-close"
           data-id="${block.id}" title="Close this block before it reaches ${blockState.blockSize} games">
           Close early</button>` : ""}
@@ -561,11 +569,11 @@ function blockCard(block, isCurrent) {
       </span>
     </div>`;
   if (collapsed) {
-    return `<div class="session-card block-card" id="block-card-${block.id}">${head}</div>`;
+    return `<div class="session-card block-card${isCurrent ? " block-current" : ""}" id="block-card-${block.id}">${head}</div>`;
   }
   const thead = sortableThead(visibleBlockGameCols(), blockState.gameSort, "<th></th>", "<th></th>");
   const sortedGames = sortRows(block.games, blockState.gameSort, BLOCK_GAME_COLS_ALL);
-  return `<div class="session-card block-card" id="block-card-${block.id}">
+  return `<div class="session-card block-card${isCurrent ? " block-current" : ""}" id="block-card-${block.id}">
     ${head}
     ${blockPoolChips(block.pool)}
     ${blockRankLine(block)}
@@ -578,6 +586,12 @@ function blockCard(block, isCurrent) {
 
 function renderBlocks() {
   $("#new-series-btn").classList.toggle("hidden", !blockState.seriesEnabled);
+  // show the active (current) series name next to the button — the series of
+  // the newest block, which is where new blocks land
+  const current = blockState.blocks.length
+    ? blockState.blocks.reduce((a, b) => (b.id > a.id ? b : a)) : null;
+  $("#active-series-name").textContent =
+    blockState.seriesEnabled && current ? `Series: ${current.series_title}` : "";
   const target = $("#blocks-list");
   if (!blockState.blocks.length) {
     target.innerHTML = `<div class="muted">No blocks yet — add a game below to start your first block.</div>`;

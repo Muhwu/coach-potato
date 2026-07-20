@@ -1183,6 +1183,14 @@ def test_block_timeline_backfill_counts_pending_without_starting_when_busy(clien
     monkeypatch.setitem(app_module.CRAWL_STATE, "running", False)
 
 
+def test_date_format_setting(client):
+    assert client.get("/api/settings").json()["date_format"] == "iso"  # default
+    for fmt in ("us", "eu", "iso"):
+        assert _put_settings(client, date_format=fmt).status_code == 200
+        assert client.get("/api/settings").json()["date_format"] == fmt
+    assert _put_settings(client, date_format="klingon").status_code == 400
+
+
 def test_block_indices_gapless_after_delete(client):
     games = client.get("/api/stats/games").json()
     client.post("/api/blocks/games",

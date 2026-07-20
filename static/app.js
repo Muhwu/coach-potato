@@ -16,6 +16,7 @@ const state = {
   ddragonVersion: null,
   ddragonVersions: [], // recent DDragon versions, newest first (patch picker)
   poolOrder: null, // champion pool flattened in priority order; null = not fetched
+  dateFormat: "iso", // iso | us | eu — drives fmtDate/fmtTime
 };
 
 const QUEUE_NAMES = { 400: "Normal Draft", 420: "Ranked Solo", 430: "Normal Blind",
@@ -58,12 +59,28 @@ function fmtDuration(seconds) {
   return `${Math.floor(seconds / 60)}:${String(Math.round(seconds) % 60).padStart(2, "0")}`;
 }
 
+// date/time rendering honours the user's date_format setting
+// (state.dateFormat: "iso" YYYY-MM-DD / "us" M/D/YYYY / "eu" D/M/YYYY;
+// iso & eu use 24h time, us uses 12h). Full year — blocks now show dates.
 function fmtDate(ms) {
-  return new Date(ms).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" });
+  const d = new Date(ms);
+  const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  if (state.dateFormat === "us") return `${m}/${day}/${y}`;
+  if (state.dateFormat === "eu") return `${day}/${m}/${y}`;
+  return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`; // iso (default)
+}
+
+function fmtTime(ms) {
+  const d = new Date(ms);
+  if (state.dateFormat === "us") {
+    const h = d.getHours(), am = h < 12 ? "AM" : "PM", h12 = h % 12 || 12;
+    return `${h12}:${String(d.getMinutes()).padStart(2, "0")} ${am}`;
+  }
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function fmtDateTime(ms) {
-  return `${fmtDate(ms)} ${new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  return `${fmtDate(ms)} ${fmtTime(ms)}`;
 }
 
 function titleCase(tier) {
@@ -1275,6 +1292,7 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-block-series").checked = Boolean(data.block_series_enabled);
+  $("#setting-date-format").value = data.date_format || "iso";
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // pool chips + legacy select need display names
   loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
@@ -1442,6 +1460,7 @@ async function initSettings() {
         block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         block_series_enabled: $("#setting-block-series").checked,
+        date_format: $("#setting-date-format").value,
         hide_my_rank: $("#setting-hide-rank").checked,
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
@@ -1456,6 +1475,10 @@ async function initSettings() {
       }
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
+      if (state.dateFormat !== body.date_format) {
+        state.dateFormat = body.date_format;
+        refresh(); // re-render visible dates in the new format
+      }
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -1741,6 +1764,7 @@ async function init(firstLoad = true) {
     checkForUpdates();
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
+    state.dateFormat = settings.date_format || "iso";
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);
