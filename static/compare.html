@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compare</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* standalone comparison window — reuses .cmp-* from style.css */
+  body { max-width: none; padding: 18px; }
+  .cmp-title { font-size: 18px; margin: 0 0 4px; }
+  .cmp-sub { margin: 0 0 14px; }
+  .cmp-note { color: var(--muted); font-size: 12px; margin-top: 16px; }
+  .cmp-game .cmp-kda { width: 58px; }
+</style>
+</head>
+<body class="cmp-doc">
+<h1 class="cmp-title" id="title">Comparison</h1>
+<p class="cmp-sub muted" id="subtitle"></p>
+<div class="cmp-cards" id="cards"><p class="muted">Loading…</p></div>
+<p class="cmp-note">Runes are what each player actually ran in recent games.
+  Item builds for other players aren't tracked yet.</p>
+<script>
+const P = new URLSearchParams(location.search);
+const my = P.get("my") || "", opp = P.get("opp") || "";
+document.getElementById("title").textContent = `${opp} matchup — other players`;
+document.getElementById("subtitle").textContent = `Playing ${my} into ${opp}`;
+document.title = `Compare · ${my} vs ${opp}`;
+
+// name -> icon maps, built from the same runes.json the guide uses
+const treeIcon = {}, runeIconMap = {};
+async function loadRunes() {
+  try {
+    const d = await (await fetch("runes.json")).json();
+    (d.trees || []).forEach((t) => {
+      treeIcon[t.name] = t.icon;
+      (t.rows || []).forEach((row) =>
+        (row.runes || []).forEach((r) => { runeIconMap[r.name] = r.icon; }));
+    });
+  } catch (e) { /* icons just won't render; stats still do */ }
+}
+const ddImg = (i) => (i ? `https://ddragon.leagueoflegends.com/cdn/img/${i}` : "");
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function img(url, size, title) {
+  return url ? `<img src="${url}" width="${size}" height="${size}" title="${esc(title)}"
+    style="border-radius:50%;vertical-align:middle">` : "";
+}
+function runeStrip(page) {
+  if (!page) return "<span class='muted'>no runes recorded</span>";
+  const ks = img(ddImg(runeIconMap[page.keystone]), 22, page.keystone);
+  const minors = (page.primary_runes || []).filter(Boolean)
+    .map((n) => img(ddImg(runeIconMap[n]), 13, n)).join("");
+  const sec = img(ddImg(treeIcon[page.secondary_tree]), 16, page.secondary_tree);
+  const secMinors = (page.secondary_runes || []).filter(Boolean)
+    .map((n) => img(ddImg(runeIconMap[n]), 13, n)).join("");
+  return `<span class="cmp-runes">${ks}${minors}<span style="width:6px"></span>${sec}${secMinors}</span>`;
+}
+
+const pct = (v) => (v == null ? "—" : Math.round(v * 100) + "%");
+const num = (v, d = 1) => (v == null ? "—" : (+v).toFixed(d));
+const kda = (s) => (s.games ? `${num(s.kills)}/${num(s.deaths)}/${num(s.assists)}` : "—");
+function statRow(label, val) {
+  return `<div class="cmp-stat"><span class="cmp-stat-l">${label}</span><span>${val}</span></div>`;
+}
+function aggLine(s) {
+  return s.games
+    ? `${s.games} games · ${pct(s.winrate)} · ${kda(s)} · ${num(s.cs_min)} CS/min`
+    : "no games recorded";
+}
+function deltaRow(s) {
+  const m = s.metrics || {}, parts = [];
+  if (m.cs_diff_14 != null) parts.push(`ΔCS ${(+m.cs_diff_14).toFixed(1)}`);
+  if (m.gold_diff_14 != null) parts.push(`ΔGold ${Math.round(+m.gold_diff_14)}`);
+  return parts.length ? statRow("Lane Δ @14m", parts.join(" · ")) : "";
+}
+function card(p) {
+  const recent = (p.recent || []).slice(0, 10).map((g) => `<div class="cmp-game">
+      <span class="cmp-res ${g.win ? "w" : "l"}">${g.win ? "W" : "L"}</span>
+      <span class="muted cmp-kda">${num(g.kills, 0)}/${num(g.deaths, 0)}/${num(g.assists, 0)}</span>
+      ${runeStrip(g.runes)}</div>`).join("")
+    || "<p class='muted'>No recent games — use \"Fetch more\" in Settings.</p>";
+  return `<div class="cmp-card">
+    <h2>${esc(p.game_name)}<span class="muted">#${esc(p.tag_line)}</span></h2>
+    ${statRow(`This matchup vs ${esc(opp)}`, aggLine(p.matchup))}
+    ${deltaRow(p.matchup)}
+    ${statRow(`Overall on ${esc(my)}`, aggLine(p.overall))}
+    <h3>Recent games &amp; runes</h3>${recent}
+  </div>`;
+}
+
+(async function () {
+  await loadRunes();
+  let data;
+  try {
+    data = await (await fetch(`api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
+      + `&opp_champion=${encodeURIComponent(opp)}`)).json();
+  } catch (e) {
+    document.getElementById("cards").innerHTML = "<p class='muted'>Failed to load comparison.</p>";
+    return;
+  }
+  const players = data.players || [];
+  document.getElementById("cards").innerHTML = players.length
+    ? players.map(card).join("")
+    : "<p class='muted'>No enabled comparison players — add them in "
+      + "Settings → Research &amp; comparison.</p>";
+})();
+</script>
+</body>
+</html>

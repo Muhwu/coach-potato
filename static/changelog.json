@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.45.0",
+      "date": "2026-07-21",
+      "items": [
+        "Compare yourself against other players — add them by Riot ID in Settings → Research & comparison, then hit the ⧉ button on a Matchup guide row to open a side-by-side window with their stats, runes and recent games in that matchup (great for a second screen while you theorycraft). Each player can be toggled on/off, and their games are fetched on demand: the last 60 days by default, with a \"Fetch more\" button to widen the window"
+      ]
+    },
+    {
       "version": "1.44.1",
       "date": "2026-07-21",
       "items": [

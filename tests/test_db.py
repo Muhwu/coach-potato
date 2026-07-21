@@ -573,6 +573,22 @@ def test_matchup_notes_skill_order_column_migration(tmp_path):
     c.close()
 
 
+def test_comparison_players_crud_and_limit(tmp_path):
+    c = db.connect(tmp_path / "cp.sqlite")
+    for i in range(db.MAX_COMPARISON_PLAYERS):
+        assert db.add_comparison_player(c, f"p{i}", f"Name{i}", "EUW") is True
+    # one past the max is rejected
+    assert db.add_comparison_player(c, "over", "TooMany", "EUW") is False
+    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS
+    db.set_comparison_enabled(c, "p0", False)
+    assert "p0" not in db.comparison_puuids(c, enabled_only=True)
+    assert db.bump_comparison_lookback(c, "p1") == 2 * db.COMPARISON_LOOKBACK_DAYS
+    db.remove_comparison_player(c, "p0")
+    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS - 1
+    assert db.add_comparison_player(c, "again", "Again", "EUW") is True  # slot freed
+    c.close()
+
+
 def test_participant_metrics_gains_new_columns_on_upgrade(tmp_path):
     """Adding a metric to the registry must additively grow an existing
     participant_metrics table (CREATE TABLE IF NOT EXISTS won't) and add the

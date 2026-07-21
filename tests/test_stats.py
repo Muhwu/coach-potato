@@ -200,6 +200,19 @@ def test_summary_recent_includes_runes_actually_played(conn):
     assert s["recent"][0]["opp_runes"]["keystone"] == "Grasp of the Undying"
 
 
+def test_comparison_for_matchup_scopes_to_player(conn):
+    # a comparison player's own games on Gwen vs Darius, isolated from ME
+    other = "cmp-puuid-1"
+    add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other)
+    add_match(conn, my_champ="Gwen", opp_champ="Sett", win=False, puuid=other)
+    data = stats.comparison_for_matchup(conn, other, "Gwen", "Darius")
+    assert data["matchup"]["games"] == 1          # only vs Darius
+    assert data["overall"]["games"] == 2          # all Gwen games
+    assert len(data["recent"]) == 1
+    # ME has no such games, so ME's comparison view is empty
+    assert stats.comparison_for_matchup(conn, ME, "Gwen", "Darius")["matchup"]["games"] == 0
+
+
 DAY_MS = 86_400_000
 # 2026-06-28 00:00 UTC
 S1_MS = 1_782_604_800_000

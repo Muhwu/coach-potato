@@ -1187,3 +1187,55 @@ footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px;
 .clip-add-row input[type="file"] { font-size: 12px; max-width: 200px; }
 .clip-add-row input[type="url"] { flex: 1; min-width: 160px; }
 .clip-add-status { font-size: 12px; }
+
+/* ---- Research & comparison (Settings) ---- */
+.comparison-player {
+  display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.comparison-player:last-child { border-bottom: none; }
+.comparison-name { font-weight: 600; }
+.comparison-name .muted { font-weight: 400; }
+.comparison-games { margin-left: auto; }
+.comparison-player .cmp-more { font-size: 12px; padding: 2px 8px; }
+
+/* ---- comparison ("research" players) window + in-app overlay ---- */
+/* Shared by the pop-out browser window (which <link>s this file) and the
+   in-app overlay fallback used when pop-ups are blocked (desktop webview). */
+.cmp-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: flex-start; justify-content: center;
+  overflow: auto; padding: 24px;
+}
+.cmp-overlay-inner {
+  position: relative; width: 100%; max-width: 940px;
+  background: var(--page-solid); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 24px;
+}
+.cmp-close { position: absolute; top: 10px; right: 10px; }
+.cmp-title { font-size: 18px; margin: 0 0 14px; }
+.cmp-cards { display: flex; flex-wrap: wrap; gap: 14px; }
+.cmp-card {
+  flex: 1 1 300px; background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+}
+.cmp-card h2 { font-size: 15px; margin: 0 0 8px; }
+.cmp-card h3 {
+  font-size: 11px; text-transform: uppercase; color: var(--muted);
+  margin: 12px 0 6px; letter-spacing: 0.05em;
+}
+.cmp-you { border-color: var(--series-1); }
+.cmp-stat {
+  display: flex; justify-content: space-between; gap: 10px; font-size: 13px;
+  padding: 3px 0; border-bottom: 1px solid var(--border);
+}
+.cmp-stat-l { color: var(--text-secondary); }
+.cmp-game { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.cmp-res { font-weight: 700; width: 16px; }
+.cmp-res.w { color: var(--good); }
+.cmp-res.l { color: var(--critical); }
+.cmp-rune, .cmp-runes { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.cmp-rune { margin: 6px 0; }
+.cmp-rune span { font-size: 12px; color: var(--text-secondary); }
+.cmp-card img { vertical-align: middle; border-radius: 50%; }

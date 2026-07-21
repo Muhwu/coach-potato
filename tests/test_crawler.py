@@ -402,3 +402,24 @@ def test_refresh_tracked_ranks_appends_rank_history(conn):
         (TRACKED_PUUID,)).fetchall()
     assert [(r["solo_tier"], r["solo_lp"], r["fetched_at_ms"]) for r in rows] == [
         ("DIAMOND", 12, 1_800_000_000_000), ("DIAMOND", 30, 1_800_000_100_000)]
+
+
+def test_comparison_player_stored_without_tracking(conn):
+    """A comparison ('research') player is crawled with is_tracked=False: their
+    match metrics + runes are stored (so the guide can compare against them),
+    but their players row stays untracked, keeping them out of tracked stats."""
+    match = match_json("EUW1_1", 1_700_000_000_000)  # opp shares TOP lane
+    tracked = next(p for p in match["info"]["participants"]
+                   if p["puuid"] == TRACKED_PUUID)
+    tracked["challenges"] = {"laneMinionsFirst10Minutes": 77}
+    tracked["perks"] = PERKS
+    db.add_comparison_player(conn, TRACKED_PUUID, "Rival", "EUW")
+    make_crawler(FakeClient([match]), conn).crawl_player(
+        "Rival", "EUW", queues=(420,), is_tracked=False)
+    assert conn.execute("SELECT is_tracked FROM players WHERE puuid=?",
+                        (TRACKED_PUUID,)).fetchone()["is_tracked"] == 0
+    assert conn.execute("SELECT cs_at_10 FROM participant_metrics WHERE puuid=?",
+                        (TRACKED_PUUID,)).fetchone()["cs_at_10"] == 77
+    runes = conn.execute("SELECT runes FROM participant_runes WHERE puuid=?",
+                         (TRACKED_PUUID,)).fetchone()
+    assert json.loads(runes["runes"])["primary_tree"] == "Precision"

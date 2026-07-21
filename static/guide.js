@@ -586,6 +586,8 @@ function guideRow(m) {
         title="One Pager — full-screen quick reference" aria-label="One Pager">📄</button>
       <button class="preset icon-btn guide-cd-link" data-opp="${escapeHtml(champ)}"
         title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>
+      ${state.enableComparison ? `<button class="preset icon-btn guide-compare-link" data-opp="${escapeHtml(champ)}"
+        title="Compare vs other players — opens a side-by-side window" aria-label="Compare vs other players">⧉</button>` : ""}
       ${editing || !hasAny ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
         title="Edit matchup guide" aria-label="Edit matchup guide">✎</button>`}
     </div>
@@ -715,6 +717,8 @@ function wireGuideHandlers(target) {
       openCooldowns(guideState.myChampion, btn.dataset.opp))); // cooldowns.js
   target.querySelectorAll(".guide-op-link").forEach((btn) =>
     btn.addEventListener("click", () => openOnePager(btn.dataset.opp)));
+  target.querySelectorAll(".guide-compare-link").forEach((btn) =>
+    btn.addEventListener("click", () => openComparisonWindow(btn.dataset.opp)));
   target.querySelectorAll(".guide-build-clear").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const opp = btn.dataset.opp;
@@ -837,6 +841,89 @@ function wireGuideHandlers(target) {
 // deep link from the Matchups table's 📖 button — sets pending state and
 // lets setMainView's normal initGuide() call apply it once loaded, so we
 // don't race two concurrent initGuide() calls against each other
+// ---------- comparison ("research") players: opens beside the guide so you can
+// theorycraft against them. Real pop-out window in a browser; falls back to an
+// in-app overlay when window.open is blocked — the desktop app runs in a
+// pywebview window that blocks pop-ups, so the overlay is what shows there.
+// Styling lives in style.css (.cmp-*), shared by both paths. ----------
+
+function comparisonBodyHtml(my, opp, data) {
+  const smallRunes = { keystoneSize: 20, minorSize: 12, treeSize: 14, shardSize: 10 };
+  const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+  const kda = (s) => (s.games ? `${(s.kills || 0).toFixed(1)}/${(s.deaths || 0).toFixed(1)}`
+    + `/${(s.assists || 0).toFixed(1)}` : "—");
+  const csmin = (s) => (s.games && s.cs_min ? ` · ${s.cs_min.toFixed(1)} CS/min` : "");
+  const statLine = (label, s) => `<div class="cmp-stat"><span class="cmp-stat-l">${label}</span>
+    <span>${s.games || 0} games · ${pct(s.winrate)}${s.games ? ` · ${kda(s)}${csmin(s)}` : ""}</span></div>`;
+  const recentRunes = (recent) => (recent && recent.length
+    ? recent.slice(0, 8).map((g) => `<div class="cmp-game">
+        <span class="cmp-res ${g.win ? "w" : "l"}">${g.win ? "W" : "L"}</span>
+        <span class="cmp-runes">${g.runes ? runePageIcons(g.runes, smallRunes)
+          : "<span class='muted'>no runes recorded</span>"}</span></div>`).join("")
+    : `<p class="muted">No recent games recorded — add or "Fetch more" in Settings.</p>`);
+
+  const cards = (data.players || []).map((p) => `<div class="cmp-card"><h2>${escapeHtml(p.game_name)}
+    <span class="muted">#${escapeHtml(p.tag_line)}</span></h2>
+    ${statLine(`This matchup vs ${displayName(opp)}`, p.matchup)}
+    ${statLine(`Overall on ${displayName(my)}`, p.overall)}
+    <h3>Recent runes played</h3>${recentRunes(p.recent)}</div>`).join("")
+    || `<div class="cmp-card"><p class="muted">No enabled comparison players — add them in
+        Settings → Research &amp; comparison.</p></div>`;
+
+  return `<h1 class="cmp-title">${displayName(opp)} matchup — other players</h1>
+    <div class="cmp-cards">${cards}</div>`;
+}
+
+function showComparisonOverlay(inner) {
+  let overlay = document.getElementById("compare-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "compare-overlay";
+    overlay.className = "cmp-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `<div class="cmp-overlay-inner">
+    <button class="preset icon-btn cmp-close" title="Close (Esc)" aria-label="Close">✕</button>
+    ${inner}</div>`;
+  overlay.classList.remove("hidden");
+  function close() { overlay.classList.add("hidden"); document.removeEventListener("keydown", onKey); }
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  overlay.querySelector(".cmp-close").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", onKey);
+}
+
+async function openComparisonWindow(opp) {
+  const my = guideState.myChampion;
+  const url = `compare.html?my=${encodeURIComponent(my)}&opp=${encodeURIComponent(opp)}`;
+  const pw = (typeof window.pywebview !== "undefined") ? window.pywebview : null;
+  // Desktop app: ask Python (pywebview) to open a real, independent second
+  // native window — the main window stays fully interactive so you can keep
+  // typing notes while it's open. (window.open here would trip the WebView2
+  // "open in the Store?" prompt, so we never call it in the desktop app.)
+  if (pw && pw.api && typeof pw.api.open_compare === "function") {
+    try { await pw.api.open_compare(my, opp); return; }
+    catch (e) { /* fall through to the overlay */ }
+  }
+  // Browser: a normal, independent pop-out window pointed at the standalone page.
+  if (!pw) {
+    let win = null;
+    try {
+      win = window.open(url, `cp-compare-${my}-${opp}`,
+        "width=820,height=960,scrollbars=yes,resizable=yes");
+    } catch (e) { win = null; }
+    if (win) return;
+  }
+  // Last resort (older desktop build without the api, or a blocked browser
+  // pop-up): an in-app overlay — not free-floating, but keeps it usable.
+  let data;
+  try {
+    data = await getJSON(`/api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
+      + `&opp_champion=${encodeURIComponent(opp)}`);
+  } catch (e) { alert("Failed to load the comparison."); return; }
+  showComparisonOverlay(comparisonBodyHtml(my, opp, data));
+}
+
 function openGuide(myChampion, oppChampion) {
   guideState.myChampion = myChampion;
   guideState.pendingFocus = oppChampion;

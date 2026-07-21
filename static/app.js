@@ -1305,6 +1305,90 @@ async function refreshLegacySection() {
   }
 }
 
+// ---------- comparison ("research") players (Settings) ----------
+async function loadComparisonPlayers() {
+  const list = $("#comparison-players-list");
+  if (!list) return;
+  let data;
+  try { data = await getJSON("/api/comparison-players"); }
+  catch { list.innerHTML = ""; return; }
+  state.comparisonMax = data.max;
+  renderComparisonPlayers(data.players || []);
+}
+
+function renderComparisonPlayers(players) {
+  const list = $("#comparison-players-list");
+  if (!list) return;
+  const max = state.comparisonMax || 5;
+  list.innerHTML = players.length
+    ? players.map((p) => `
+      <div class="comparison-player" data-puuid="${p.puuid}">
+        <label class="comparison-enable" title="Show this player in the guide comparison">
+          <input type="checkbox" class="cmp-enable" ${p.enabled ? "checked" : ""}></label>
+        <span class="comparison-name">${escapeHtml(p.game_name)}<span class="muted">#${escapeHtml(p.tag_line)}</span></span>
+        <span class="muted comparison-games">${p.games} game${p.games === 1 ? "" : "s"} · ${p.lookback_days}d</span>
+        <button class="preset cmp-more" type="button" title="Fetch &amp; store more of this player's games">Fetch more</button>
+        <button class="preset icon-btn cmp-remove" type="button" title="Remove">✕</button>
+      </div>`).join("")
+    : `<p class="muted">No comparison players yet — add up to ${max}.</p>`;
+  $("#comparison-add-input").disabled = players.length >= max;
+  $("#comparison-add").disabled = players.length >= max;
+  list.querySelectorAll(".cmp-enable").forEach((cb) =>
+    cb.addEventListener("change", () =>
+      toggleComparisonPlayer(cb.closest(".comparison-player").dataset.puuid, cb.checked)));
+  list.querySelectorAll(".cmp-more").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      comparisonFetchMore(btn.closest(".comparison-player").dataset.puuid, btn)));
+  list.querySelectorAll(".cmp-remove").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      removeComparisonPlayer(btn.closest(".comparison-player").dataset.puuid)));
+}
+
+async function addComparisonPlayer() {
+  const input = $("#comparison-add-input");
+  const riotId = input.value.trim();
+  if (!riotId) return;
+  const status = $("#comparison-status");
+  status.textContent = `looking up ${riotId} and fetching recent games…`;
+  const res = await fetch("/api/comparison-players", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ riot_id: riotId }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.ok) {
+    input.value = "";
+    status.textContent = `added ${body.game_name}#${body.tag_line} — ${body.games} game(s) stored`;
+    loadComparisonPlayers();
+  } else {
+    status.textContent = body.detail || `error ${res.status}`;
+  }
+}
+
+async function comparisonFetchMore(puuid, btn) {
+  const status = $("#comparison-status");
+  btn.disabled = true; btn.textContent = "fetching…";
+  const res = await fetch(`/api/comparison-players/${encodeURIComponent(puuid)}/fetch-more`,
+    { method: "POST" });
+  const body = await res.json().catch(() => ({}));
+  status.textContent = res.ok
+    ? `fetched ${body.new_matches} more — ${body.games} game(s), last ${body.lookback_days} days`
+    : (body.detail || `error ${res.status}`);
+  loadComparisonPlayers();
+}
+
+async function toggleComparisonPlayer(puuid, enabled) {
+  await fetch(`/api/comparison-players/${encodeURIComponent(puuid)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+async function removeComparisonPlayer(puuid) {
+  if (!confirm("Remove this comparison player? Their fetched games stay in the db.")) return;
+  await fetch(`/api/comparison-players/${encodeURIComponent(puuid)}`, { method: "DELETE" });
+  loadComparisonPlayers();
+}
+
 async function initSettings() {
   await loadChampionRoster(); // populates the shared #champ-list datalist
   const data = await getJSON("/api/settings");
@@ -1325,6 +1409,10 @@ async function initSettings() {
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-block-series").checked = Boolean(data.block_series_enabled);
   $("#setting-date-format").value = data.date_format || "iso";
+  $("#setting-enable-comparison").checked = Boolean(data.enable_player_comparison);
+  $("#comparison-card").classList.toggle("hidden", !data.enable_player_comparison);
+  state.enableComparison = Boolean(data.enable_player_comparison);
+  loadComparisonPlayers();
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // pool chips + legacy select need display names
   loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
@@ -1341,6 +1429,12 @@ async function initSettings() {
   settingsUi.wired = true;
   $("#pool-save").addEventListener("click", savePool); // blocks.js
   wireChipBoxes(); // blocks.js — chip add/remove/drag inside #pool-card
+  $("#setting-enable-comparison").addEventListener("change", (e) =>
+    $("#comparison-card").classList.toggle("hidden", !e.target.checked));
+  $("#comparison-add").addEventListener("click", addComparisonPlayer);
+  $("#comparison-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addComparisonPlayer(); }
+  });
   $("#import-all-btn").addEventListener("click", async () => {
     const status = $("#import-all-status");
     const file = $("#import-all-file").files[0];
@@ -1493,6 +1587,7 @@ async function initSettings() {
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         block_series_enabled: $("#setting-block-series").checked,
         date_format: $("#setting-date-format").value,
+        enable_player_comparison: $("#setting-enable-comparison").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
@@ -1511,6 +1606,8 @@ async function initSettings() {
         state.dateFormat = body.date_format;
         refresh(); // re-render visible dates in the new format
       }
+      state.enableComparison = Boolean(body.enable_player_comparison);
+      $("#comparison-card").classList.toggle("hidden", !body.enable_player_comparison);
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -1798,6 +1895,7 @@ async function init(firstLoad = true) {
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
     state.dateFormat = settings.date_format || "iso";
+    state.enableComparison = Boolean(settings.enable_player_comparison);
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

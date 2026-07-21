@@ -23,23 +23,35 @@ class Crawler:
         self.status_cb = status_cb or (lambda msg: None)
         self.now_ms = now_ms
 
-    def crawl_player(self, game_name, tag_line, queues=(420, 440), limit=None):
+    def crawl_player(self, game_name, tag_line, queues=(420, 440), limit=None,
+                     is_tracked=True, since_s=None):
         """Fetch and store all new matches for one account.
 
         limit caps the number of *new* match-detail fetches (across queues),
         for small test batches. An interrupted/limited crawl leaves the
         watermark incomplete so the next run re-pages full history (details
         already stored are skipped, so this is cheap).
+
+        is_tracked=False crawls a comparison ("research") player: their match
+        detail/metrics/runes are stored the same way (so the Matchup guide can
+        compare against them) but their `players` row stays untracked, keeping
+        them out of your own tracked stats. upsert never demotes an existing
+        tracked player (is_tracked is MAX-merged).
+
+        since_s (epoch seconds) bounds the match-id lookup to games on/after
+        that time — used to keep comparison-player fetches to a small recent
+        window (e.g. the last 60 days) so the API isn't asked for a stranger's
+        entire history.
         """
         account = self.client.get_account(game_name, tag_line)
         puuid = account["puuid"]
         db.upsert_player(self.conn, puuid, account.get("gameName", game_name),
-                         account.get("tagLine", tag_line), is_tracked=True)
+                         account.get("tagLine", tag_line), is_tracked=is_tracked)
         new_matches = 0
         for queue in queues:
             newest_ms, complete = db.get_crawl_watermark(self.conn, puuid, queue)
-            start_time = None
-            if complete and newest_ms:
+            start_time = since_s  # comparison lookback window (epoch s), if given
+            if start_time is None and complete and newest_ms:
                 start_time = max(0, newest_ms // 1000 - OVERLAP_S)
             start = 0
             reached_limit = False
@@ -81,6 +93,15 @@ class Crawler:
         return {r["puuid"] for r in
                 self.conn.execute("SELECT puuid FROM players WHERE is_tracked=1")}
 
+    def _stored_puuids(self):
+        """Tracked players plus comparison ('research') players — everyone
+        whose per-match metrics and runes we store, so the Matchup guide can
+        compare you against them. Comparison players stay out of tracked-only
+        stats; this set is only about what per-match detail we keep."""
+        return {r["puuid"] for r in self.conn.execute(
+            "SELECT puuid FROM players WHERE is_tracked=1 "
+            "UNION SELECT puuid FROM comparison_players")}
+
     def _lane_opponent(self, match_json, puuid):
         """Enemy in the same teamPosition (the direct lane opponent), or None."""
         participants = match_json["info"]["participants"]
@@ -106,11 +127,11 @@ class Crawler:
         None), also fill the lane-delta columns and mark has_timeline=1 so the
         backfill skips the match. Omitting `timeline` (backfill_metrics path)
         leaves the timeline columns untouched."""
-        tracked = self._tracked_puuids()
+        stored = self._stored_puuids()
         match_id = match_json["metadata"]["matchId"]
         attempted_timeline = timeline is not _NO_TIMELINE
         for participant in match_json["info"]["participants"]:
-            if participant["puuid"] not in tracked:
+            if participant["puuid"] not in stored:
                 continue
             puuid = participant["puuid"]
             values = parse_metrics(match_json, puuid)
@@ -125,7 +146,8 @@ class Crawler:
         lack a participant_metrics row. Returns matches fetched."""
         rows = self.conn.execute(
             """SELECT DISTINCT p.match_id FROM participants p
-               JOIN players pl ON pl.puuid = p.puuid AND pl.is_tracked = 1
+               JOIN players pl ON pl.puuid = p.puuid
+                 AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
                LEFT JOIN participant_metrics pm
                  ON pm.match_id = p.match_id AND pm.puuid = p.puuid
                WHERE pm.match_id IS NULL"""
@@ -142,14 +164,16 @@ class Crawler:
     def _store_runes(self, match_json):
         """Stores runes for tracked participants AND their lane opponent
         (same teamPosition, other team) — the Overview/Champ-guide recent-
-        games lists show both sides of the matchup, not just your own pick."""
-        tracked = self._tracked_puuids()
+        games lists show both sides of the matchup, not just your own pick.
+        Comparison ('research') players are stored too (same as tracked), so
+        their actual rune pages are available in the guide comparison."""
+        stored = self._stored_puuids()
         match_id = match_json["metadata"]["matchId"]
         participants = match_json["info"]["participants"]
         by_puuid = {p["puuid"]: p for p in participants}
         wanted = set()
         for p in participants:
-            if p["puuid"] not in tracked:
+            if p["puuid"] not in stored:
                 continue
             wanted.add(p["puuid"])
             pos = p.get("teamPosition")
@@ -169,7 +193,8 @@ class Crawler:
         matches fetched."""
         rows = self.conn.execute(
             """SELECT DISTINCT me.match_id FROM participants me
-               JOIN players pl ON pl.puuid = me.puuid AND pl.is_tracked = 1
+               JOIN players pl ON pl.puuid = me.puuid
+                 AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
                LEFT JOIN participant_runes pr_me
                  ON pr_me.match_id = me.match_id AND pr_me.puuid = me.puuid
                LEFT JOIN participants opp
@@ -205,7 +230,8 @@ class Crawler:
             f"""SELECT me.match_id, me.puuid, opp.puuid AS opp_puuid
                FROM participant_metrics pm
                JOIN participants me ON me.match_id = pm.match_id AND me.puuid = pm.puuid
-               JOIN players pl ON pl.puuid = me.puuid AND pl.is_tracked = 1
+               JOIN players pl ON pl.puuid = me.puuid
+                 AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
                LEFT JOIN participants opp
                  ON opp.match_id = me.match_id AND opp.team_id != me.team_id
                     AND opp.team_position = me.team_position AND me.team_position != ''
@@ -238,7 +264,8 @@ class Crawler:
                JOIN participants opp ON opp.match_id = me.match_id
                 AND opp.team_id != me.team_id
                 AND opp.team_position = me.team_position
-               JOIN players pl ON pl.puuid = me.puuid AND pl.is_tracked = 1
+               JOIN players pl ON pl.puuid = me.puuid
+                 AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
                LEFT JOIN player_ranks pr ON pr.puuid = opp.puuid
                WHERE me.team_position != ''
                  AND (pr.puuid IS NULL OR pr.fetched_at_ms < ?)""",
