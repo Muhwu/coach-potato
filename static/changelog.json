@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.44.1",
+      "date": "2026-07-21",
+      "items": [
+        "Fixed the Matchup guide not refreshing its game counts when you change the selected account (it needed a navigate-away-and-back before)"
+      ]
+    },
+    {
       "version": "1.44.0",
       "date": "2026-07-21",
       "items": [

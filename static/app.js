@@ -621,6 +621,7 @@ function accountSelectionChanged() {
   if (state.mainView === "matchups") initMatchups();
   else if (state.mainView === "progress") loadProgressFilterOptions().then(loadProgress);
   else if (state.mainView === "trends") initTrends(); // rebuilds filter options too
+  else if (state.mainView === "guide") loadGuide(); // refresh matchup game counts for the new scope
 }
 
 // ---------- data loading ----------
