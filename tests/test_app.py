@@ -689,6 +689,20 @@ def test_matchup_notes_accept_match_v5_champion_spelling(client):
     assert client.get("/api/matchups/notes?my_champion=Gwen").json()["FiddleSticks"]["notes"] == "ban worthy"
 
 
+def test_comparison_players_and_settings(client):
+    base = {"riot_api_key": "k", "accounts": ["A#B"], "platform": "euw1"}
+    r = client.put("/api/settings", json={**base, "enable_player_comparison": True})
+    assert r.status_code == 200 and r.json()["enable_player_comparison"] is True
+    assert client.get("/api/comparison-players").json() == {
+        "players": [], "max": db.MAX_COMPARISON_PLAYERS}
+    # comparison off -> empty player list even if some exist
+    client.put("/api/settings", json={**base, "enable_player_comparison": False})
+    assert client.get("/api/matchups/comparison",
+                      params={"my_champion": "Gwen", "opp_champion": "Darius"}).json() == {"players": []}
+    # PATCH validates the enabled flag
+    assert client.patch("/api/comparison-players/xyz", json={"enabled": "no"}).status_code == 400
+
+
 def test_champion_general_notes_endpoints(client):
     assert client.get("/api/champions/notes/Gwen").json() == {"notes": "", "runes": []}
     r = client.put("/api/champions/notes/Gwen", json={"notes": "- always take Conqueror"})

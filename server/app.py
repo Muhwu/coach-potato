@@ -177,6 +177,7 @@ def _extra_settings(conn):
         "accent_color": stored.get("accent_color") or None,
         "date_format": stored.get("date_format") or "iso",
         "runes_mode": stored.get("runes_mode") or "matchup",
+        "enable_player_comparison": stored.get("enable_player_comparison") == "1",
     }
 
 
@@ -290,6 +291,9 @@ def api_put_settings(body: dict):
     runes_mode = body.get("runes_mode", "matchup")
     if runes_mode not in ("matchup", "general"):
         raise HTTPException(400, "runes_mode must be one of: matchup, general")
+    enable_comparison = body.get("enable_player_comparison", False)
+    if not isinstance(enable_comparison, bool):
+        raise HTTPException(400, "enable_player_comparison must be a boolean")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -307,6 +311,7 @@ def api_put_settings(body: dict):
             "accent_color": accent_color or "",
             "date_format": date_format,
             "runes_mode": runes_mode,
+            "enable_player_comparison": "1" if enable_comparison else "0",
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -1474,6 +1479,167 @@ def api_live_game():
                                   and "championId" in p],
         }
     return {"found": False}
+
+
+# ---------- comparison ("research") players: up to N others you compare
+# yourself against in the Matchup guide. Fetched on demand in a small recent
+# window (last COMPARISON_LOOKBACK_DAYS days) so the API isn't asked for a
+# stranger's whole history; "fetch more" widens the window. ----------
+
+COMPARISON_FETCH_CAP = 40  # safety cap on games fetched per add / "fetch more"
+
+
+def _comparison_games(conn, puuid):
+    return conn.execute("SELECT COUNT(*) c FROM participants WHERE puuid=?",
+                        (puuid,)).fetchone()["c"]
+
+
+def _crawl_comparison_window(client, game_name, tag_line, since_s):
+    """Crawl one comparison player's recent games (since_s window, capped) into
+    the db inline. Small by design, so it runs in the request. Returns the
+    crawler result dict."""
+    from .crawler import Crawler
+    conn = db.connect(get_db_path())
+    try:
+        crawler = Crawler(client, conn)
+        return crawler.crawl_player(game_name, tag_line, limit=COMPARISON_FETCH_CAP,
+                                    is_tracked=False, since_s=since_s)
+    finally:
+        conn.close()
+
+
+@app.get("/api/comparison-players")
+def api_get_comparison_players():
+    conn = get_conn()
+    try:
+        players = db.list_comparison_players(conn)
+        for p in players:
+            p["enabled"] = bool(p["enabled"])
+            p["games"] = _comparison_games(conn, p["puuid"])
+        return {"players": players, "max": db.MAX_COMPARISON_PLAYERS}
+    finally:
+        conn.close()
+
+
+@app.post("/api/comparison-players")
+def api_add_comparison_player(body: dict):
+    from .riot_client import NotFoundError, RateLimiter, RiotClient
+    riot_id = (body.get("riot_id") or "").strip()
+    name, _, tag = riot_id.partition("#")
+    if not name.strip() or not tag.strip():
+        raise HTTPException(400, "player must be Name#TAG")
+    conn = get_conn()
+    try:
+        settings = config.resolve_settings(conn)
+        if not settings["configured"]:
+            raise HTTPException(400, "not configured — set your API key in Settings")
+        existing = db.list_comparison_players(conn)
+    finally:
+        conn.close()
+    client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+                        limiter=RateLimiter())
+    try:
+        account = client.get_account(name.strip(), tag.strip())
+    except NotFoundError:
+        raise HTTPException(404, f"no Riot account {riot_id!r}")
+    puuid = account["puuid"]
+    if (puuid not in {p["puuid"] for p in existing}
+            and len(existing) >= db.MAX_COMPARISON_PLAYERS):
+        raise HTTPException(409, f"at most {db.MAX_COMPARISON_PLAYERS} comparison players — "
+                                 "remove one first")
+    game_name = account.get("gameName", name.strip())
+    tag_line = account.get("tagLine", tag.strip())
+    # Register as a comparison player FIRST: the crawler only stores per-match
+    # metrics/runes for puuids in comparison_players (or tracked), so this must
+    # be committed before the crawl or the initial fetch would skip them.
+    conn = get_conn()
+    try:
+        db.add_comparison_player(conn, puuid, game_name, tag_line)
+    finally:
+        conn.close()
+    since_s = int(time.time()) - db.COMPARISON_LOOKBACK_DAYS * 86400
+    result = _crawl_comparison_window(client, game_name, tag_line, since_s)
+    conn = get_conn()
+    try:
+        games = _comparison_games(conn, puuid)
+    finally:
+        conn.close()
+    return {"puuid": puuid, "game_name": game_name, "tag_line": tag_line,
+            "new_matches": result["new_matches"], "games": games,
+            "lookback_days": db.COMPARISON_LOOKBACK_DAYS}
+
+
+@app.post("/api/comparison-players/{puuid}/fetch-more")
+def api_comparison_fetch_more(puuid: str):
+    from .riot_client import RateLimiter, RiotClient
+    conn = get_conn()
+    try:
+        settings = config.resolve_settings(conn)
+        row = next((p for p in db.list_comparison_players(conn) if p["puuid"] == puuid), None)
+        if row is None:
+            raise HTTPException(404, "not a comparison player")
+        if not settings["configured"]:
+            raise HTTPException(400, "not configured — set your API key in Settings")
+        new_days = db.bump_comparison_lookback(conn, puuid)
+    finally:
+        conn.close()
+    client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+                        limiter=RateLimiter())
+    since_s = int(time.time()) - new_days * 86400
+    result = _crawl_comparison_window(client, row["game_name"], row["tag_line"], since_s)
+    conn = get_conn()
+    try:
+        games = _comparison_games(conn, puuid)
+    finally:
+        conn.close()
+    return {"puuid": puuid, "new_matches": result["new_matches"], "games": games,
+            "lookback_days": new_days}
+
+
+@app.patch("/api/comparison-players/{puuid}")
+def api_patch_comparison_player(puuid: str, body: dict):
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(400, "enabled must be a boolean")
+    conn = get_conn()
+    try:
+        db.set_comparison_enabled(conn, puuid, enabled)
+    finally:
+        conn.close()
+    return {"puuid": puuid, "enabled": enabled}
+
+
+@app.delete("/api/comparison-players/{puuid}")
+def api_delete_comparison_player(puuid: str):
+    conn = get_conn()
+    try:
+        db.remove_comparison_player(conn, puuid)
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/matchups/comparison")
+def api_matchup_comparison(my_champion: str, opp_champion: str):
+    """Per enabled comparison player: their stats in this matchup, overall on
+    my_champion, and recent games with runes — for the guide's you-vs-them
+    panel. Returns [] players when comparison is off or none are enabled."""
+    _validate_champion(my_champion)
+    _validate_champion(opp_champion)
+    conn = get_conn()
+    try:
+        if db.get_settings(conn).get("enable_player_comparison") != "1":
+            return {"players": []}
+        out = []
+        for p in db.list_comparison_players(conn):
+            if not p["enabled"]:
+                continue
+            data = stats.comparison_for_matchup(conn, p["puuid"], my_champion, opp_champion)
+            out.append({"puuid": p["puuid"], "game_name": p["game_name"],
+                        "tag_line": p["tag_line"], **data})
+        return {"players": out}
+    finally:
+        conn.close()
 
 
 def _game_date(game):

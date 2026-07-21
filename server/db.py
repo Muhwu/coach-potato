@@ -174,6 +174,16 @@ CREATE TABLE IF NOT EXISTS research_screenshots (
 );
 CREATE INDEX IF NOT EXISTS idx_research_screenshots_entry ON research_screenshots(entry_id);
 
+CREATE TABLE IF NOT EXISTS comparison_players (
+    puuid TEXT PRIMARY KEY,
+    game_name TEXT NOT NULL DEFAULT '',
+    tag_line TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    lookback_days INTEGER NOT NULL DEFAULT 60,
+    sort INTEGER NOT NULL DEFAULT 0,
+    added_at_ms INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS rank_history (
     puuid TEXT NOT NULL,
     solo_tier TEXT,
@@ -352,6 +362,75 @@ def delete_account_data(conn, puuid):
                     "crawl_state", "player_ranks", "rank_history"):
             conn.execute(f"DELETE FROM {tbl} WHERE puuid=?", (puuid,))
         conn.execute("DELETE FROM players WHERE puuid=?", (puuid,))
+
+
+# ---------- comparison ("research") players: up to N others to compare
+# yourself against in the Matchup guide. Stored in their own table (separate
+# from tracked `players`) so each can be enabled/disabled independently, on or
+# off as you see fit, without touching your own tracked stats. Their match
+# data still lands in matches/participants like anyone else; this table just
+# records who they are and whether each is currently active. ----------
+
+MAX_COMPARISON_PLAYERS = 5
+COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
+
+
+def list_comparison_players(conn):
+    return [dict(r) for r in conn.execute(
+        "SELECT puuid, game_name, tag_line, enabled, lookback_days, sort, added_at_ms "
+        "FROM comparison_players ORDER BY sort, added_at_ms")]
+
+
+def comparison_puuids(conn, enabled_only=False):
+    sql = "SELECT puuid FROM comparison_players"
+    if enabled_only:
+        sql += " WHERE enabled=1"
+    return [r["puuid"] for r in conn.execute(sql)]
+
+
+def add_comparison_player(conn, puuid, game_name, tag_line):
+    """Insert a comparison player (enabled by default). Returns False without
+    inserting if the max is already reached (unless this puuid is already one,
+    in which case it's a no-op refresh of the display name)."""
+    existing = {r["puuid"] for r in conn.execute("SELECT puuid FROM comparison_players")}
+    if puuid not in existing and len(existing) >= MAX_COMPARISON_PLAYERS:
+        return False
+    nxt = conn.execute(
+        "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM comparison_players").fetchone()["n"]
+    with conn:
+        conn.execute(
+            f"""INSERT INTO comparison_players
+                  (puuid, game_name, tag_line, lookback_days, sort, added_at_ms)
+                VALUES (?, ?, ?, ?, ?, {_now_expr()})
+                ON CONFLICT(puuid) DO UPDATE SET
+                  game_name=excluded.game_name, tag_line=excluded.tag_line""",
+            (puuid, game_name, tag_line, COMPARISON_LOOKBACK_DAYS, nxt))
+    return True
+
+
+def remove_comparison_player(conn, puuid):
+    with conn:
+        conn.execute("DELETE FROM comparison_players WHERE puuid=?", (puuid,))
+
+
+def set_comparison_enabled(conn, puuid, enabled):
+    with conn:
+        conn.execute("UPDATE comparison_players SET enabled=? WHERE puuid=?",
+                     (1 if enabled else 0, puuid))
+
+
+def bump_comparison_lookback(conn, puuid, extra_days=COMPARISON_LOOKBACK_DAYS):
+    """Widen a comparison player's fetch window by extra_days (the "Fetch more"
+    action) and return the new lookback_days, or None if unknown."""
+    row = conn.execute("SELECT lookback_days FROM comparison_players WHERE puuid=?",
+                       (puuid,)).fetchone()
+    if row is None:
+        return None
+    new_days = row["lookback_days"] + extra_days
+    with conn:
+        conn.execute("UPDATE comparison_players SET lookback_days=? WHERE puuid=?",
+                     (new_days, puuid))
+    return new_days
 
 
 def set_player_rank(conn, puuid, tier, division, lp, fetched_at_ms):

@@ -10,6 +10,7 @@ import socket
 import sys
 import threading
 import time
+import urllib.parse
 import webbrowser
 
 # PyInstaller's --windowed build (no console attached) leaves sys.stdout/
@@ -27,6 +28,26 @@ import uvicorn
 from server.app import app
 
 WINDOW_TITLE = "Coach Potato"
+
+
+class DesktopApi:
+    """Bridge exposed to the page as window.pywebview.api. Lets the frontend
+    ask the Python side to open extra native windows — used by the Matchup
+    guide's player-comparison, which needs a real, independent second window
+    (the main window stays fully interactive) rather than window.open (which
+    the WebView2 host turns into a Microsoft Store prompt)."""
+
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+    def open_compare(self, my_champion, opp_champion):
+        import webview  # available here — main() only reaches this via pywebview
+        query = urllib.parse.urlencode({"my": my_champion or "", "opp": opp_champion or ""})
+        webview.create_window(
+            f"Compare · {my_champion} vs {opp_champion}",
+            f"{self.base_url}/compare.html?{query}",
+            width=820, height=960)
+        return True
 
 
 def free_port(preferred=8321):
@@ -64,7 +85,8 @@ def main():
             webview.settings["ALLOW_DOWNLOADS"] = True  # export .md/.csv links
         except (AttributeError, KeyError, TypeError):
             pass  # older pywebview without the settings dict
-        webview.create_window(WINDOW_TITLE, url, width=1280, height=880)
+        webview.create_window(WINDOW_TITLE, url, width=1280, height=880,
+                              js_api=DesktopApi(url))
         webview.start()
     except Exception:
         webbrowser.open(url)
