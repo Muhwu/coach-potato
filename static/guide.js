@@ -184,6 +184,7 @@ async function loadGuide() {
   guideState.games = new Map();
   guideState.expanded = new Set();
   guideState.openRunePages = new Set();
+  guideState.runeAnalysis = new Map();
   guideState.editingItemBuild = false;
   if (!guideState.myChampion) {
     guideState.matchups = [];
@@ -567,7 +568,8 @@ function guideRow(m) {
     const buildBlock = hasBuild
       ? `<div class="guide-build"><h5>Skill order</h5>${skillGridMini(skill_order)}</div>` : "";
     body = `${runePagesDisplay(runes, champ)}${buildBlock}${
-      notes ? `<div class="md-body">${renderNotes(notes)}</div>` : ""}`;
+      notes ? `<div class="md-body">${renderNotes(notes)}</div>` : ""}${
+      m.games ? `<div class="rune-analysis" data-ra-opp="${escapeHtml(champ)}"></div>` : ""}`;
   } else {
     body = `<p class="muted">No guide yet —
       <button type="button" class="link-btn guide-edit" data-opp="${escapeHtml(champ)}">click here to create one</button>.</p>`;
@@ -620,6 +622,40 @@ function recentGamesColumn(champ) {
   return `<h5>Recent games</h5>${rows}`;
 }
 
+// ---------- rune analysis (win rate by keystone / secondary from games) ----------
+
+function runeAnalysisTable(data) {
+  const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+  const rows = (arr, label) => (arr.length
+    ? `<table class="ra-table"><thead><tr><th>${label}</th><th>Games</th><th>WR</th></tr></thead>
+        <tbody>${arr.map((r) => `<tr><td>${escapeHtml(r.name)}</td><td>${r.games}</td>
+          <td>${pct(r.winrate)}</td></tr>`).join("")}</tbody></table>`
+    : `<p class="muted">No rune data yet.</p>`);
+  return `<div class="ra-cols">
+    <div><h6>Keystone win rate</h6>${rows(data.keystones, "Keystone")}</div>
+    <div><h6>Secondary tree win rate</h6>${rows(data.secondaries, "Secondary")}</div>
+  </div>`;
+}
+
+// Lazily fill any .rune-analysis[data-ra-opp] containers rendered this pass
+// (empty data-ra-opp = champion-wide). Cached per key in guideState.
+async function hydrateRuneAnalysis(target) {
+  for (const node of target.querySelectorAll(".rune-analysis[data-ra-opp]")) {
+    const opp = node.dataset.raOpp;
+    const key = opp || "*";
+    if (!guideState.runeAnalysis.has(key)) {
+      const q = `champion=${encodeURIComponent(guideState.myChampion)}`
+        + (opp ? `&opp_champion=${encodeURIComponent(opp)}` : "");
+      try { guideState.runeAnalysis.set(key, await getJSON(`/api/stats/rune-analysis?${q}`)); }
+      catch { continue; }
+    }
+    const data = guideState.runeAnalysis.get(key);
+    node.innerHTML = (!data.keystones.length && !data.secondaries.length) ? ""
+      : `<details class="ra-details"><summary>Rune win rates (from games played)</summary>
+         ${runeAnalysisTable(data)}</details>`;
+  }
+}
+
 function renderGuide() {
   const target = $("#guide-list");
   if (!guideState.myChampion) {
@@ -637,6 +673,7 @@ function renderGuide() {
     ? rows.map(guideRow).join("")
     : `<div class="empty">No matchups for ${displayName(guideState.myChampion)} yet — add one below.</div>`;
   wireGuideHandlers(target);
+  hydrateRuneAnalysis(target);
   if (guideState.editing) {
     const row = target.querySelector(`.guide-row[data-opp="${guideState.editing}"]`);
     if (row) row.scrollIntoView({ block: "center", behavior: "smooth" });

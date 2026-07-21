@@ -874,6 +874,24 @@ def api_single_game_metrics(match_id: str, puuid: str):
         conn.close()
 
 
+@app.get("/api/stats/rune-analysis")
+def api_rune_analysis(champion: str, opp_champion: str = ""):
+    """Win rate by keystone / secondary tree from the runes you actually
+    played on `champion` (optionally vs `opp_champion`), across tracked
+    accounts. Powers the Matchup guide's rune analysis."""
+    _validate_champion(champion)
+    if opp_champion:
+        _validate_champion(opp_champion)
+    conn = get_conn()
+    try:
+        puuids = _tracked_puuids(conn)
+        if not puuids:
+            return {"keystones": [], "secondaries": []}
+        return stats.rune_analysis(conn, puuids, champion, opp_champion or None)
+    finally:
+        conn.close()
+
+
 @app.get("/api/stats/trends")
 def api_trends(request: Request, bucket: str = "month"):
     params = dict(request.query_params)

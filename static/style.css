@@ -1200,3 +1200,15 @@ footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px;
 .clip-add-row input[type="file"] { font-size: 12px; max-width: 200px; }
 .clip-add-row input[type="url"] { flex: 1; min-width: 160px; }
 .clip-add-status { font-size: 12px; }
+
+/* ---- rune analysis (Matchup guide) ---- */
+.rune-analysis { margin-top: 8px; }
+.ra-details > summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+.ra-details[open] > summary { margin-bottom: 6px; }
+.ra-cols { display: flex; flex-wrap: wrap; gap: 16px; }
+.ra-cols h6 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+.ra-table { border-collapse: collapse; font-size: 12px; }
+.ra-table th, .ra-table td { text-align: left; padding: 2px 10px 2px 0; }
+.ra-table th { color: var(--muted); font-weight: 500; }
+.ra-table td:nth-child(2), .ra-table td:nth-child(3),
+.ra-table th:nth-child(2), .ra-table th:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }

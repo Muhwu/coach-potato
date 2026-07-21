@@ -274,6 +274,36 @@ def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
     return result
 
 
+def _rune_breakdown(conn, base, params, field):
+    """Games + win rate grouped by a rune-page field (keystone/secondary_tree)
+    extracted from the runes actually played. Skips games with no recorded
+    runes or a blank field."""
+    sql = f"""
+        SELECT json_extract(my_runes_json, '$.{field}') AS name,
+               COUNT(*) AS games, SUM(win) AS wins, AVG(CAST(win AS REAL)) AS winrate
+        FROM ({base})
+        WHERE my_runes_json IS NOT NULL AND my_runes_json != ''
+          AND json_extract(my_runes_json, '$.{field}') IS NOT NULL
+          AND json_extract(my_runes_json, '$.{field}') != ''
+        GROUP BY name
+        ORDER BY games DESC, winrate DESC
+    """
+    return [dict(r) for r in conn.execute(sql, params)]
+
+
+def rune_analysis(conn, puuid, champion, opp_champion=None, queues=None):
+    """Win rate by keystone and by secondary tree, from the runes actually
+    played (participant_runes) in your games on `champion` — narrowed to vs
+    `opp_champion` when given. Feeds the Matchup guide's rune analysis: "which
+    keystone/secondary has the best win rate for me here"."""
+    base, params = _filtered_base(puuid, champion=champion, opp_champion=opp_champion,
+                                  queues=queues, require_opponent=bool(opp_champion))
+    return {
+        "keystones": _rune_breakdown(conn, base, params, "keystone"),
+        "secondaries": _rune_breakdown(conn, base, params, "secondary_tree"),
+    }
+
+
 def progress_segments(conn, puuids, sessions, champion=None, queues=None,
                       now_ms=None, baseline_days=30, side=None):
     """Aggregate stats per period between coaching sessions.
