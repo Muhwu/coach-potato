@@ -690,12 +690,13 @@ def test_matchup_notes_accept_match_v5_champion_spelling(client):
 
 
 def test_champion_general_notes_endpoints(client):
-    assert client.get("/api/champions/notes/Gwen").json() == {"notes": ""}
+    assert client.get("/api/champions/notes/Gwen").json() == {"notes": "", "runes": []}
     r = client.put("/api/champions/notes/Gwen", json={"notes": "- always take Conqueror"})
     assert r.status_code == 200
-    assert client.get("/api/champions/notes/Gwen").json() == {"notes": "- always take Conqueror"}
+    assert client.get("/api/champions/notes/Gwen").json() == {
+        "notes": "- always take Conqueror", "runes": []}
     client.put("/api/champions/notes/Gwen", json={"notes": ""})  # blank deletes
-    assert client.get("/api/champions/notes/Gwen").json() == {"notes": ""}
+    assert client.get("/api/champions/notes/Gwen").json() == {"notes": "", "runes": []}
     assert client.put("/api/champions/notes/NotAChamp", json={"notes": "x"}).status_code == 400
     assert client.put("/api/champions/notes/Gwen", json={}).status_code == 400
 
@@ -720,6 +721,36 @@ def test_delete_account_purges_data_and_removes_from_settings(client):
                         (ME,)).fetchone()["c"] == 0
     conn.close()
     assert client.request("DELETE", "/api/accounts", json={"account": "notag"}).status_code == 400
+
+
+def test_champion_general_runes_endpoints(client):
+    # runes_mode='general' stores champion-level rune pages alongside notes
+    page = {"label": "Standard", "primary_tree": "Precision", "keystone": "Conqueror",
+            "primary_runes": ["Triumph", "", ""], "secondary_tree": "Resolve",
+            "secondary_runes": ["", ""], "shards": ["", "", ""]}
+    assert client.put("/api/champions/notes/Gwen", json={"runes": [page]}).status_code == 200
+    got = client.get("/api/champions/notes/Gwen").json()
+    assert got["notes"] == "" and len(got["runes"]) == 1
+    assert got["runes"][0]["keystone"] == "Conqueror"
+    # a partial notes-only write must not wipe the general runes
+    client.put("/api/champions/notes/Gwen", json={"notes": "matchup-agnostic tips"})
+    got = client.get("/api/champions/notes/Gwen").json()
+    assert got["notes"] == "matchup-agnostic tips" and len(got["runes"]) == 1
+    # clearing runes with notes still present keeps the row
+    client.put("/api/champions/notes/Gwen", json={"runes": []})
+    got = client.get("/api/champions/notes/Gwen").json()
+    assert got["runes"] == [] and got["notes"] == "matchup-agnostic tips"
+    # a bad rune tree is rejected
+    bad = {**page, "primary_tree": "NotATree"}
+    assert client.put("/api/champions/notes/Gwen", json={"runes": [bad]}).status_code == 400
+
+
+def test_runes_mode_setting_round_trips(client):
+    base = {"riot_api_key": "k", "accounts": ["A#B"], "platform": "euw1"}
+    assert client.get("/api/settings").json()["runes_mode"] == "matchup"
+    r = client.put("/api/settings", json={**base, "runes_mode": "general"})
+    assert r.status_code == 200 and r.json()["runes_mode"] == "general"
+    assert client.put("/api/settings", json={**base, "runes_mode": "nope"}).status_code == 400
 
 
 def test_champion_item_build_endpoints(client):

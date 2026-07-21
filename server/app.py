@@ -176,6 +176,7 @@ def _extra_settings(conn):
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
         "date_format": stored.get("date_format") or "iso",
+        "runes_mode": stored.get("runes_mode") or "matchup",
     }
 
 
@@ -286,6 +287,9 @@ def api_put_settings(body: dict):
     date_format = body.get("date_format", "iso")
     if date_format not in ("iso", "us", "eu"):
         raise HTTPException(400, "date_format must be one of: iso, us, eu")
+    runes_mode = body.get("runes_mode", "matchup")
+    if runes_mode not in ("matchup", "general"):
+        raise HTTPException(400, "runes_mode must be one of: matchup, general")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -302,6 +306,7 @@ def api_put_settings(body: dict):
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
             "date_format": date_format,
+            "runes_mode": runes_mode,
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -1026,20 +1031,33 @@ def api_put_matchup_note(my_champion: str, opp_champion: str, body: dict):
 def api_get_champion_note(champion: str):
     conn = get_conn()
     try:
-        return {"notes": db.get_champion_note(conn, champion)}
+        raw = db.get_champion_runes(conn, champion)
+        return {"notes": db.get_champion_note(conn, champion),
+                "runes": json.loads(raw) if raw else []}
     finally:
         conn.close()
 
 
 @app.put("/api/champions/notes/{champion}")
 def api_put_champion_note(champion: str, body: dict):
+    """Partial update: writes `notes` and/or general `runes` (runes_mode=
+    'general' stores one champion-level rune set here, shown by the item
+    build). Passing only one leaves the other untouched."""
     body = body or {}
-    if "notes" not in body:
-        raise HTTPException(400, "provide notes")
+    if "notes" not in body and "runes" not in body:
+        raise HTTPException(400, "provide notes and/or runes")
     _validate_champion(champion)
     conn = get_conn()
     try:
-        db.set_champion_note(conn, champion, str(body.get("notes") or ""))
+        if "notes" in body:
+            db.set_champion_note(conn, champion, str(body.get("notes") or ""))
+        if "runes" in body:
+            runes = body.get("runes") or []
+            if not isinstance(runes, list):
+                raise HTTPException(400, "runes must be a list of rune pages")
+            for page in runes:
+                _validate_rune_page(page)
+            db.set_champion_runes(conn, champion, json.dumps(runes) if runes else "")
         return {"saved": True}
     finally:
         conn.close()

@@ -1212,3 +1212,6 @@ footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px;
 .ra-table th { color: var(--muted); font-weight: 500; }
 .ra-table td:nth-child(2), .ra-table td:nth-child(3),
 .ra-table th:nth-child(2), .ra-table th:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- general runes block (runes_mode=general) ---- */
+.general-runes-block { border-left: 2px solid var(--series-1); }

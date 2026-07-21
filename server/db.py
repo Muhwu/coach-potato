@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS matchup_notes (
 CREATE TABLE IF NOT EXISTS champion_notes (
     champion TEXT PRIMARY KEY,
     notes TEXT NOT NULL DEFAULT '',
+    runes TEXT NOT NULL DEFAULT '',
     updated_at_ms INTEGER
 );
 
@@ -279,6 +280,9 @@ def _migrate(conn):
         # v1.14.0..v1.31.x shape — saved skill-order builds added in v1.32.0
         conn.execute(
             "ALTER TABLE matchup_notes ADD COLUMN skill_order TEXT NOT NULL DEFAULT ''")
+    cn_columns = {r["name"] for r in conn.execute("PRAGMA table_info(champion_notes)")}
+    if cn_columns and "runes" not in cn_columns:  # general (champion-level) runes added with runes_mode
+        conn.execute("ALTER TABLE champion_notes ADD COLUMN runes TEXT NOT NULL DEFAULT ''")
     # participant_metrics grows a column whenever a metric is added to the
     # registry (CREATE TABLE IF NOT EXISTS won't touch an existing table).
     # Additively backfill any missing metric columns + the has_timeline flag.
@@ -436,11 +440,23 @@ def get_champion_note(conn, champion):
     return row["notes"] if row else ""
 
 
+def _champion_note_runes(conn, champion):
+    row = conn.execute("SELECT runes FROM champion_notes WHERE champion=?",
+                       (champion,)).fetchone()
+    return (row["runes"] if row else "") or ""
+
+
 def set_champion_note(conn, champion, notes):
-    """Upsert a champion's general notes; blank notes delete the row."""
+    """Upsert a champion's general notes. Blank notes delete the row only if it
+    holds no general runes either (runes_mode='general' stores them here)."""
     with conn:
         if not notes.strip():
-            conn.execute("DELETE FROM champion_notes WHERE champion=?", (champion,))
+            if _champion_note_runes(conn, champion) not in ("", "[]"):
+                conn.execute(
+                    f"UPDATE champion_notes SET notes='', updated_at_ms={_now_expr()} "
+                    "WHERE champion=?", (champion,))
+            else:
+                conn.execute("DELETE FROM champion_notes WHERE champion=?", (champion,))
             return
         conn.execute(
             f"""INSERT INTO champion_notes (champion, notes, updated_at_ms)
@@ -448,6 +464,35 @@ def set_champion_note(conn, champion, notes):
                 ON CONFLICT(champion) DO UPDATE SET
                   notes=excluded.notes, updated_at_ms=excluded.updated_at_ms""",
             (champion, notes))
+
+
+def get_champion_runes(conn, champion):
+    """General (champion-level, not per-matchup) rune pages JSON, or '' if
+    none. Used when runes_mode='general' — one rune set shown by the item
+    build rather than a set per opponent."""
+    return _champion_note_runes(conn, champion)
+
+
+def set_champion_runes(conn, champion, runes_json):
+    """Upsert a champion's general rune pages. Empty runes drop the column,
+    deleting the row only if there are no general notes either."""
+    with conn:
+        if not runes_json or runes_json == "[]":
+            row = conn.execute("SELECT notes FROM champion_notes WHERE champion=?",
+                               (champion,)).fetchone()
+            if row and row["notes"].strip():
+                conn.execute(
+                    f"UPDATE champion_notes SET runes='', updated_at_ms={_now_expr()} "
+                    "WHERE champion=?", (champion,))
+            else:
+                conn.execute("DELETE FROM champion_notes WHERE champion=?", (champion,))
+            return
+        conn.execute(
+            f"""INSERT INTO champion_notes (champion, notes, runes, updated_at_ms)
+                VALUES (?, '', ?, {_now_expr()})
+                ON CONFLICT(champion) DO UPDATE SET
+                  runes=excluded.runes, updated_at_ms=excluded.updated_at_ms""",
+            (champion, runes_json))
 
 
 def get_item_build(conn, champion):

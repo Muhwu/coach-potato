@@ -185,6 +185,8 @@ async function loadGuide() {
   guideState.expanded = new Set();
   guideState.openRunePages = new Set();
   guideState.runeAnalysis = new Map();
+  guideState.editingGeneralRunes = false;
+  guideState.generalRunes = [];
   guideState.editingItemBuild = false;
   if (!guideState.myChampion) {
     guideState.matchups = [];
@@ -213,6 +215,7 @@ async function loadGuide() {
   guideState.matchups = matchups;
   guideState.guide = guide;
   guideState.generalNotes = general.notes;
+  guideState.generalRunes = general.runes || [];
   guideState.itemBuild = itemBuild;
   renderGuide();
   renderGuideGeneral();
@@ -268,6 +271,7 @@ function addOrFocusMatchup(champ) {
 
 function startEditing(champ) {
   guideState.expanded.add(champ);
+  guideState.editingGeneralRunes = false; // matchup + general runes share draft
   guideState.editing = champ;
   guideState.draft = guideFor(champ);
   guideState.draft.runes = guideState.draft.runes.map((p) => ({ ...emptyRunePage(), ...p }));
@@ -542,7 +546,7 @@ function guideRow(m) {
     const draft = guideState.draft;
     // the skill order is edited (and saved) through the cooldown popup —
     // here it just shows with its own nested edit/remove controls
-    body = `${runePagesBuilder()}
+    body = `${state.runesMode === "general" ? "" : runePagesBuilder()}
       <div class="guide-build">
         <div class="guide-build-head">
           <h5>Skill order</h5>
@@ -567,7 +571,7 @@ function guideRow(m) {
   } else if (hasAny) {
     const buildBlock = hasBuild
       ? `<div class="guide-build"><h5>Skill order</h5>${skillGridMini(skill_order)}</div>` : "";
-    body = `${runePagesDisplay(runes, champ)}${buildBlock}${
+    body = `${state.runesMode === "general" ? "" : runePagesDisplay(runes, champ)}${buildBlock}${
       notes ? `<div class="md-body">${renderNotes(notes)}</div>` : ""}${
       m.games ? `<div class="rune-analysis" data-ra-opp="${escapeHtml(champ)}"></div>` : ""}`;
   } else {
@@ -656,6 +660,35 @@ async function hydrateRuneAnalysis(target) {
   }
 }
 
+// General (champion-level) runes — shown by the item build when runes_mode is
+// "general". Reuses the exact matchup rune builder: while editing, the shared
+// guideState.draft holds these pages (no matchup edit is active at the same
+// time), so all the rune-picker handlers work unchanged.
+function generalRunesSection() {
+  if (state.runesMode !== "general") return "";
+  const champ = guideState.myChampion;
+  if (guideState.editingGeneralRunes) {
+    return `<div class="mu-notes mu-guide general-runes-block">
+      <div class="mu-notes-head"><h4>General runes — ${displayName(champ)}</h4></div>
+      ${runePagesBuilder()}
+      <div class="session-actions">
+        <button class="preset general-runes-save">Save runes</button>
+        <button class="preset general-runes-cancel">Cancel</button>
+        <span class="muted general-runes-status"></span>
+      </div>
+    </div>`;
+  }
+  const pages = guideState.generalRunes || [];
+  const body = pages.length
+    ? runePagesDisplay(pages, `general:${champ}`)
+    : `<p class="muted">No general runes yet for ${displayName(champ)}.</p>`;
+  return `<div class="mu-notes mu-guide general-runes-block">
+    <div class="mu-notes-head"><h4>General runes — ${displayName(champ)}</h4>
+      <button class="preset icon-btn general-runes-edit" title="Edit general runes"
+        aria-label="Edit general runes">✎</button>
+    </div>${body}</div>`;
+}
+
 function renderGuide() {
   const target = $("#guide-list");
   if (!guideState.myChampion) {
@@ -669,9 +702,9 @@ function renderGuide() {
     if (aHas !== bHas) return aHas ? -1 : 1;
     return (b.games || 0) - (a.games || 0);
   });
-  target.innerHTML = rows.length
+  target.innerHTML = generalRunesSection() + (rows.length
     ? rows.map(guideRow).join("")
-    : `<div class="empty">No matchups for ${displayName(guideState.myChampion)} yet — add one below.</div>`;
+    : `<div class="empty">No matchups for ${displayName(guideState.myChampion)} yet — add one below.</div>`);
   wireGuideHandlers(target);
   hydrateRuneAnalysis(target);
   if (guideState.editing) {
@@ -752,6 +785,41 @@ function wireGuideHandlers(target) {
       openCooldowns(guideState.myChampion, btn.dataset.opp))); // cooldowns.js
   target.querySelectorAll(".guide-op-link").forEach((btn) =>
     btn.addEventListener("click", () => openOnePager(btn.dataset.opp)));
+  target.querySelectorAll(".general-runes-edit").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      guideState.editing = null; // don't clash with a matchup edit
+      guideState.draft = { runes: JSON.parse(JSON.stringify(guideState.generalRunes || [])) };
+      guideState.editingGeneralRunes = true;
+      guideState.openRuneIndex = null;
+      renderGuide();
+    }));
+  target.querySelectorAll(".general-runes-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      guideState.editingGeneralRunes = false;
+      guideState.draft = null;
+      guideState.openRuneIndex = null;
+      renderGuide();
+    }));
+  target.querySelectorAll(".general-runes-save").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const runes = guideState.draft.runes.filter(pageHasContent);
+      const status = btn.parentElement.querySelector(".general-runes-status");
+      const response = await fetch(
+        `/api/champions/notes/${encodeURIComponent(guideState.myChampion)}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ runes }),
+        });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail || `error ${response.status}`;
+        return;
+      }
+      guideState.generalRunes = runes;
+      guideState.editingGeneralRunes = false;
+      guideState.draft = null;
+      guideState.openRuneIndex = null;
+      renderGuide();
+    }));
   target.querySelectorAll(".guide-build-clear").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const opp = btn.dataset.opp;
