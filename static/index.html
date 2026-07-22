@@ -230,17 +230,22 @@
     <h3 class="settings-group-head">Research &amp; comparison</h3>
     <div class="settings-field">
       <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
-      <p class="muted">Add other players (looked up via the Riot API) to compare yourself
-        against in a matchup — their stats, runes and recent games show side by side with
-        yours in the Matchup guide, for theorycrafting runes and notes. Games are fetched
-        on demand (last 60 days; "Fetch more" widens it).</p>
+      <p class="muted">Add up to five other players (looked up via the Riot API) to
+        compare yourself against in a matchup — their stats, runes and recent games
+        show side by side with yours in the Matchup guide, for theorycrafting runes
+        and notes. Games are fetched deep in the background when you add a player
+        (Riot's API is slow, so it can take a few minutes); "Fetch more" pulls further
+        back. The guide comparison shows every stored game, regardless of date.</p>
       <div id="comparison-card" class="hidden">
         <div id="comparison-players-list"></div>
         <div class="key-row" style="margin-top:6px">
           <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"
-            spellcheck="false" autocomplete="off" style="max-width:220px">
+            spellcheck="false" autocomplete="off" style="max-width:200px">
+          <select id="comparison-add-platform" title="Server the player is on" style="max-width:9em"></select>
           <button id="comparison-add" class="preset" type="button">Add player</button>
         </div>
+        <p class="muted" style="margin-top:2px">Pick the player's server — they can be
+          on a different region than your own accounts.</p>
         <p id="comparison-status" class="muted"></p>
       </div>
     </div>

@@ -1482,11 +1482,16 @@ def api_live_game():
 
 
 # ---------- comparison ("research") players: up to N others you compare
-# yourself against in the Matchup guide. Fetched on demand in a small recent
-# window (last COMPARISON_LOOKBACK_DAYS days) so the API isn't asked for a
-# stranger's whole history; "fetch more" widens the window. ----------
+# yourself against in the Matchup guide. Games are pulled DEEP and in the
+# BACKGROUND (Riot's dev key is slow), by count with no time window, so the UI
+# isn't blocked; the guide comparison then shows whatever is stored, no date
+# restriction. "Fetch more" walks further back (has_participant skip). ----------
 
-COMPARISON_FETCH_CAP = 40  # safety cap on games fetched per add / "fetch more"
+COMPARISON_FETCH_TARGET = 300  # games pulled per add / "fetch more"
+
+# one comparison fetch at a time; the UI polls this while it runs
+COMPARISON_CRAWL = {"running": False, "puuid": None, "message": "idle",
+                    "new_matches": 0, "error": None}
 
 
 def _comparison_games(conn, puuid):
@@ -1494,18 +1499,39 @@ def _comparison_games(conn, puuid):
                         (puuid,)).fetchone()["c"]
 
 
-def _crawl_comparison_window(client, game_name, tag_line, since_s):
-    """Crawl one comparison player's recent games (since_s window, capped) into
-    the db inline. Small by design, so it runs in the request. Returns the
-    crawler result dict."""
+def _run_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
+    """Background worker: pull up to COMPARISON_FETCH_TARGET of a comparison
+    player's games (by count, no time window) into the db. has_participant skip
+    means repeated runs walk further back, deepening history."""
     from .crawler import Crawler
-    conn = db.connect(get_db_path())
+    from .riot_client import RateLimiter, RiotClient
     try:
-        crawler = Crawler(client, conn)
-        return crawler.crawl_player(game_name, tag_line, limit=COMPARISON_FETCH_CAP,
-                                    is_tracked=False, since_s=since_s)
+        client = RiotClient(api_key, platform=platform, limiter=RateLimiter())
+        conn = db.connect(get_db_path())
+        try:
+            crawler = Crawler(client, conn,
+                              status_cb=lambda m: COMPARISON_CRAWL.__setitem__("message", m))
+            res = crawler.crawl_player(game_name, tag_line, limit=COMPARISON_FETCH_TARGET,
+                                       is_tracked=False,  # since_s omitted -> by count
+                                       fetch_timeline=False)  # skip timelines -> ~2x faster
+            COMPARISON_CRAWL["new_matches"] = res["new_matches"]
+            COMPARISON_CRAWL["message"] = f"done — {_comparison_games(conn, puuid)} games stored"
+        finally:
+            conn.close()
+        COMPARISON_CRAWL["error"] = None
+    except Exception as exc:  # surfaced via the status field
+        COMPARISON_CRAWL["error"] = str(exc)
+        COMPARISON_CRAWL["message"] = "failed"
     finally:
-        conn.close()
+        COMPARISON_CRAWL["running"] = False
+
+
+def _start_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
+    COMPARISON_CRAWL.update({"running": True, "puuid": puuid, "message": "fetching games…",
+                             "new_matches": 0, "error": None})
+    threading.Thread(target=_run_comparison_crawl,
+                     args=(puuid, game_name, tag_line, platform, api_key),
+                     daemon=True).start()
 
 
 @app.get("/api/comparison-players")
@@ -1516,7 +1542,8 @@ def api_get_comparison_players():
         for p in players:
             p["enabled"] = bool(p["enabled"])
             p["games"] = _comparison_games(conn, p["puuid"])
-        return {"players": players, "max": db.MAX_COMPARISON_PLAYERS}
+        return {"players": players, "max": db.MAX_COMPARISON_PLAYERS,
+                "fetching": dict(COMPARISON_CRAWL)}
     finally:
         conn.close()
 
@@ -1524,6 +1551,8 @@ def api_get_comparison_players():
 @app.post("/api/comparison-players")
 def api_add_comparison_player(body: dict):
     from .riot_client import NotFoundError, RateLimiter, RiotClient
+    if COMPARISON_CRAWL["running"]:
+        raise HTTPException(409, "a comparison fetch is already running — wait for it to finish")
     riot_id = (body.get("riot_id") or "").strip()
     name, _, tag = riot_id.partition("#")
     if not name.strip() or not tag.strip():
@@ -1536,8 +1565,12 @@ def api_add_comparison_player(body: dict):
         existing = db.list_comparison_players(conn)
     finally:
         conn.close()
-    client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
-                        limiter=RateLimiter())
+    # a comparison player can be on a different server than your own accounts;
+    # default to yours when the body doesn't specify one
+    platform = (body.get("platform") or settings["platform"]).strip().lower()
+    if platform not in PLATFORM_ROUTING:
+        raise HTTPException(400, f"unknown server/platform {platform!r}")
+    client = RiotClient(settings["riot_api_key"], platform=platform, limiter=RateLimiter())
     try:
         account = client.get_account(name.strip(), tag.strip())
     except NotFoundError:
@@ -1550,28 +1583,20 @@ def api_add_comparison_player(body: dict):
     game_name = account.get("gameName", name.strip())
     tag_line = account.get("tagLine", tag.strip())
     # Register as a comparison player FIRST: the crawler only stores per-match
-    # metrics/runes for puuids in comparison_players (or tracked), so this must
-    # be committed before the crawl or the initial fetch would skip them.
+    # metrics/runes for puuids in comparison_players (or tracked).
     conn = get_conn()
     try:
-        db.add_comparison_player(conn, puuid, game_name, tag_line)
+        db.add_comparison_player(conn, puuid, game_name, tag_line, platform=platform)
     finally:
         conn.close()
-    since_s = int(time.time()) - db.COMPARISON_LOOKBACK_DAYS * 86400
-    result = _crawl_comparison_window(client, game_name, tag_line, since_s)
-    conn = get_conn()
-    try:
-        games = _comparison_games(conn, puuid)
-    finally:
-        conn.close()
-    return {"puuid": puuid, "game_name": game_name, "tag_line": tag_line,
-            "new_matches": result["new_matches"], "games": games,
-            "lookback_days": db.COMPARISON_LOOKBACK_DAYS}
+    _start_comparison_crawl(puuid, game_name, tag_line, platform, settings["riot_api_key"])
+    return {"puuid": puuid, "game_name": game_name, "tag_line": tag_line, "started": True}
 
 
 @app.post("/api/comparison-players/{puuid}/fetch-more")
 def api_comparison_fetch_more(puuid: str):
-    from .riot_client import RateLimiter, RiotClient
+    if COMPARISON_CRAWL["running"]:
+        raise HTTPException(409, "a comparison fetch is already running — wait for it to finish")
     conn = get_conn()
     try:
         settings = config.resolve_settings(conn)
@@ -1580,20 +1605,14 @@ def api_comparison_fetch_more(puuid: str):
             raise HTTPException(404, "not a comparison player")
         if not settings["configured"]:
             raise HTTPException(400, "not configured — set your API key in Settings")
-        new_days = db.bump_comparison_lookback(conn, puuid)
     finally:
         conn.close()
-    client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
-                        limiter=RateLimiter())
-    since_s = int(time.time()) - new_days * 86400
-    result = _crawl_comparison_window(client, row["game_name"], row["tag_line"], since_s)
-    conn = get_conn()
-    try:
-        games = _comparison_games(conn, puuid)
-    finally:
-        conn.close()
-    return {"puuid": puuid, "new_matches": result["new_matches"], "games": games,
-            "lookback_days": new_days}
+    platform = (row["platform"] or settings["platform"]).strip().lower()
+    if platform not in PLATFORM_ROUTING:
+        platform = settings["platform"]
+    _start_comparison_crawl(puuid, row["game_name"], row["tag_line"], platform,
+                            settings["riot_api_key"])
+    return {"puuid": puuid, "started": True}
 
 
 @app.patch("/api/comparison-players/{puuid}")

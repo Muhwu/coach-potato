@@ -1343,26 +1343,39 @@ async function loadComparisonPlayers() {
   try { data = await getJSON("/api/comparison-players"); }
   catch { list.innerHTML = ""; return; }
   state.comparisonMax = data.max;
-  renderComparisonPlayers(data.players || []);
+  renderComparisonPlayers(data.players || [], data.fetching || {});
+  // a background fetch is running — poll until it finishes, updating counts
+  const status = $("#comparison-status");
+  if (data.fetching && data.fetching.running) {
+    if (status) status.textContent = data.fetching.message || "fetching games…";
+    clearTimeout(state.comparisonPoll);
+    state.comparisonPoll = setTimeout(loadComparisonPlayers, 2500);
+  } else if (data.fetching && data.fetching.error) {
+    if (status) status.textContent = `fetch failed — ${data.fetching.error}`;
+  } else if (data.fetching && data.fetching.message && data.fetching.message !== "idle") {
+    if (status) status.textContent = data.fetching.message;
+  }
 }
 
-function renderComparisonPlayers(players) {
+function renderComparisonPlayers(players, fetching = {}) {
   const list = $("#comparison-players-list");
   if (!list) return;
   const max = state.comparisonMax || 5;
+  const busy = Boolean(fetching.running);
   list.innerHTML = players.length
     ? players.map((p) => `
       <div class="comparison-player" data-puuid="${p.puuid}">
         <label class="comparison-enable" title="Show this player in the guide comparison">
           <input type="checkbox" class="cmp-enable" ${p.enabled ? "checked" : ""}></label>
         <span class="comparison-name">${escapeHtml(p.game_name)}<span class="muted">#${escapeHtml(p.tag_line)}</span></span>
-        <span class="muted comparison-games">${p.games} game${p.games === 1 ? "" : "s"} · ${p.lookback_days}d</span>
-        <button class="preset cmp-more" type="button" title="Fetch &amp; store more of this player's games">Fetch more</button>
+        <span class="muted comparison-games">${p.platform ? (PLATFORM_LABELS[p.platform] || p.platform.toUpperCase()) + " · " : ""}${p.games} game${p.games === 1 ? "" : "s"}${busy && fetching.puuid === p.puuid ? " · fetching…" : ""}</span>
+        <button class="preset cmp-more" type="button" ${busy ? "disabled" : ""}
+          title="Fetch &amp; store more of this player's games (deeper history)">Fetch more</button>
         <button class="preset icon-btn cmp-remove" type="button" title="Remove">✕</button>
       </div>`).join("")
     : `<p class="muted">No comparison players yet — add up to ${max}.</p>`;
-  $("#comparison-add-input").disabled = players.length >= max;
-  $("#comparison-add").disabled = players.length >= max;
+  $("#comparison-add-input").disabled = busy || players.length >= max;
+  $("#comparison-add").disabled = busy || players.length >= max;
   list.querySelectorAll(".cmp-enable").forEach((cb) =>
     cb.addEventListener("change", () =>
       toggleComparisonPlayer(cb.closest(".comparison-player").dataset.puuid, cb.checked)));
@@ -1379,16 +1392,16 @@ async function addComparisonPlayer() {
   const riotId = input.value.trim();
   if (!riotId) return;
   const status = $("#comparison-status");
-  status.textContent = `looking up ${riotId} and fetching recent games…`;
+  status.textContent = `looking up ${riotId}…`;
   const res = await fetch("/api/comparison-players", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ riot_id: riotId }),
+    body: JSON.stringify({ riot_id: riotId, platform: $("#comparison-add-platform").value }),
   });
   const body = await res.json().catch(() => ({}));
   if (res.ok) {
     input.value = "";
-    status.textContent = `added ${body.game_name}#${body.tag_line} — ${body.games} game(s) stored`;
-    loadComparisonPlayers();
+    status.textContent = `added ${body.game_name}#${body.tag_line} — fetching games in the background…`;
+    loadComparisonPlayers(); // picks up the running fetch and polls it
   } else {
     status.textContent = body.detail || `error ${res.status}`;
   }
@@ -1400,10 +1413,8 @@ async function comparisonFetchMore(puuid, btn) {
   const res = await fetch(`/api/comparison-players/${encodeURIComponent(puuid)}/fetch-more`,
     { method: "POST" });
   const body = await res.json().catch(() => ({}));
-  status.textContent = res.ok
-    ? `fetched ${body.new_matches} more — ${body.games} game(s), last ${body.lookback_days} days`
-    : (body.detail || `error ${res.status}`);
-  loadComparisonPlayers();
+  if (!res.ok) status.textContent = body.detail || `error ${res.status}`;
+  loadComparisonPlayers(); // background fetch started — poll for progress
 }
 
 async function toggleComparisonPlayer(puuid, enabled) {
@@ -1425,8 +1436,10 @@ async function initSettings() {
   $("#setting-key").value = data.riot_api_key;
   const platforms = [...data.platforms].sort((a, b) =>
     PLATFORM_ORDER.indexOf(a) - PLATFORM_ORDER.indexOf(b));
-  $("#setting-platform").innerHTML = platforms.map((p) =>
-    `<option value="${p}" ${p === data.platform ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
+  const platformOptions = (selected) => platforms.map((p) =>
+    `<option value="${p}" ${p === selected ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
+  $("#setting-platform").innerHTML = platformOptions(data.platform);
+  $("#comparison-add-platform").innerHTML = platformOptions(data.platform); // default to yours
   settingsUi.accounts = data.accounts;
   settingsUi.wasUnconfigured = !data.configured;
   renderAccountChips();

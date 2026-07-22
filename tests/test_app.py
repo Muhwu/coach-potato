@@ -692,9 +692,12 @@ def test_matchup_notes_accept_match_v5_champion_spelling(client):
 def test_comparison_players_and_settings(client):
     base = {"riot_api_key": "k", "accounts": ["A#B"], "platform": "euw1"}
     r = client.put("/api/settings", json={**base, "enable_player_comparison": True})
-    assert r.status_code == 200 and r.json()["enable_player_comparison"] is True
-    assert client.get("/api/comparison-players").json() == {
-        "players": [], "max": db.MAX_COMPARISON_PLAYERS}
+    assert r.status_code == 200
+    assert r.json()["enable_player_comparison"] is True
+    # comparison endpoints without any players
+    body = client.get("/api/comparison-players").json()
+    assert body["players"] == [] and body["max"] == db.MAX_COMPARISON_PLAYERS
+    assert body["fetching"]["running"] is False  # background-fetch status
     # comparison off -> empty player list even if some exist
     client.put("/api/settings", json={**base, "enable_player_comparison": False})
     assert client.get("/api/matchups/comparison",

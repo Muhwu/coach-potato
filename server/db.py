@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS comparison_players (
     puuid TEXT PRIMARY KEY,
     game_name TEXT NOT NULL DEFAULT '',
     tag_line TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     lookback_days INTEGER NOT NULL DEFAULT 60,
     sort INTEGER NOT NULL DEFAULT 0,
@@ -242,6 +243,9 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
         if "series_id" not in block_columns:  # block series added in v1.40.0
             conn.execute("ALTER TABLE blocks ADD COLUMN series_id INTEGER")
+    cp_columns = {r["name"] for r in conn.execute("PRAGMA table_info(comparison_players)")}
+    if cp_columns and "platform" not in cp_columns:  # per-player server added later
+        conn.execute("ALTER TABLE comparison_players ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
     matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
     if matchup_notes_columns and "my_champion" not in matchup_notes_columns:
         # Pre-v1.14.0 shapes had opp_champion as the sole PK (no per-champion
@@ -311,30 +315,37 @@ def has_match(conn, match_id: str) -> bool:
     return conn.execute("SELECT 1 FROM matches WHERE match_id=?", (match_id,)).fetchone() is not None
 
 
-def insert_match(conn, match_row: dict, participant_rows: list) -> bool:
-    """Insert a match with its participants in one transaction.
+def has_participant(conn, match_id: str, puuid: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM participants WHERE match_id=? AND puuid=?",
+        (match_id, puuid)).fetchone() is not None
 
-    Returns False (no-op) if the match is already stored.
-    """
-    if has_match(conn, match_row["match_id"]):
-        return False
+
+def insert_match(conn, match_row: dict, participant_rows: list) -> bool:
+    """Insert a match with its participants in one transaction. Uses INSERT OR
+    IGNORE so a match already present (e.g. first crawled via another player,
+    or whose participant rows were purged by a since-re-added account) still
+    gets any MISSING participant rows backfilled. Returns True if the match row
+    itself was newly inserted, False if it already existed (participants may
+    still have been added in that case)."""
+    is_new = not has_match(conn, match_row["match_id"])
     with conn:
         conn.execute(
-            """INSERT INTO matches
+            """INSERT OR IGNORE INTO matches
                (match_id, queue_id, game_creation_ms, game_duration_s, game_version, crawled_at_ms)
                VALUES (:match_id, :queue_id, :game_creation_ms, :game_duration_s, :game_version,
                        CAST(strftime('%s','now') AS INTEGER) * 1000)""",
             match_row,
         )
         conn.executemany(
-            """INSERT INTO participants
+            """INSERT OR IGNORE INTO participants
                (match_id, puuid, riot_id_name, champion_name, team_id, team_position,
                 win, kills, deaths, assists, cs, gold_earned, damage_to_champions)
                VALUES (:match_id, :puuid, :riot_id_name, :champion_name, :team_id, :team_position,
                        :win, :kills, :deaths, :assists, :cs, :gold_earned, :damage_to_champions)""",
             [{**p, "match_id": match_row["match_id"]} for p in participant_rows],
         )
-    return True
+    return is_new
 
 
 def upsert_player(conn, puuid, game_name, tag_line, is_tracked=False):
@@ -377,7 +388,7 @@ COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by t
 
 def list_comparison_players(conn):
     return [dict(r) for r in conn.execute(
-        "SELECT puuid, game_name, tag_line, enabled, lookback_days, sort, added_at_ms "
+        "SELECT puuid, game_name, tag_line, platform, enabled, lookback_days, sort, added_at_ms "
         "FROM comparison_players ORDER BY sort, added_at_ms")]
 
 
@@ -388,10 +399,11 @@ def comparison_puuids(conn, enabled_only=False):
     return [r["puuid"] for r in conn.execute(sql)]
 
 
-def add_comparison_player(conn, puuid, game_name, tag_line):
+def add_comparison_player(conn, puuid, game_name, tag_line, platform=""):
     """Insert a comparison player (enabled by default). Returns False without
     inserting if the max is already reached (unless this puuid is already one,
-    in which case it's a no-op refresh of the display name)."""
+    in which case it's a no-op refresh of the display name/server). `platform`
+    is the player's server (they may be on a different region than you)."""
     existing = {r["puuid"] for r in conn.execute("SELECT puuid FROM comparison_players")}
     if puuid not in existing and len(existing) >= MAX_COMPARISON_PLAYERS:
         return False
@@ -400,11 +412,12 @@ def add_comparison_player(conn, puuid, game_name, tag_line):
     with conn:
         conn.execute(
             f"""INSERT INTO comparison_players
-                  (puuid, game_name, tag_line, lookback_days, sort, added_at_ms)
-                VALUES (?, ?, ?, ?, ?, {_now_expr()})
+                  (puuid, game_name, tag_line, platform, lookback_days, sort, added_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()})
                 ON CONFLICT(puuid) DO UPDATE SET
-                  game_name=excluded.game_name, tag_line=excluded.tag_line""",
-            (puuid, game_name, tag_line, COMPARISON_LOOKBACK_DAYS, nxt))
+                  game_name=excluded.game_name, tag_line=excluded.tag_line,
+                  platform=excluded.platform""",
+            (puuid, game_name, tag_line, platform, COMPARISON_LOOKBACK_DAYS, nxt))
     return True
 
 

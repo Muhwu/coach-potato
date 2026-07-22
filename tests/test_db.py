@@ -61,6 +61,20 @@ def test_insert_match_stores_match_and_participants(conn):
     assert n == 2
 
 
+def test_insert_match_backfills_missing_participant(conn):
+    # a match first stored via one player (or whose participant rows were
+    # purged by a since-re-added account) must gain the missing participant on
+    # re-insert, without duplicating the ones already there.
+    db.insert_match(conn, make_match(), [make_participant("a"), make_participant("b")])
+    conn.execute("DELETE FROM participants WHERE match_id='EUW1_1' AND puuid='b'")
+    conn.commit()
+    assert not db.has_participant(conn, "EUW1_1", "b")
+    is_new = db.insert_match(conn, make_match(), [make_participant("a"), make_participant("b")])
+    assert is_new is False  # match row already existed
+    assert db.has_participant(conn, "EUW1_1", "b")  # b restored
+    assert conn.execute("SELECT COUNT(*) AS n FROM participants").fetchone()["n"] == 2  # no dup of a
+
+
 def test_insert_match_is_idempotent(conn):
     db.insert_match(conn, make_match(), [make_participant("a")])
     inserted = db.insert_match(conn, make_match(), [make_participant("a")])
