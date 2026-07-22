@@ -138,11 +138,22 @@ class RiotClient:
         url = f"{self.match_host}/lol/match/v5/matches/by-puuid/{puuid}/ids"
         return self._get(url, params=params)
 
+    def _match_host_for(self, match_id):
+        """Match IDs are prefixed with the platform the game was played on
+        (e.g. 'KR_123', 'EUW1_123'), and match-v5 routes by region. Derive the
+        host from that prefix so a match from another region (e.g. a comparison
+        player on a different server) is always fetched from the right regional
+        host — not the client's configured platform region."""
+        prefix = match_id.split("_", 1)[0].lower()
+        region = PLATFORM_ROUTING.get(prefix)
+        return f"https://{region}.api.riotgames.com" if region else self.match_host
+
     def get_match(self, match_id):
-        return self._get(f"{self.match_host}/lol/match/v5/matches/{match_id}")
+        return self._get(f"{self._match_host_for(match_id)}/lol/match/v5/matches/{match_id}")
 
     def get_match_timeline(self, match_id):
-        return self._get(f"{self.match_host}/lol/match/v5/matches/{match_id}/timeline")
+        return self._get(
+            f"{self._match_host_for(match_id)}/lol/match/v5/matches/{match_id}/timeline")
 
     def get_league_entries(self, puuid):
         return self._get(f"{self.platform_host}/lol/league/v4/entries/by-puuid/{puuid}")

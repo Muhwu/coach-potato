@@ -178,6 +178,25 @@ def test_get_match_ids_passes_params():
     assert "startTime=1700000000" in seen["url"]
 
 
+def test_get_match_routes_by_match_id_region_not_client_platform():
+    # a euw1 client fetching a KR match must hit asia (the match-id's region),
+    # not europe — otherwise cross-region matches (e.g. comparison players on
+    # another server) 404. Regression: europe.api.../KR_... crawl failure.
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"metadata": {"matchId": "KR_1"}})
+
+    client = make_client(handler, platform="euw1")  # client region = europe
+    client.get_match("KR_8229729938")
+    assert "https://asia.api.riotgames.com" in seen["url"]
+    client.get_match_timeline("KR_8229729938")
+    assert "https://asia.api.riotgames.com" in seen["url"]
+    client.get_match("EUW1_5")  # same-region match still uses europe
+    assert "https://europe.api.riotgames.com" in seen["url"]
+
+
 def test_get_league_entries_uses_platform_host():
     seen = {}
 
