@@ -32,10 +32,12 @@ TIMELINE_STATE = {"running": False, "done": 0, "total": 0, "error": None}
 
 
 def _riot_job_running():
-    """True while any background job is making Riot API calls — a full crawl
-    or the block-timeline backfill. Both must not run at once or they'd each
-    drive their own rate limiter and together exceed Riot's limits."""
-    return CRAWL_STATE["running"] or TIMELINE_STATE["running"]
+    """True while any background job is making Riot API calls — a full crawl,
+    the block-timeline backfill, or a comparison-player fetch. None may run at
+    once or they'd each drive their own rate limiter and together exceed Riot's
+    limits. (COMPARISON_CRAWL is defined lower down; guard for import order.)"""
+    return (CRAWL_STATE["running"] or TIMELINE_STATE["running"]
+            or COMPARISON_CRAWL["running"])
 
 
 def _champion_ids():
@@ -1551,8 +1553,8 @@ def api_get_comparison_players():
 @app.post("/api/comparison-players")
 def api_add_comparison_player(body: dict):
     from .riot_client import NotFoundError, RateLimiter, RiotClient
-    if COMPARISON_CRAWL["running"]:
-        raise HTTPException(409, "a comparison fetch is already running — wait for it to finish")
+    if _riot_job_running():
+        raise HTTPException(409, "a data fetch is already running — wait for it to finish")
     riot_id = (body.get("riot_id") or "").strip()
     name, _, tag = riot_id.partition("#")
     if not name.strip() or not tag.strip():
@@ -1595,8 +1597,8 @@ def api_add_comparison_player(body: dict):
 
 @app.post("/api/comparison-players/{puuid}/fetch-more")
 def api_comparison_fetch_more(puuid: str):
-    if COMPARISON_CRAWL["running"]:
-        raise HTTPException(409, "a comparison fetch is already running — wait for it to finish")
+    if _riot_job_running():
+        raise HTTPException(409, "a data fetch is already running — wait for it to finish")
     conn = get_conn()
     try:
         settings = config.resolve_settings(conn)
