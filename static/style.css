@@ -54,6 +54,11 @@ body {
   color: var(--text-primary);
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+/* Column-picker views (Matchups, Coaching progress, Trends, Blocks) can grow
+   very wide; let them fill the window so widening it reveals more columns
+   instead of forcing a horizontal scroll (issue #8). Capped so tables don't
+   stretch absurdly on ultra-wide monitors. */
+body.wide-view { max-width: min(2200px, 100%); }
 h1 { font-size: 22px; margin: 0; }
 h2 { font-size: 17px; margin: 0 0 10px; }
 section { margin-top: 26px; }

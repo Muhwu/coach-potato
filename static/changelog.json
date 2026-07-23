@@ -1,6 +1,17 @@
 {
   "entries": [
     {
+      "version": "1.46.0",
+      "date": "2026-07-23",
+      "items": [
+        "Compare yourself against other players — enable it in Settings → Research & comparison, add players by Riot ID, then hit the ⧉ button on a Matchup guide row to open a side-by-side view of their stats, runes and recent games in that matchup. Each player toggles on/off, and their games are fetched on demand (last 60 days by default, with a \"Fetch more\" button to widen the window). Thanks to @bs1phc for the contribution",
+        "Rune win rates on the Matchup guide — each matchup now shows your win rate by keystone and by secondary tree, drawn from the runes you actually ran in those games. Thanks to @bs1phc",
+        "General runes mode (Settings → Matchup guide) — switch from per-matchup rune pages to a single champion-level rune set shown by the item build. Your per-matchup pages aren't deleted; they reappear if you switch back. Thanks to @bs1phc",
+        "Remove a tracked account and purge its crawled data from Settings, while keeping your sessions, block learnings and notes. Thanks to @bs1phc",
+        "Table-heavy views (Matchups, Coaching progress, Trends, Blocks) now expand to fill the window when you widen it, so you can reveal more columns instead of scrolling sideways"
+      ]
+    },
+    {
       "version": "1.45.0",
       "date": "2026-07-21",
       "items": [

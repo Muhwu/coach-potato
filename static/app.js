@@ -1164,6 +1164,8 @@ async function loadProgress() {
   if (rehydrated) renderProgress(segments);
 }
 
+const WIDE_VIEWS = new Set(["matchups", "progress", "trends", "blocks"]);
+
 function setMainView(view) {
   state.mainView = view;
   if (history.replaceState) {
@@ -1175,6 +1177,10 @@ function setMainView(view) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
+  // Column-picker views can get very wide (many metric columns); let them use
+  // the full window width instead of the centred reading column, so the user
+  // can widen the window to reveal columns rather than scroll (issue #8).
+  document.body.classList.toggle("wide-view", WIDE_VIEWS.has(view));
   if (view === "matchups") initMatchups();
   if (view === "progress") loadProgressFilterOptions().then(loadProgress);
   if (view === "trends") initTrends();
