@@ -119,11 +119,12 @@ def test_matchup_rates_and_kda(conn):
     assert row["avg_duration_s"] == 1800
 
 
-def test_matchups_only_when_i_play_top(conn):
-    add_match(conn, my_pos="MIDDLE", opp_champ="Zed")
-    add_match(conn, my_pos="TOP", opp_champ="Darius")
+def test_matchups_include_all_roles_vs_same_role_opponent(conn):
+    # games in any role count; the matchup is the enemy in the SAME role
+    add_match(conn, my_pos="MIDDLE", opp_pos="MIDDLE", opp_champ="Zed")
+    add_match(conn, my_pos="TOP", opp_pos="TOP", opp_champ="Darius")
     rows = stats.matchups(conn, ME)
-    assert [r["opp_champion"] for r in rows] == ["Darius"]
+    assert sorted(r["opp_champion"] for r in rows) == ["Darius", "Zed"]
 
 
 def test_match_without_top_opponent_is_skipped(conn):

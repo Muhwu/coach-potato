@@ -1821,7 +1821,8 @@ def api_block_noted_champions():
                FROM block_games bg
                JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
                JOIN participants opp ON opp.match_id = bg.match_id
-                   AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
+                   AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+                   AND me.team_position != ''
                WHERE TRIM(bg.notes) != ''""").fetchall()
         return sorted(r["champ"] for r in rows if r["champ"])
     finally:

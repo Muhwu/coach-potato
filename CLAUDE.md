@@ -3,9 +3,10 @@
 **Coach Potato** — coaching & improvement app for LoL: crawls Riot match
 history for the configured accounts into sqlite, serves matchup stats /
 coaching progress / trends / block learnings via FastAPI + vanilla-JS
-frontend. Stats are currently top-lane scoped (`team_position='TOP'` in
-`stats._BASE`); all roles' data is stored, so generalizing is a query/UI
-change, not a crawler change.
+frontend. Stats cover games in ANY role: `stats._BASE` keys off the tracked
+player's own `team_position` (`me.team_position != ''`) and matches the lane
+opponent as the enemy in that SAME role (`opp.team_position = me.team_position`).
+(It used to be hard-scoped to `'TOP'`; that filter was removed so all roles show.)
 
 ## Commands
 

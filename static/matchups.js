@@ -399,7 +399,7 @@ function renderMU(rows) {
   muState.rows = rows;
   const target = $("#mu-table");
   if (!rows.length) {
-    target.innerHTML = `<div class="table-wrap"><div class="empty">No top-lane games match the current filters.</div></div>`;
+    target.innerHTML = `<div class="table-wrap"><div class="empty">No games match the current filters.</div></div>`;
     return;
   }
   const headerCols = muHeaderCols();

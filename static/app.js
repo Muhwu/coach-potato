@@ -292,7 +292,7 @@ function renderSummary(s) {
       : "–"}`).join("<br>") || "–";
   }
   $("#summary-tiles").innerHTML = `
-    <div class="tile"><div class="label">Top-lane games</div><div class="value">${s.games}</div>
+    <div class="tile"><div class="label">Games</div><div class="value">${s.games}</div>
       <div class="sub">${s.wins ?? 0}W ${s.games - (s.wins ?? 0)}L</div></div>
     <div class="tile"><div class="label">Winrate</div><div class="value">${pct(s.winrate)}</div>
       <div class="sub">50% reference on bars</div></div>
