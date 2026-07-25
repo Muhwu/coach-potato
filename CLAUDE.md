@@ -115,9 +115,14 @@ change, not a crawler change.
   served via `GET /api/settings/background/file`; stored as a single file
   in `<db_dir>/background/`, filename tracked by the `background_image_file`
   settings key, replaced/deleted on re-upload). CSS applies both app-wide via
-  `--ui-opacity` (set on `:root` from JS) driving `--surface-1`/`--page`
-  through `color-mix(...)` — every existing `var(--surface-1)`/`var(--page)`
-  usage becomes translucent for free, no per-component changes — plus a
+  `--ui-opacity` (set on `:root` from JS, raw 0.2–1) which is remapped into a
+  floored `--surface-opacity` (`calc(0.6 + 0.4 * var(--ui-opacity))`, i.e.
+  [0.68, 1]) that drives `--surface-1`/`--page` through `color-mix(...)` —
+  every existing `var(--surface-1)`/`var(--page)` usage becomes translucent
+  for free, no per-component changes. The floor keeps text-bearing surfaces
+  (cards, tables, the Matchup guide) readable over a background image while
+  still leaving "some glass" — a decorative surface that wants the raw,
+  unfloored opacity should reference `var(--ui-opacity)` directly. Plus a
   fixed, full-viewport `#bg-image` div (z-index -1) behind everything for the
   picture itself. `accent_color` (optional `#rrggbb` hex, `HEX_COLOR_RE`
   validated; `None`/unset = theme default) overrides `--series-1` the same

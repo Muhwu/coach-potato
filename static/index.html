@@ -64,12 +64,12 @@
     <span id="progress-cols" style="margin-left:auto"></span>
   </section>
 
-  <section>
+  <section class="panel">
     <h2>Progress between coaching sessions</h2>
     <div id="progress-table"></div>
   </section>
 
-  <section>
+  <section class="panel">
     <div class="section-head">
       <h2>Coaching sessions</h2>
       <a class="preset" href="/api/sessions/export.md" download>Export all (.md)</a>
@@ -329,7 +329,7 @@
 </div>
 
 <div id="blocks-view" class="hidden">
-  <section id="pool-summary" aria-label="Champion pool">
+  <section id="pool-summary" class="panel" aria-label="Champion pool">
     <div class="pool-summary-row">
       <span class="filter-label">Champion pool</span>
       <div id="pool-summary-chips"></div>
@@ -338,7 +338,7 @@
     </div>
   </section>
 
-  <section>
+  <section class="panel">
     <div class="section-head">
       <h2>Blocks</h2>
       <span id="blocks-timeline-status" class="muted"></span>
@@ -361,7 +361,7 @@
     <div id="blocks-list"></div>
   </section>
 
-  <section>
+  <section class="panel">
     <h2>Add a game to the current block</h2>
     <p class="muted">Latest games not yet in any block. Adding to a full block
       starts the next one (block size is set in Settings).</p>
@@ -403,7 +403,7 @@
   </div>
 </section>
 
-<section>
+<section class="panel">
   <div class="section-head">
     <h2>Matchups</h2>
     <div class="view-toggle" role="tablist">
@@ -478,12 +478,12 @@
 </div>
 
 <div id="research-view" class="hidden">
-<section>
+<section class="panel">
   <h2>Research</h2>
   <p class="muted">Study other players' games — notes, screenshots, and VOD timestamps.</p>
   <div id="research-list"></div>
 </section>
-<section>
+<section class="panel">
   <h3>New research entry</h3>
   <form id="research-add-form" class="filter-row">
     <div class="filter-group">
@@ -534,7 +534,7 @@
 
   <div id="trend-charts"></div>
 
-  <section>
+  <section class="panel">
     <h2>Breakdown</h2>
     <div id="trend-table"></div>
   </section>
@@ -583,7 +583,7 @@
 
 <section id="summary-tiles" class="tiles" aria-label="Summary"></section>
 
-<section id="rank-section">
+<section id="rank-section" class="panel">
   <div class="section-head">
     <h2>Rank over time</h2>
     <span id="rank-legend" class="rank-legend"></span>
@@ -591,7 +591,7 @@
   <div id="rank-chart"></div>
 </section>
 
-<section>
+<section class="panel">
   <div class="section-head">
     <button id="champion-table-toggle" class="preset seg-toggle" aria-expanded="false"
       title="Expand/collapse My champions">▸</button>
@@ -600,7 +600,7 @@
   <div id="champion-table" class="hidden"></div>
 </section>
 
-<section>
+<section class="panel">
   <h2>Recent games</h2>
   <div id="recent-list"></div>
 </section>

@@ -1,9 +1,17 @@
 :root {
   --ui-opacity: 1;          /* 0.2–1, set inline from the ui_opacity setting */
+  /* Surfaces that hold text (cards, tables, the page) keep a readable backing
+     even at the lowest opacity: the raw slider is remapped into [0.6, 1] so
+     content never disappears behind a background image, while still staying
+     translucent ("some glass"). A full-transparent slider (0.2) lands at 0.68,
+     100% stays fully solid. This is what keeps e.g. the Matchup guide legible
+     with a busy background. To let a specific decorative surface use the raw,
+     unfloored opacity, reference var(--ui-opacity) directly instead. */
+  --surface-opacity: calc(0.6 + 0.4 * var(--ui-opacity));
   --surface-1-solid: #fcfcfb;
   --page-solid: #f9f9f7;
-  --surface-1: color-mix(in srgb, var(--surface-1-solid) calc(var(--ui-opacity) * 100%), transparent);
-  --page: color-mix(in srgb, var(--page-solid) calc(var(--ui-opacity) * 100%), transparent);
+  --surface-1: color-mix(in srgb, var(--surface-1-solid) calc(var(--surface-opacity) * 100%), transparent);
+  --page: color-mix(in srgb, var(--page-solid) calc(var(--surface-opacity) * 100%), transparent);
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
   --muted: #898781;
@@ -124,6 +132,17 @@ header {
   border: 1px solid var(--border);
   border-radius: 10px;
 }
+/* A surfaced card — same treatment as .filter-row — for content that would
+   otherwise sit as bare text directly over the background image (guide notes,
+   item build, matchup list). Keeps text on a readable backing (which the
+   --ui-opacity floor keeps legible) instead of over the raw picture. */
+.panel {
+  padding: 14px 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.panel > :first-child { margin-top: 0; }
 .filter-group { display: flex; align-items: center; gap: 6px; }
 .filter-label { color: var(--text-secondary); font-size: 13px; margin-right: 2px; }
 .preset {
@@ -1079,7 +1098,10 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   padding: 22px;
   color: var(--muted);
 }
-footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px; }
+footer {
+  margin-top: 36px; padding: 12px 16px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+}
 
 /* ---------- modal ---------- */
 #modal-overlay {
