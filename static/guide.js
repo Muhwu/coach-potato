@@ -146,6 +146,10 @@ async function initGuide() {
       addGuideMatchup();
     });
     $("#guide-live-btn").addEventListener("click", liveLookup);
+    $("#guide-search").addEventListener("input", (e) => {
+      guideState.search = e.target.value;
+      renderGuide(); // the search box lives outside #guide-list, so focus is kept
+    });
     wireExportImport();
   }
   await loadChampionRoster(); // loadGuideChampionOptions needs the full roster
@@ -519,10 +523,28 @@ function guideFlags(champ) {
   return `<span class="guide-flags">${notesFlag}${runesFlag}</span>`;
 }
 
+// the per-row action buttons (One Pager, cooldowns, compare, edit) — shown on
+// both collapsed and expanded rows so they're reachable without expanding
+function guideRowActions(champ, editing, hasAny) {
+  return `<span class="guide-row-actions">
+    <button class="preset icon-btn guide-op-link" data-opp="${escapeHtml(champ)}"
+      title="One Pager — full-screen quick reference" aria-label="One Pager">📄</button>
+    <button class="preset icon-btn guide-cd-link" data-opp="${escapeHtml(champ)}"
+      title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>
+    ${state.enableComparison ? `<button class="preset icon-btn guide-compare-link" data-opp="${escapeHtml(champ)}"
+      title="Compare vs other players — opens a side-by-side window" aria-label="Compare vs other players">⧉</button>` : ""}
+    ${editing || !hasAny ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
+      title="Edit matchup guide" aria-label="Edit matchup guide">✎</button>`}
+  </span>`;
+}
+
 function guideRow(m) {
   const champ = m.opp_champion;
   const expanded = guideState.expanded.has(champ);
   const editing = guideState.editing === champ;
+  const { notes, runes, patch_version, skill_order } = guideFor(champ);
+  const hasBuild = skill_order && skill_order.some(Boolean);
+  const hasAny = notes || (runes && runes.length) || patch_version || hasBuild;
   const statLine = m.games
     ? `<span class="muted guide-stat">${m.games} games · ${wrCell(m.winrate)}</span>`
     : `<span class="muted guide-stat">Not played yet</span>`;
@@ -535,12 +557,10 @@ function guideRow(m) {
         <h4>${champIcon(champ)}${displayName(champ)}</h4>
         ${guideFlags(champ)}
         ${statLine}
+        ${guideRowActions(champ, editing, hasAny)}
       </div>
     </div>`;
   }
-  const { notes, runes, patch_version, skill_order } = guideFor(champ);
-  const hasBuild = skill_order && skill_order.some(Boolean);
-  const hasAny = notes || (runes && runes.length) || patch_version || hasBuild;
   let body;
   if (editing) {
     const draft = guideState.draft;
@@ -588,14 +608,7 @@ function guideRow(m) {
       <h4>${champIcon(champ)}${displayName(champ)}</h4>
       ${patchBadge}
       ${statLine}
-      <button class="preset icon-btn guide-op-link" data-opp="${escapeHtml(champ)}"
-        title="One Pager — full-screen quick reference" aria-label="One Pager">📄</button>
-      <button class="preset icon-btn guide-cd-link" data-opp="${escapeHtml(champ)}"
-        title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>
-      ${state.enableComparison ? `<button class="preset icon-btn guide-compare-link" data-opp="${escapeHtml(champ)}"
-        title="Compare vs other players — opens a side-by-side window" aria-label="Compare vs other players">⧉</button>` : ""}
-      ${editing || !hasAny ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
-        title="Edit matchup guide" aria-label="Edit matchup guide">✎</button>`}
+      ${guideRowActions(champ, editing, hasAny)}
     </div>
     <div class="guide-row-grid">
       <div class="guide-row-main">${body}</div>
@@ -697,16 +710,23 @@ function renderGuide() {
     target.innerHTML = `<div class="empty">Pick a champion above to see or build its matchup guide.</div>`;
     return;
   }
-  const rows = [...guideState.matchups].sort((a, b) => {
-    // guided/freshly-added matchups float to the top, then most-played
-    const aHas = Boolean(guideState.guide[a.opp_champion]) || a.added;
-    const bHas = Boolean(guideState.guide[b.opp_champion]) || b.added;
-    if (aHas !== bHas) return aHas ? -1 : 1;
-    return (b.games || 0) - (a.games || 0);
-  });
+  const q = (guideState.search || "").trim().toLowerCase();
+  const rows = [...guideState.matchups]
+    .filter((m) => !q || displayName(m.opp_champion).toLowerCase().includes(q)
+      || m.opp_champion.toLowerCase().includes(q))
+    .sort((a, b) => {
+      // matchups with a guide/notes first, then the rest — each group A→Z
+      const aHas = Boolean(guideState.guide[a.opp_champion]) || a.added;
+      const bHas = Boolean(guideState.guide[b.opp_champion]) || b.added;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return displayName(a.opp_champion).localeCompare(displayName(b.opp_champion));
+    });
+  const emptyMsg = q
+    ? `<div class="empty">No matchups match "${escapeHtml(q)}".</div>`
+    : `<div class="empty">No matchups for ${displayName(guideState.myChampion)} yet — add one below.</div>`;
   target.innerHTML = generalRunesSection() + (rows.length
     ? rows.map(guideRow).join("")
-    : `<div class="empty">No matchups for ${displayName(guideState.myChampion)} yet — add one below.</div>`);
+    : emptyMsg);
   wireGuideHandlers(target);
   hydrateRuneAnalysis(target);
   if (guideState.editing) {
