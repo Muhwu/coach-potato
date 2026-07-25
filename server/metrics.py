@@ -137,6 +137,113 @@ def _cs(pf):
     return (pf.get("minionsKilled") or 0) + (pf.get("jungleMinionsKilled") or 0)
 
 
+# the game-start shopping trip happens during loading (events at ~t0); first
+# recall is well after minions (~90s), so a 30s window captures the opening buy
+# and nothing from a later back.
+STARTING_ITEMS_BEFORE_MS = 30_000
+
+
+def parse_starting_items(timeline_json, puuid, before_ms=STARTING_ITEMS_BEFORE_MS):
+    """The items a player bought at game start, from the match-v5 timeline's
+    ITEM_PURCHASED events before `before_ms` (with ITEM_UNDO applied). Returns a
+    list of item ids (order bought), or None if the timeline/participant is
+    missing. Empty list means a timeline was present but no early purchase."""
+    if not timeline_json:
+        return None
+    info = timeline_json.get("info") or {}
+    pid = next((p.get("participantId") for p in info.get("participants") or []
+                if p.get("puuid") == puuid), None)
+    if pid is None:
+        return None
+    items = []
+    for frame in info.get("frames") or []:
+        for ev in frame.get("events") or []:
+            if ev.get("participantId") != pid or (ev.get("timestamp") or 0) > before_ms:
+                continue
+            if ev.get("type") == "ITEM_PURCHASED":
+                item_id = ev.get("itemId")
+                if item_id:
+                    items.append(item_id)
+            elif ev.get("type") == "ITEM_UNDO":
+                before_id = ev.get("beforeId")  # the undone purchase
+                if before_id in items:
+                    items.remove(before_id)
+    return items
+
+
+# ward trinkets + consumables/wards — never part of the "what did they build"
+# order (pots/biscuits/elixirs/control wards can linger in the final inventory)
+_TRINKET_IDS = {3340, 3363, 3364}
+_NON_BUILD_IDS = _TRINKET_IDS | {2003, 2010, 2022, 2031, 2033, 2055,
+                                 2138, 2139, 2140, 2150, 2151, 2152}
+
+
+def parse_build_order(timeline_json, puuid, final_item_ids):
+    """Order a player's FINAL-inventory items by when they were bought/completed
+    in the timeline (first ITEM_PURCHASED per item id), so the first entries are
+    the first items they built toward — not the arbitrary final-slot order.
+    final_item_ids: their item0..item6 ids. Trinkets are dropped. Items with no
+    purchase event (rare) are appended in inventory order. Returns an ordered
+    list of item ids, or None without a timeline/participant."""
+    if not timeline_json:
+        return None
+    info = timeline_json.get("info") or {}
+    pid = next((p.get("participantId") for p in info.get("participants") or []
+                if p.get("puuid") == puuid), None)
+    if pid is None:
+        return None
+    final = [i for i in (final_item_ids or []) if i and i not in _NON_BUILD_IDS]
+    first_ts = {}
+    for frame in info.get("frames") or []:
+        for ev in frame.get("events") or []:
+            if ev.get("participantId") != pid or ev.get("type") != "ITEM_PURCHASED":
+                continue
+            iid = ev.get("itemId")
+            if iid in final and iid not in first_ts:
+                first_ts[iid] = ev.get("timestamp") or 0
+    # drop items first bought in the opening window — those are the starting buy
+    # (shown separately); Build is the path after it.
+    built = {i: t for i, t in first_ts.items() if t >= STARTING_ITEMS_BEFORE_MS}
+    ordered = sorted(built, key=built.get)
+    for i in final:  # items with no post-start purchase event kept last, inventory order
+        if i not in first_ts and i not in ordered:
+            ordered.append(i)
+    return ordered
+
+
+def parse_skill_order(timeline_json, puuid):
+    """The player's ability MAX order (which of Q/W/E they leveled first), from
+    the timeline's SKILL_LEVEL_UP events. Slots: 1=Q, 2=W, 3=E (R/slot 4 is
+    ignored — it's always taken at 6/11/16). Ordered by which basic ability
+    reached its 3rd point first (the classic 'max priority' signal); abilities
+    with fewer points fall back to point count. Returns [slot, slot, slot] or
+    None without a timeline/participant."""
+    if not timeline_json:
+        return None
+    info = timeline_json.get("info") or {}
+    pid = next((p.get("participantId") for p in info.get("participants") or []
+                if p.get("puuid") == puuid), None)
+    if pid is None:
+        return None
+    counts = {1: 0, 2: 0, 3: 0}
+    third_ts = {}  # timestamp each basic ability reached its 3rd point
+    for frame in info.get("frames") or []:
+        for ev in frame.get("events") or []:
+            if ev.get("type") != "SKILL_LEVEL_UP" or ev.get("participantId") != pid:
+                continue
+            slot = ev.get("skillSlot")
+            if slot in counts:
+                counts[slot] += 1
+                if counts[slot] == 3:
+                    third_ts[slot] = ev.get("timestamp") or 0
+    if not any(counts.values()):
+        return []
+    # maxed-first (3rd point earliest) wins; otherwise more points, then Q<W<E
+    def key(s):
+        return (0, third_ts[s]) if s in third_ts else (1, -counts[s], s)
+    return sorted((1, 2, 3), key=key)
+
+
 def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
     """CS/level/gold advantage of me_puuid over opp_puuid at ~7 and ~14 min,
     read from the match-v5 timeline. Returns {timeline metric key: value},

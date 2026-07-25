@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from server import db, stats
@@ -19,7 +21,7 @@ _counter = {"n": 0}
 def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_000_000_000,
               queue=420, duration=1800, my_pos="TOP", opp_pos="TOP", opp_puuid=None,
               kills=6, deaths=3, assists=9, cs=210, gold=12000, dmg=18000, puuid=None,
-              my_team=100):
+              my_team=100, spell1=None, spell2=None, items=None):
     me = puuid or ME
     opp_team = 200 if my_team == 100 else 100  # my_team 100 = blue, 200 = red
     _counter["n"] += 1
@@ -28,7 +30,7 @@ def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_0
     positions = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"]
 
     def part(puuid, champ, team, pos, w, **kw):
-        return {
+        row = {
             "puuid": puuid, "riot_id_name": puuid, "champion_name": champ,
             "team_id": team, "team_position": pos, "win": int(w),
             "kills": kw.get("kills", 2), "deaths": kw.get("deaths", 2),
@@ -36,12 +38,18 @@ def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_0
             "gold_earned": kw.get("gold", 10000),
             "damage_to_champions": kw.get("dmg", 10000),
         }
+        if "spell1" in kw:
+            row.update(summoner1_id=kw["spell1"], summoner2_id=kw["spell2"],
+                       items=json.dumps(kw["items"]) if kw["items"] is not None else None)
+        return row
 
     parts = []
     for i, pos in enumerate(positions):
         if pos == my_pos:
+            loadout = ({"spell1": spell1, "spell2": spell2, "items": items}
+                       if spell1 is not None or items is not None else {})
             parts.append(part(me, my_champ, my_team, pos, win, kills=kills, deaths=deaths,
-                              assists=assists, cs=cs, gold=gold, dmg=dmg))
+                              assists=assists, cs=cs, gold=gold, dmg=dmg, **loadout))
         else:
             parts.append(part(f"ally-{_counter['n']}-{i}", "Ahri", my_team, pos, win))
     for i, pos in enumerate(positions):
@@ -250,6 +258,23 @@ def test_comparison_for_matchup_scopes_to_player(conn):
     assert len(data["recent"]) == 1
     # ME has no such games, so ME's comparison view is empty
     assert stats.comparison_for_matchup(conn, ME, "Gwen", "Darius")["matchup"]["games"] == 0
+
+
+def test_comparison_recent_includes_spells_and_items(conn):
+    other = "cmp-puuid-2"
+    add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other,
+              spell1=4, spell2=14, items=[3153, 3078, 3111, 3006, 0, 0, 3364])
+    game = stats.comparison_for_matchup(conn, other, "Gwen", "Darius")["recent"][0]
+    assert game["spell1"] == 4 and game["spell2"] == 14
+    assert game["items"] == [3153, 3078, 3111, 3006, 0, 0, 3364]  # full inventory, 0 = empty
+
+
+def test_comparison_recent_loadout_none_when_untracked(conn):
+    # a game stored without loadout data (older row) reports None, not a crash
+    other = "cmp-puuid-3"
+    add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other)
+    game = stats.comparison_for_matchup(conn, other, "Gwen", "Darius")["recent"][0]
+    assert game["spell1"] is None and game["items"] is None
 
 
 DAY_MS = 86_400_000

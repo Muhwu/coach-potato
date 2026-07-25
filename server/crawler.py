@@ -1,8 +1,10 @@
 """Incremental, idempotent match-history crawler + rank enrichment."""
+import json
 import time
 
 from . import db, rune_data
-from .metrics import parse_metrics, parse_timeline_deltas
+from .metrics import (parse_build_order, parse_metrics, parse_skill_order,
+                      parse_starting_items, parse_timeline_deltas)
 from .parsing import parse_match
 
 _NO_TIMELINE = object()  # _store_metrics sentinel: no timeline fetch was attempted
@@ -148,6 +150,13 @@ class Crawler:
                 values.update(parse_timeline_deltas(timeline, puuid, opp))  # None -> all None
                 values["has_timeline"] = 1
             db.insert_participant_metrics(self.conn, match_id, puuid, values)
+            if attempted_timeline:  # start buy + build order + skill order, one timeline
+                final_items = [participant.get(f"item{i}") for i in range(7)]
+                db.update_participant_timeline_items(
+                    self.conn, match_id, puuid,
+                    parse_starting_items(timeline, puuid),
+                    parse_build_order(timeline, puuid, final_items),
+                    parse_skill_order(timeline, puuid))
 
     def backfill_metrics(self, limit=None):
         """Re-fetch details for stored matches whose tracked participants
@@ -221,6 +230,101 @@ class Crawler:
             count += 1
             self.status_cb(f"runes backfill: {count}/{len(rows)} matches")
         return count
+
+    def backfill_items(self, limit=None):
+        """Re-fetch details for stored TRACKED matches whose participant rows
+        lack loadout data (summoner spells + items) — rows stored before loadout
+        tracking don't have them, and INSERT OR IGNORE never overwrites on a
+        re-crawl. Scoped to tracked accounts on purpose: a single RiotClient is
+        region-bound, while comparison ('research') players can be on other
+        regions — those are re-fetched region-correctly by their own on-demand
+        comparison crawl (which now stores loadout too). A per-match fetch
+        failure (an old match 404, a stray cross-region id) is skipped, not
+        fatal. Returns matches successfully re-fetched."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT me.match_id FROM participants me
+               JOIN players pl ON pl.puuid = me.puuid AND pl.is_tracked = 1
+               WHERE me.items IS NULL"""
+        ).fetchall()
+        count = 0
+        for i, row in enumerate(rows):
+            if limit is not None and count >= limit:
+                break
+            try:
+                self._store_items(self.client.get_match(row["match_id"]))
+            except Exception:  # noqa: BLE001 — one bad match must not abort the run
+                continue
+            count += 1
+            self.status_cb(f"items backfill: {count}/{len(rows)} matches")
+        return count
+
+    def backfill_items_for_player(self, puuid, limit=None):
+        """Fill loadout (spells + items) for one player's stored matches that
+        lack it, using THIS crawler's client — so the caller controls the
+        region (comparison players can be on another region than you; build the
+        client with their platform). Tolerant of per-match fetch failures.
+        Returns matches successfully re-fetched."""
+        # Newest first: the guide comparison shows a player's most recent games,
+        # so fill those before older history — the visible rows populate first.
+        rows = self.conn.execute(
+            """SELECT pa.match_id FROM participants pa
+               JOIN matches m ON m.match_id = pa.match_id
+               WHERE pa.puuid=? AND pa.items IS NULL
+               ORDER BY m.game_creation_ms DESC""",
+            (puuid,)).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            try:
+                self._store_items(self.client.get_match(row["match_id"]))
+            except Exception:  # noqa: BLE001 — one bad match must not abort the run
+                continue
+            count += 1
+            self.status_cb(f"items backfill (player): {count}/{len(rows)} matches")
+        return count
+
+    def backfill_timeline_items_for_player(self, puuid, limit=None):
+        """Fill timeline-derived item info (game-start buy + build order) for one
+        player's stored matches missing it, by fetching each match's TIMELINE
+        with this crawler's (region-specific) client. Newest first (the
+        comparison shows recent games). Build order is derived against that
+        player's stored final inventory. A failed/absent timeline stores empty
+        lists so it isn't retried forever. Returns matches processed."""
+        rows = self.conn.execute(
+            """SELECT pa.match_id, pa.items FROM participants pa
+               JOIN matches m ON m.match_id = pa.match_id
+               WHERE pa.puuid=? AND pa.skill_order IS NULL
+               ORDER BY m.game_creation_ms DESC""",
+            (puuid,)).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            timeline = self._safe_timeline(row["match_id"])
+            final_items = json.loads(row["items"]) if row["items"] else []
+            db.update_participant_timeline_items(
+                self.conn, row["match_id"], puuid,
+                parse_starting_items(timeline, puuid) or [],
+                parse_build_order(timeline, puuid, final_items) or [],
+                parse_skill_order(timeline, puuid) or [])
+            count += 1
+            self.status_cb(f"timeline-items backfill: {count}/{len(rows)} matches")
+        return count
+
+    def _store_items(self, match_json):
+        """Fill loadout (summoner spells + items) for stored tracked/comparison
+        participant rows from a fetched match detail. Only updates rows that
+        exist (a stranger's row we don't keep is skipped)."""
+        stored = self._stored_puuids()
+        match_id = match_json["metadata"]["matchId"]
+        for p in match_json["info"]["participants"]:
+            if p["puuid"] not in stored:
+                continue
+            items = [p.get(f"item{i}", 0) for i in range(7)]
+            db.update_participant_loadout(
+                self.conn, match_id, p["puuid"],
+                p.get("summoner1Id", 0), p.get("summoner2Id", 0), items)
 
     def backfill_lane_deltas(self, limit=None, block_games_only=False):
         """Fetch the match timeline for tracked-participant metrics rows that

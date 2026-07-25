@@ -283,7 +283,20 @@ change, not a crawler change.
 
 `players(puuid PK, game_name, tag_line, is_tracked, solo_tier/division/lp, rank_fetched_at_ms)`
 `matches(match_id PK, queue_id, game_creation_ms, game_duration_s, game_version, crawled_at_ms)`
-`participants(match_id+puuid PK, champion_name, team_id, team_position, win, k/d/a, cs, gold_earned, damage_to_champions, riot_id_name)`
+`participants(match_id+puuid PK, champion_name, team_id, team_position, win, k/d/a, cs, gold_earned, damage_to_champions, riot_id_name, summoner1_id, summoner2_id, items)`
+— `summoner1_id`/`summoner2_id` are match-v5 summoner-spell ids; `items` is a
+JSON array of the 7 final inventory slots (item0..item6; slot 6 = trinket,
+0 = empty — final positions, NOT purchase order). All three are nullable
+(added later; existing rows are NULL until re-crawled). Parsed in
+`parsing.py`, stored on every participant by `insert_match`; surfaced (for the
+`me` side) via `stats._BASE` as `spell1`/`spell2`/`my_items_json` and consumed
+by the Matchup-guide comparison (`comparison_for_matchup` recent games →
+compare.html / guide.js: per-game summoner spells + first 3 items). Because
+`insert_match` is INSERT OR IGNORE, a re-crawl never fills these on an existing
+row — `crawler.backfill_items()` / `./crawl.sh --backfill-items` re-fetches
+match detail to populate them (via `db.update_participant_loadout`), mirroring
+`backfill_runes`. Newly-added comparison players get them automatically (their
+games are new to the db).
 `player_ranks(puuid PK, solo_tier/division/lp, fetched_at_ms)` — opponent rank cache
 `rank_history(puuid+fetched_at_ms PK, solo_tier/division/lp)` — tracked players'
 rank snapshots: appended by `refresh_tracked_ranks()` each crawl, seeded once

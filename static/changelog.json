@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.48.0",
+      "date": "2026-07-24",
+      "items": [
+        "The Matchup guide comparison shows what each research player actually ran per recent game — summoner spells, runes (with stat shards), the game-start buy and full build in purchase order, and the ability max order (Q>W>E) — in a clean columnar pop-out with a Show spells & items toggle (up to 6 players, 3 per row)",
+        "Lane Δ @14m (ΔCS / ΔGold vs the direct lane opponent) is shown for every compared player; comparison fetches pull match timelines again to make this and the item/skill data possible, and older stored games back-fill region-correctly on the next fetch",
+        "Summoner spells and items are captured on new crawls; run ./crawl.sh --backfill-items to fill them in for already-stored games"
+      ]
+    },
+    {
       "version": "1.46.0",
       "date": "2026-07-23",
       "items": [

@@ -46,7 +46,7 @@ class DesktopApi:
         webview.create_window(
             f"Compare · {my_champion} vs {opp_champion}",
             f"{self.base_url}/compare.html?{query}",
-            width=820, height=960)
+            width=470, height=940)  # one card wide; enlarge for up to 3 per row
         return True
 
 

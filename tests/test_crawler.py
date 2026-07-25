@@ -4,6 +4,7 @@ import pytest
 
 from server import db
 from server.crawler import Crawler
+from server.parsing import parse_match
 
 TRACKED_PUUID = "tracked-1"
 
@@ -264,6 +265,51 @@ def test_backfill_runes_fetches_missing_only(conn):
     assert client.detail_calls == 1
     # 2 rows per match (tracked + lane opponent) x 2 matches
     assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 4
+
+
+def test_backfill_items_fills_missing_loadout(conn):
+    db.upsert_player(conn, TRACKED_PUUID, "T", "EUW", is_tracked=True)
+    # simulate a pre-feature stored match: participant rows with items NULL
+    m = match_json("EUW1_1", 1_700_000_000_000)
+    _, parts = parse_match(m)
+    for p in parts:  # drop loadout so insert_match leaves the columns NULL
+        p.pop("summoner1_id"), p.pop("summoner2_id"), p.pop("items")
+    db.insert_match(conn, {"match_id": "EUW1_1", "queue_id": 420,
+                           "game_creation_ms": 1_700_000_000_000, "game_duration_s": 1800,
+                           "game_version": "14.1.1"}, parts)
+    assert conn.execute("SELECT items FROM participants WHERE puuid=?",
+                        (TRACKED_PUUID,)).fetchone()["items"] is None
+    # serve a detail WITH loadout for the tracked (TOP) participant, then backfill
+    tp = m["info"]["participants"][0]
+    tp["summoner1Id"], tp["summoner2Id"] = 4, 14
+    for i, v in enumerate([3153, 3078, 3111, 0, 0, 0, 3364]):
+        tp[f"item{i}"] = v
+    client = FakeClient([m])
+    assert make_crawler(client, conn).backfill_items() == 1
+    assert client.detail_calls == 1
+    row = conn.execute(
+        "SELECT summoner1_id, summoner2_id, items FROM participants WHERE puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert (row["summoner1_id"], row["summoner2_id"]) == (4, 14)
+    assert json.loads(row["items"]) == [3153, 3078, 3111, 0, 0, 0, 3364]
+    # nothing left missing -> a second pass fetches nothing
+    client.detail_calls = 0
+    assert make_crawler(client, conn).backfill_items() == 0
+    assert client.detail_calls == 0
+
+
+def test_crawl_stores_loadout_inline(conn):
+    db.upsert_player(conn, TRACKED_PUUID, "T", "EUW", is_tracked=True)
+    m = match_json("EUW1_1", 1_700_000_000_000)
+    tp = m["info"]["participants"][0]
+    tp["summoner1Id"], tp["summoner2Id"] = 4, 12
+    tp["item0"], tp["item1"] = 6653, 3020
+    make_crawler(FakeClient([m]), conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT summoner1_id, summoner2_id, items FROM participants WHERE puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert (row["summoner1_id"], row["summoner2_id"]) == (4, 12)
+    assert json.loads(row["items"]) == [6653, 3020, 0, 0, 0, 0, 0]
 
 
 def test_crawl_stores_lane_deltas_inline_from_timeline(conn):

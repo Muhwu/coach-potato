@@ -116,6 +116,9 @@ SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id,
        me.puuid AS my_puuid,
        me.champion_name AS my_champion, me.win, me.kills, me.deaths, me.assists,
        me.cs, me.gold_earned, me.damage_to_champions,
+       me.summoner1_id AS spell1, me.summoner2_id AS spell2, me.items AS my_items_json,
+       me.starting_items AS my_starting_items_json, me.build_order AS my_build_order_json,
+       me.skill_order AS my_skill_order_json,
        opp.champion_name AS opp_champion, opp.puuid AS opp_puuid,
        COALESCE(pr.solo_tier, 'UNKNOWN') AS rank_tier,
        pm.match_id AS pm_match_id,
@@ -324,7 +327,9 @@ def comparison_for_matchup(conn, puuid, my_champion, opp_champion, queues=None):
     recent = [_decode_game_runes(r) for r in conn.execute(
         f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
                    my_puuid, my_champion, opp_champion, rank_tier, win,
-                   kills, deaths, assists, cs, my_runes_json, opp_runes_json
+                   kills, deaths, assists, cs, my_runes_json, opp_runes_json,
+                   spell1, spell2, my_items_json, my_starting_items_json, my_build_order_json,
+                   my_skill_order_json
             FROM ({mbase}) ORDER BY game_creation_ms DESC LIMIT 20""",
         mparams)]
     return {"matchup": matchup, "overall": overall, "recent": recent}
@@ -504,6 +509,19 @@ def _decode_game_runes(row):
     opp_runes = game.pop("opp_runes_json")
     game["runes"] = json.loads(my_runes) if my_runes else None
     game["opp_runes"] = json.loads(opp_runes) if opp_runes else None
+    # loadout is only selected by some queries; decode each when present
+    if "my_items_json" in game.keys():
+        items = game.pop("my_items_json")
+        game["items"] = json.loads(items) if items else None
+    if "my_starting_items_json" in game.keys():
+        starting = game.pop("my_starting_items_json")
+        game["starting_items"] = json.loads(starting) if starting else None
+    if "my_build_order_json" in game.keys():
+        build = game.pop("my_build_order_json")
+        game["build_order"] = json.loads(build) if build else None
+    if "my_skill_order_json" in game.keys():
+        skill = game.pop("my_skill_order_json")
+        game["skill_order"] = json.loads(skill) if skill else None
     return game
 
 
@@ -518,7 +536,8 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
         SELECT match_id, game_creation_ms, game_duration_s, queue_id, my_puuid,
                my_champion, opp_champion, rank_tier, win,
                kills, deaths, assists, cs, lane_adv_early, lane_adv_late,
-               my_runes_json, opp_runes_json
+               my_runes_json, opp_runes_json, spell1, spell2, my_items_json,
+               my_starting_items_json, my_build_order_json, my_skill_order_json
         FROM ({base}) ORDER BY game_creation_ms DESC
     """
     return [_decode_game_runes(r) for r in conn.execute(sql, params)]

@@ -1515,8 +1515,19 @@ def _run_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
                               status_cb=lambda m: COMPARISON_CRAWL.__setitem__("message", m))
             res = crawler.crawl_player(game_name, tag_line, limit=COMPARISON_FETCH_TARGET,
                                        is_tracked=False,  # since_s omitted -> by count
-                                       fetch_timeline=False)  # skip timelines -> ~2x faster
+                                       # fetch timelines so the comparison shows each
+                                       # player's lane Δ @14m (costs ~2x the API calls;
+                                       # deliberately re-enabled — lane Δ is wanted here)
+                                       fetch_timeline=True)
             COMPARISON_CRAWL["new_matches"] = res["new_matches"]
+            # fill lane Δ on any of this/other comparison players' older games
+            # that were stored before timelines were fetched (has_timeline=0).
+            crawler.backfill_lane_deltas()
+            # this client is on the player's region, so it can fill loadout
+            # (spells + items) on their already-stored matches that crawl_player
+            # skipped (has_participant) — the global backfill can't cross region.
+            crawler.backfill_items_for_player(puuid)
+            crawler.backfill_timeline_items_for_player(puuid)  # start buy + build order (timeline)
             COMPARISON_CRAWL["message"] = f"done — {_comparison_games(conn, puuid)} games stored"
         finally:
             conn.close()
