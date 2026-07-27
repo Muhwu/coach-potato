@@ -4,6 +4,7 @@
       "version": "1.48.0",
       "date": "2026-07-29",
       "items": [
+        "New Tier list maker (own tab): drag any champion from the full roster into S/A/B/C/D tiers (rename/recolour tiers, add/remove rows), keep multiple named lists, and it all auto-saves and rides along in your backups",
         "Lowering the UI opacity no longer washes text out over a background picture — translucency now stops at a readable floor, and each view's content sits on its own surface panel instead of directly on the image. Thanks to @bs1phc",
         "The Matchup guide has a search box for the matchup list, sorts matchups with notes/guides first (each group A→Z), and shows each row's tools (📄 One Pager, ⏱ Cooldowns, ⧉ Compare, ✎ Edit) on collapsed rows too, so you don't have to expand a matchup to reach them. Thanks to @bs1phc",
         "The Matchup guide comparison shows what each research player actually ran per recent game — summoner spells, runes (with stat shards), the game-start buy and full build in purchase order, and the ability max order (Q>W>E) — in a clean columnar pop-out with a Show spells & items toggle (up to 6 players, 3 per row)",
