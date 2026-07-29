@@ -481,6 +481,24 @@ division of responsibility as sessions/blocks. UI in `research.js`:
 collapsed-by-default entry cards (list is lightweight — `GET /api/research`
 returns only the entry rows; screenshots are fetched together with the
 rest of the entry on first expand via `GET /api/research/{id}`).
+`tier_lists(id PK, title, data, champion, created_at_ms, updated_at_ms)` — a
+drag-and-drop champion tier board (Tier list tab, `static/tierlist.js`).
+`data` is JSON `{tiers: [{label, color, image, image_kind, champions: [ids]}],
+flagged: [ids]}` — a row icon is a champion or a rune name (`image_kind`),
+`flagged` marks champions with a "?"; server-side `_validate_tier_data`
+(app.py) cleans it (max `_MAX_TIERS`, hex colours, known champion ids, no
+duplicate champion across tiers). `champion` splits the SAME table in two:
+`''` = an editable list owned by the Tier list tab (`GET /api/tier-lists`,
+`scope=all` also returns the rest), a champion = a read-only COPY saved into
+that champion's Matchup guide. **Editing only happens in the tab** —
+`POST /api/champions/{champion}/tier-lists` snapshots the open board into a
+guide (several per champion; same title = overwrites that copy, reported as
+`replaced`), `GET` lists them, and removal reuses `DELETE
+/api/tier-lists/{id}`. The guide renders copies via `tierBoardStaticHtml()`
+(tierlist.js, no drag/inputs) — `loadGuideTierLists` in guide.js — and the
+tab's "⇄ Compare" overlay (`#tier-compare-overlay`) shows up to 4 of any
+lists in a 2×2 grid using the same static renderer. `stats.champion_roles`
+(`GET /api/champion-roles`) backs the pool's role filter.
 `GET /api/export-all` — a full backup as one .zip (`api_export_all` in
 app.py): `data.json` (sessions, blocks + block_games, matchup_notes,
 champion_notes, champion_item_builds, research_entries +

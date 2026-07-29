@@ -543,6 +543,30 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
     return [_decode_game_runes(r) for r in conn.execute(sql, params)]
 
 
+def champion_roles(conn, secondary_share=0.2):
+    """Each champion's lane(s), computed empirically from EVERY participant in
+    every stored match (not just tracked games) — {champion_id: [team_position,
+    ...]}. A champion's dominant role is always included; a secondary role is
+    added when it holds >= secondary_share of that champion's games (flex picks
+    show under multiple lanes). Champions never seen are simply absent. Used by
+    the tier-list pool's role filter."""
+    rows = conn.execute(
+        """SELECT champion_name, team_position, COUNT(*) AS c
+           FROM participants WHERE team_position != ''
+           GROUP BY champion_name, team_position""")
+    dist = {}
+    for r in rows:
+        dist.setdefault(r["champion_name"], {})[r["team_position"]] = r["c"]
+    out = {}
+    for champ, d in dist.items():
+        total = sum(d.values())
+        top = max(d, key=d.get)
+        roles = [pos for pos, c in d.items() if pos == top or c / total >= secondary_share]
+        # stable order: TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY
+        order = {"TOP": 0, "JUNGLE": 1, "MIDDLE": 2, "BOTTOM": 3, "UTILITY": 4}
+        out[champ] = sorted(roles, key=lambda p: order.get(p, 9))
+    return out
+
 def filter_options(conn, puuid):
     base, params = _filtered_base(puuid, require_opponent=False)
     champions = [r[0] for r in conn.execute(

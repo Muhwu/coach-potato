@@ -187,6 +187,8 @@ CREATE TABLE IF NOT EXISTS tier_lists (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL DEFAULT '',
     data TEXT NOT NULL DEFAULT '{{}}',
+    champion TEXT NOT NULL DEFAULT '',  -- '' = standalone (Tier list tab); else the
+                                        -- champion whose Matchup guide owns it
     created_at_ms INTEGER,
     updated_at_ms INTEGER
 );
@@ -260,6 +262,9 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
         if "series_id" not in block_columns:  # block series added in v1.40.0
             conn.execute("ALTER TABLE blocks ADD COLUMN series_id INTEGER")
+    tl_columns = {r["name"] for r in conn.execute("PRAGMA table_info(tier_lists)")}
+    if tl_columns and "champion" not in tl_columns:  # per-champion matchup tier lists
+        conn.execute("ALTER TABLE tier_lists ADD COLUMN champion TEXT NOT NULL DEFAULT ''")
     part_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participants)")}
     if part_columns:  # summoner spells + item build added later
         if "summoner1_id" not in part_columns:
@@ -1235,23 +1240,28 @@ def delete_research_screenshot(conn, screenshot_id):
 
 # ---------- tier lists ----------
 
-def list_tier_lists(conn):
-    """All tier lists (id, title, data, timestamps), oldest first. `data` is the
-    raw JSON string — callers decode it."""
-    return conn.execute("SELECT * FROM tier_lists ORDER BY id").fetchall()
+def list_tier_lists(conn, champion=None):
+    """Tier lists (id, title, data, champion, timestamps), oldest first. `data`
+    is the raw JSON string. champion=None → all; '' → standalone (Tier list tab)
+    only; a champion → that champion's matchup tier list(s)."""
+    if champion is None:
+        return conn.execute("SELECT * FROM tier_lists ORDER BY id").fetchall()
+    return conn.execute(
+        "SELECT * FROM tier_lists WHERE champion=? ORDER BY id", (champion,)).fetchall()
 
 
 def get_tier_list(conn, tier_list_id):
     return conn.execute("SELECT * FROM tier_lists WHERE id=?", (tier_list_id,)).fetchone()
 
 
-def create_tier_list(conn, title, data):
-    """data: a dict {"tiers": [...]}, stored as JSON."""
+def create_tier_list(conn, title, data, champion=""):
+    """data: a dict with a 'tiers' array, stored as JSON. champion='' = a
+    standalone list; else it's that champion's Matchup-guide tier list."""
     with conn:
         cursor = conn.execute(
-            f"""INSERT INTO tier_lists (title, data, created_at_ms, updated_at_ms)
-                VALUES (?, ?, {_now_expr()}, {_now_expr()})""",
-            (title, json.dumps(data)))
+            f"""INSERT INTO tier_lists (title, data, champion, created_at_ms, updated_at_ms)
+                VALUES (?, ?, ?, {_now_expr()}, {_now_expr()})""",
+            (title, json.dumps(data), champion))
     return cursor.lastrowid
 
 

@@ -4,6 +4,7 @@
       "version": "1.48.0",
       "date": "2026-07-29",
       "items": [
+        "Tier lists can now be saved into a champion's Matchup guide: build one in the Tier list tab, pick a champion and hit 'Save to guide' — it shows up read-only on that champion's guide page (several per champion; re-saving the same list updates its copy). Plus a new '⇄ Compare' window that puts up to 4 tier lists side by side in a 2×2 layout",
         "New Tier list maker (own tab): drag any champion from the full roster into S/A/B/C/D tiers (rename/recolour tiers, add/remove rows), keep multiple named lists, and it all auto-saves and rides along in your backups",
         "Lowering the UI opacity no longer washes text out over a background picture — translucency now stops at a readable floor, and each view's content sits on its own surface panel instead of directly on the image. Thanks to @bs1phc",
         "The Matchup guide has a search box for the matchup list, sorts matchups with notes/guides first (each group A→Z), and shows each row's tools (📄 One Pager, ⏱ Cooldowns, ⧉ Compare, ✎ Edit) on collapsed rows too, so you don't have to expand a matchup to reach them. Thanks to @bs1phc",

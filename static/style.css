@@ -1346,7 +1346,12 @@ footer {
 .tier-drop.drag-over, .tier-pool.drag-over { outline: 2px dashed var(--series-1); outline-offset: -3px; }
 .tier-chip { cursor: grab; line-height: 0; border-radius: 6px; }
 .tier-chip.dragging { opacity: .4; }
-.tier-chip img { width: 40px; height: 40px; border-radius: 6px; display: block; }
+/* the champ <img> must NOT be the drag source (native image drag) — let the
+   draggable chip span own the drag by making the image transparent to pointers */
+.tier-chip img {
+  width: 40px; height: 40px; border-radius: 6px; display: block;
+  pointer-events: none; -webkit-user-drag: none; user-select: none;
+}
 .tier-pool-panel { margin-top: 12px; }
 .tier-pool-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .tier-pool-head h3 { margin: 0; }
@@ -1354,3 +1359,60 @@ footer {
   display: flex; flex-wrap: wrap; gap: 4px; min-height: 52px;
   max-height: 42vh; overflow-y: auto; padding: 4px; border-radius: 8px;
 }
+.guide-tier-summary { cursor: pointer; font-size: 16px; font-weight: 600; }
+/* read-only copy shown in a Matchup guide (tierBoardStaticHtml) */
+.guide-tier-card { margin-top: 12px; }
+.guide-tier-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.guide-tier-card-head .muted { font-size: 12px; }
+.guide-tier-card-head .guide-tier-del { margin-left: auto; }
+.tier-static { display: flex; flex-direction: column; gap: 6px; }
+.tier-static .tier-chip { cursor: default; }
+.tier-label-text { font-size: 18px; font-weight: 800; text-align: center; word-break: break-word; }
+.tier-pool-head { flex-wrap: wrap; }
+.tier-role-filter { display: flex; gap: 4px; flex-wrap: wrap; }
+.tier-role-btn { font-size: 12px; padding: 2px 9px; }
+.tier-role-btn.active { border-color: var(--series-1); color: var(--series-1); }
+.tier-chip { position: relative; }
+.tier-flag {
+  position: absolute; top: -5px; right: -5px; width: 15px; height: 15px;
+  border-radius: 50%; background: #ffd43b; color: #1a1a1a;
+  font-size: 11px; font-weight: 800; line-height: 15px; text-align: center;
+  box-shadow: 0 0 0 1.5px var(--surface-1); pointer-events: none;
+}
+.tier-chip.flagged img { outline: 2px solid #ffd43b; outline-offset: -2px; }
+.tier-label-img { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 2px; }
+.tier-label-img img { width: 26px; height: 26px; border-radius: 5px; }
+.tier-img-input {
+  width: 70px; font-size: 10px; padding: 1px 4px; border-radius: 4px;
+  border: 1px solid rgba(0,0,0,.25); background: rgba(255,255,255,.7); color: #111; text-align: center;
+}
+.tier-img-input::placeholder { color: rgba(0,0,0,.45); }
+
+/* ---------- compare window: up to 4 lists, 2 on top / 2 below ---------- */
+#tier-compare-overlay {
+  position: fixed; inset: 0; z-index: 120;
+  background: var(--page-solid);      /* opaque: it replaces the UI for reading */
+  overflow-y: auto; padding: 20px 20px 40px;
+}
+.tier-compare-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.tier-compare-head strong { font-size: 17px; }
+.tier-compare-head .icon-btn { margin-left: auto; }
+.tier-compare-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.tier-compare-pick {
+  display: flex; align-items: center; gap: 5px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 11px; font-size: 13px; background: var(--surface-1);
+}
+.tier-compare-pick.active { border-color: var(--series-1); color: var(--series-1); background: var(--accent-wash); }
+.tier-compare-pick.disabled { opacity: .45; cursor: not-allowed; }
+.tier-compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.tier-compare-cell { min-width: 0; }
+.tier-compare-cell-head { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+.tier-compare-cell-head img { width: 24px; height: 24px; border-radius: 5px; }
+.tier-compare-cell-head .muted { font-size: 12px; }
+/* denser boards so four fit on one screen */
+.tier-compare-cell .tier-label { flex-basis: 58px; }
+.tier-compare-cell .tier-label-text { font-size: 15px; }
+.tier-compare-cell .tier-chip img { width: 30px; height: 30px; }
+.tier-compare-cell .tier-drop { min-height: 40px; gap: 3px; padding: 4px; }
+@media (max-width: 900px) { .tier-compare-grid { grid-template-columns: 1fr; } }

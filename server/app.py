@@ -55,6 +55,7 @@ CHAMPION_IDS = _champion_ids()
 
 RUNE_TREE_NAMES, RUNE_NAMES, RUNE_SHARD_NAMES = (
     rune_data.TREE_NAMES, rune_data.RUNE_NAMES, rune_data.SHARD_NAMES)
+_RUNE_ALL_NAMES = set(RUNE_NAMES) | set(RUNE_TREE_NAMES) | set(RUNE_SHARD_NAMES)
 
 RANGE_PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
 
@@ -565,7 +566,7 @@ def api_export_all():
             """SELECT id, owner_type, owner_id, label, kind, file_name, url, created_at_ms
                FROM clips ORDER BY id""")]
         tier_list_rows = [dict(r) for r in conn.execute(
-            "SELECT id, title, data, created_at_ms, updated_at_ms FROM tier_lists ORDER BY id")]
+            "SELECT id, title, data, champion, created_at_ms, updated_at_ms FROM tier_lists ORDER BY id")]
     finally:
         conn.close()
 
@@ -797,10 +798,11 @@ async def api_import_all(file: UploadFile = File(...)):
             for row in payload.get("tier_lists") or []:
                 data = row.get("data")
                 conn.execute(
-                    """INSERT INTO tier_lists (id, title, data, created_at_ms, updated_at_ms)
-                       VALUES (?, ?, ?, ?, ?)""",
+                    """INSERT INTO tier_lists (id, title, data, champion, created_at_ms, updated_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
                     (row["id"], row.get("title", ""),
                      json.dumps(data) if isinstance(data, (dict, list)) else (data or "{}"),
+                     row.get("champion", ""),
                      row.get("created_at_ms"), row.get("updated_at_ms")))
         return {"imported": _import_counts(payload)}
     finally:
@@ -2111,8 +2113,28 @@ def _validate_tier_data(data):
             if key in known and known[key] not in seen:  # valid + no dupes across tiers
                 champs.append(known[key])
                 seen.add(known[key])
-        out.append({"label": str(t.get("label") or "")[:24], "color": color, "champions": champs})
-    return {"tiers": out}
+        # optional row icon: a champion (default) or a rune name
+        image = str(t.get("image") or "")
+        kind = "rune" if t.get("image_kind") == "rune" else "champion"
+        if image and kind == "rune":
+            if _RUNE_ALL_NAMES and image not in _RUNE_ALL_NAMES:
+                image = ""
+        elif image:
+            image = known.get(image.lower(), "")
+        if not image:
+            kind = "champion"
+        out.append({"label": str(t.get("label") or "")[:24], "color": color,
+                    "image": image, "image_kind": kind, "champions": champs})
+    # champions marked with a "?" (uncertain) — validated ids, deduped
+    flagged = []
+    for c in (data.get("flagged") or []):
+        real = known.get(str(c).lower())
+        if real and real not in flagged:
+            flagged.append(real)
+    result = {"tiers": out}
+    if flagged:
+        result["flagged"] = flagged
+    return result
 
 
 def _tier_list_dict(row):
@@ -2124,11 +2146,66 @@ def _tier_list_dict(row):
     return d
 
 
-@app.get("/api/tier-lists")
-def api_list_tier_lists():
+@app.get("/api/champion-roles")
+def api_champion_roles():
+    """Each champion's lane(s) inferred from stored games, for filtering the
+    tier-list pool by role. See stats.champion_roles."""
     conn = get_conn()
     try:
-        return [_tier_list_dict(r) for r in db.list_tier_lists(conn)]
+        return stats.champion_roles(conn)
+    finally:
+        conn.close()
+
+
+@app.get("/api/tier-lists")
+def api_list_tier_lists(scope: str = "standalone"):
+    """The editable tier lists of the Tier list tab. Copies saved into a
+    champion's Matchup guide live in the same table with `champion` set and are
+    read back via /api/champions/{champion}/tier-lists — `scope=all` returns
+    both (what the compare window offers to pick from)."""
+    conn = get_conn()
+    try:
+        champion = None if scope == "all" else ""
+        return [_tier_list_dict(r) for r in db.list_tier_lists(conn, champion=champion)]
+    finally:
+        conn.close()
+
+
+@app.get("/api/champions/{champion}/tier-lists")
+def api_champion_tier_lists(champion: str):
+    """Tier lists saved into this champion's Matchup guide, oldest first. These
+    are SNAPSHOTS taken in the Tier list tab (see api_save_champion_tier_list) —
+    the guide only displays and deletes them, it never edits them."""
+    _validate_champion(champion)
+    conn = get_conn()
+    try:
+        return [_tier_list_dict(r) for r in db.list_tier_lists(conn, champion=champion)]
+    finally:
+        conn.close()
+
+
+@app.post("/api/champions/{champion}/tier-lists")
+def api_save_champion_tier_list(champion: str, body: dict):
+    """Copy a tier list into a champion's Matchup guide. A champion can hold
+    several; re-saving one with the SAME title overwrites that copy (reported
+    back as `replaced`) instead of piling up duplicates."""
+    _validate_champion(champion)
+    body = body or {}
+    title = str(body.get("title") or "").strip() or "Tier list"
+    data = _validate_tier_data(body.get("data") or {"tiers": []})
+    conn = get_conn()
+    try:
+        existing = next((r for r in db.list_tier_lists(conn, champion=champion)
+                         if (r["title"] or "").strip().lower() == title.lower()), None)
+        if existing:
+            db.update_tier_list(conn, existing["id"], title=title, data=data)
+            tid, replaced = existing["id"], True
+        else:
+            tid = db.create_tier_list(conn, title, data, champion=champion)
+            replaced = False
+        out = _tier_list_dict(db.get_tier_list(conn, tid))
+        out["replaced"] = replaced
+        return out
     finally:
         conn.close()
 
