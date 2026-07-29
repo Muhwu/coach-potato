@@ -19,6 +19,7 @@ const researchState = {
   expanded: new Set(),
   detail: new Map(),      // entry id -> full entry (notes, screenshots)
   editingNotes: null,     // entry id whose notes textarea is open
+  shotFormOpen: new Set(), // entry ids whose "add screenshot" form is open
 };
 
 async function initResearch() {
@@ -73,50 +74,64 @@ function researchEntryHeader(entry, collapsed) {
         entry.opp_champion
           ? ` vs ${champIcon(entry.opp_champion)}${displayName(entry.opp_champion)}` : ""}</span>`
     : "";
-  return `<div class="session-head">
-    <button class="preset session-toggle research-toggle" data-id="${entry.id}"
+  return `<div class="session-head research-head">
+    <button class="preset icon-btn session-toggle research-toggle" data-id="${entry.id}"
       aria-expanded="${!collapsed}" title="${collapsed ? "Expand" : "Collapse"}">${collapsed ? "▸" : "▾"}</button>
-    <span class="session-date">${escapeHtml(entry.player_name)}</span>
+    <span class="research-player">${escapeHtml(entry.player_name)}</span>
     ${champVs}
     ${entry.title ? `<span class="muted">${escapeHtml(entry.title)}</span>` : ""}
     <span class="session-actions">
-      <button class="preset research-delete" data-id="${entry.id}" title="Delete entry">Delete</button>
+      <button class="preset icon-btn research-delete" data-id="${entry.id}"
+        title="Delete entry" aria-label="Delete entry">🗑</button>
     </span>
   </div>`;
 }
 
 function researchNotesBlock(entry, detail) {
   if (researchState.editingNotes === entry.id) {
-    return `<textarea id="research-notes-${entry.id}" rows="5"
-        placeholder="Markdown supported — general observations, VOD notes, timestamps, etc…">${escapeHtml(detail.notes)}</textarea>
+    return `<label class="filter-label" for="research-notes-${entry.id}">Notes (Markdown)</label>
+      <textarea id="research-notes-${entry.id}" rows="5"
+        placeholder="General observations, VOD notes, timestamps, etc…">${escapeHtml(detail.notes)}</textarea>
       <div class="session-actions">
         <button class="preset research-notes-save" data-id="${entry.id}">Save</button>
         <button class="preset research-notes-cancel">Cancel</button>
+        <span class="muted research-notes-status"></span>
       </div>`;
   }
-  return `<div class="md-body">${detail.notes ? renderNotes(detail.notes) : `<p class="muted">No notes yet.</p>`}</div>
-    <button class="preset icon-btn research-notes-edit" data-id="${entry.id}"
-      title="Edit notes" aria-label="Edit notes">✎</button>`;
+  return `<div class="md-body">${detail.notes ? renderNotes(detail.notes) : `<p class="muted">No notes yet.</p>`}</div>`;
 }
 
 function researchEntryBody(entry) {
   const detail = researchState.detail.get(entry.id);
   if (!detail) return `<div class="session-body"><p class="muted">Loading…</p></div>`;
+  const editing = researchState.editingNotes === entry.id;
   const screenshots = detail.screenshots.length
     ? detail.screenshots.map((s) => `<div class="research-screenshot">
         <img src="${s.file_url}" alt="" loading="lazy">
-        <button class="preset chip-x research-shot-remove" data-id="${s.id}" title="Remove">×</button>
+        <button class="preset chip-x research-shot-remove" data-id="${s.id}"
+          title="Remove screenshot" aria-label="Remove screenshot">×</button>
       </div>`).join("")
     : `<p class="muted">No screenshots yet.</p>`;
+  const shotForm = researchState.shotFormOpen.has(entry.id)
+    ? `<form class="research-shot-form" data-id="${entry.id}">
+        <div class="research-shot-row">
+          <input type="file" class="research-shot-file-input" accept="image/png,image/jpeg,image/webp,image/gif">
+          <button type="submit" class="preset">Attach</button>
+          <button type="button" class="preset research-shot-cancel">Cancel</button>
+          <span class="muted research-shot-status"></span>
+        </div>
+      </form>`
+    : `<button type="button" class="preset research-shot-open" data-id="${entry.id}">+ Add screenshot</button>`;
   return `<div class="session-body">
-    <h4>Notes</h4>
+    <div class="research-sub-head">
+      <h4>Notes</h4>
+      ${editing ? "" : `<button class="preset icon-btn research-notes-edit" data-id="${entry.id}"
+        title="Edit notes" aria-label="Edit notes">✎</button>`}
+    </div>
     ${researchNotesBlock(entry, detail)}
+    <div class="research-sub-head"><h4>Screenshots</h4></div>
     <div class="research-screenshots">${screenshots}</div>
-    <form class="research-shot-form filter-row" data-id="${entry.id}">
-      <input type="file" class="research-shot-file-input" accept="image/png,image/jpeg,image/webp,image/gif">
-      <button type="submit" class="preset">Attach</button>
-      <span class="muted research-shot-status"></span>
-    </form>
+    ${shotForm}
   </div>`;
 }
 
@@ -171,13 +186,29 @@ function wireResearchHandlers(target) {
     btn.addEventListener("click", async () => {
       const id = +btn.dataset.id;
       const notes = $(`#research-notes-${id}`).value;
+      const status = btn.parentElement.querySelector(".research-notes-status");
       const response = await fetch(`/api/research/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
       });
-      if (response.ok) researchState.detail.set(id, await response.json());
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail || `error ${response.status}`;
+        return;
+      }
+      researchState.detail.set(id, await response.json());
       researchState.editingNotes = null;
+      renderResearch();
+    }));
+  target.querySelectorAll(".research-shot-open").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      researchState.shotFormOpen.add(+btn.dataset.id);
+      renderResearch();
+    }));
+  target.querySelectorAll(".research-shot-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      researchState.shotFormOpen.delete(+btn.closest(".session-card").dataset.id);
       renderResearch();
     }));
   target.querySelectorAll(".research-shot-form").forEach((form) =>

@@ -837,6 +837,15 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .item-picker-close { margin-top: 6px; }
 
 /* ---------- research view ---------- */
+.research-player { font-weight: 650; }
+/* push the entry's actions to the right edge of the header (matches the
+   flex:1 title in session cards, which research doesn't have) */
+.research-head .session-actions { margin-left: auto; }
+/* small heading + inline action row inside an entry body (Notes ✎, Screenshots) */
+.research-sub-head { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; }
+.research-sub-head h4 { margin: 0; }
+.research-shot-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.research-shot-form input[type="file"] { font-size: 12px; max-width: 220px; }
 .research-screenshots {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px; margin: 6px 0;
