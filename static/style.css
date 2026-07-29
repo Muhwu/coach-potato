@@ -971,6 +971,11 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .guide-game-runes img { border-radius: 50%; background: var(--surface-1); }
 .guide-game-runes .rune-page-minors { gap: 1px; }
 .guide-game-runes .rune-page-shards { gap: 1px; margin-left: 3px; }
+/* Recent-games loadout: summoner spells (round) + first 3 items (square) */
+.guide-game-loadout { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+.loadout-spells, .loadout-items { display: inline-flex; align-items: center; gap: 2px; }
+.loadout-spell { border-radius: 4px; }
+.loadout-item { border-radius: 3px; }
 
 /* rune page builder (edit mode) */
 .rune-pages-builder { margin: 10px 0 14px; }
@@ -1281,9 +1286,16 @@ footer {
 }
 .cmp-close { position: absolute; top: 10px; right: 10px; }
 .cmp-title { font-size: 18px; margin: 0 0 14px; }
-.cmp-cards { display: flex; flex-wrap: wrap; gap: 14px; }
+/* A grid of ~360px columns; max-width caps it at 3 columns (3 x 360 + 2 gaps).
+   The window spawns one card wide and grows to 2 then 3 per row as enlarged,
+   never more — cards stay column-width instead of over-stretching. */
+.cmp-cards {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(452px, 500px));
+  max-width: 1528px;  /* caps at 3 columns (3 x 500 + 2 gaps) */
+}
 .cmp-card {
-  flex: 1 1 300px; background: var(--surface-1);
+  background: var(--surface-1);
   border: 1px solid var(--border); border-radius: 10px; padding: 12px;
 }
 .cmp-card h2 { font-size: 15px; margin: 0 0 8px; }
@@ -1305,3 +1317,6 @@ footer {
 .cmp-rune { margin: 6px 0; }
 .cmp-rune span { font-size: 12px; color: var(--text-secondary); }
 .cmp-card img { vertical-align: middle; border-radius: 50%; }
+.cmp-spells, .cmp-items { display: inline-flex; align-items: center; gap: 2px; }
+/* items are square, not round like spells/runes (beats .cmp-card img) */
+.cmp-card .cmp-items img { border-radius: 3px; }

@@ -38,6 +38,14 @@ def test_participant_field_mapping_and_cs_sum():
     assert p0["cs"] == 150 + 20  # lane + jungle minions
     assert p0["gold_earned"] == 11000
     assert p0["damage_to_champions"] == 15000
+
+
+def test_participant_loadout_spells_and_items():
+    _, parts = parse_match(load_fixture())
+    p0 = next(p for p in parts if p["puuid"] == "puuid-0")
+    # fixture omits summoner ids (default 0) and has only item0 set
+    assert p0["summoner1_id"] == 0 and p0["summoner2_id"] == 0
+    assert json.loads(p0["items"]) == [3078, 0, 0, 0, 0, 0, 0]  # 7 slots, absent -> 0
     p9 = next(p for p in parts if p["puuid"] == "puuid-9")
     assert p9["win"] == 0
     assert p9["team_id"] == 200

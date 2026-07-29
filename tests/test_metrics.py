@@ -1,4 +1,5 @@
-from server.metrics import METRICS, metric_keys, parse_metrics, parse_timeline_deltas
+from server.metrics import (METRICS, metric_keys, parse_build_order, parse_metrics,
+                            parse_skill_order, parse_starting_items, parse_timeline_deltas)
 
 
 def sample_match(puuid="p1", challenges=True):
@@ -74,6 +75,71 @@ def _frame(ts, pids):
         str(pid): {"minionsKilled": cs, "jungleMinionsKilled": jg,
                    "level": lvl, "totalGold": gold}
         for pid, (cs, jg, lvl, gold) in pids.items()}}
+
+
+def _ev(t, ts, pid, **kw):
+    return {"type": t, "timestamp": ts, "participantId": pid, **kw}
+
+
+def _timeline_events(events, me_pid=1):
+    return {"info": {
+        "participants": [{"participantId": me_pid, "puuid": "me"}],
+        "frames": [{"timestamp": 0, "participantFrames": {}, "events": events}],
+    }}
+
+
+def test_parse_starting_items_reads_opening_buy_with_undo():
+    tl = _timeline_events([
+        _ev("ITEM_PURCHASED", 0, 1, itemId=1055),      # Doran's Blade
+        _ev("ITEM_PURCHASED", 1000, 1, itemId=2003),   # Health Potion
+        _ev("ITEM_PURCHASED", 1500, 1, itemId=9999),   # mis-buy
+        _ev("ITEM_UNDO", 1600, 1, beforeId=9999),      # undone
+        _ev("ITEM_PURCHASED", 2000, 6, itemId=1054),   # someone else — ignored
+        _ev("ITEM_PURCHASED", 95_000, 1, itemId=3006), # after first back — excluded
+    ])
+    assert parse_starting_items(tl, "me") == [1055, 2003]
+
+
+def test_parse_build_order_sorts_final_items_by_purchase_time():
+    tl = _timeline_events([
+        _ev("ITEM_PURCHASED", 5_000, 1, itemId=1055),    # Doran's — not in final, ignored
+        _ev("ITEM_PURCHASED", 500_000, 1, itemId=3111),  # Mercury's (final) — bought 2nd
+        _ev("ITEM_PURCHASED", 300_000, 1, itemId=3074),  # Ravenous Hydra (final) — 1st
+        _ev("ITEM_PURCHASED", 900_000, 1, itemId=3053),  # Sterak's (final) — 3rd
+        _ev("ITEM_PURCHASED", 250_000, 6, itemId=3074),  # other player — ignored
+    ])
+    final = [3074, 3111, 3053, 0, 0, 0, 3340]  # includes empties + a trinket
+    assert parse_build_order(tl, "me", final) == [3074, 3111, 3053]  # purchase order, trinket dropped
+
+
+def test_parse_build_order_none_without_timeline():
+    assert parse_build_order(None, "me", [3074]) is None
+
+
+def test_parse_skill_order_by_max_priority():
+    evs = [
+        _ev("SKILL_LEVEL_UP", 1000, 1, skillSlot=1),   # lvl1-3: one point each
+        _ev("SKILL_LEVEL_UP", 2000, 1, skillSlot=2),
+        _ev("SKILL_LEVEL_UP", 3000, 1, skillSlot=3),
+        _ev("SKILL_LEVEL_UP", 200_000, 1, skillSlot=1),  # Q -> 2nd
+        _ev("SKILL_LEVEL_UP", 300_000, 1, skillSlot=1),  # Q -> 3rd (maxed first)
+        _ev("SKILL_LEVEL_UP", 350_000, 1, skillSlot=4),  # R — ignored
+        _ev("SKILL_LEVEL_UP", 400_000, 1, skillSlot=2),  # W -> 2nd
+        _ev("SKILL_LEVEL_UP", 500_000, 1, skillSlot=2),  # W -> 3rd
+        _ev("SKILL_LEVEL_UP", 250_000, 6, skillSlot=3),  # other player — ignored
+    ]
+    assert parse_skill_order(_timeline_events(evs), "me") == [1, 2, 3]  # Q > W > E
+
+
+def test_parse_skill_order_none_without_timeline():
+    assert parse_skill_order(None, "me") is None
+    assert parse_skill_order(_timeline_events([]), "me") == []
+
+
+def test_parse_starting_items_none_without_timeline_or_participant():
+    assert parse_starting_items(None, "me") is None
+    assert parse_starting_items(_timeline_events([]), "ghost") is None
+    assert parse_starting_items(_timeline_events([]), "me") == []
 
 
 def test_parse_timeline_deltas_computes_advantage_vs_opponent():

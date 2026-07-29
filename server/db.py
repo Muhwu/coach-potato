@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS participants (
     cs INTEGER NOT NULL,
     gold_earned INTEGER NOT NULL,
     damage_to_champions INTEGER NOT NULL,
+    summoner1_id INTEGER,
+    summoner2_id INTEGER,
+    items TEXT,
+    starting_items TEXT,
+    build_order TEXT,
+    skill_order TEXT,
     PRIMARY KEY (match_id, puuid)
 );
 CREATE INDEX IF NOT EXISTS idx_participants_puuid ON participants(puuid);
@@ -243,6 +249,20 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
         if "series_id" not in block_columns:  # block series added in v1.40.0
             conn.execute("ALTER TABLE blocks ADD COLUMN series_id INTEGER")
+    part_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participants)")}
+    if part_columns:  # summoner spells + item build added later
+        if "summoner1_id" not in part_columns:
+            conn.execute("ALTER TABLE participants ADD COLUMN summoner1_id INTEGER")
+        if "summoner2_id" not in part_columns:
+            conn.execute("ALTER TABLE participants ADD COLUMN summoner2_id INTEGER")
+        if "items" not in part_columns:
+            conn.execute("ALTER TABLE participants ADD COLUMN items TEXT")
+        if "starting_items" not in part_columns:  # game-start buy, from the timeline
+            conn.execute("ALTER TABLE participants ADD COLUMN starting_items TEXT")
+        if "build_order" not in part_columns:  # final items in purchase order (timeline)
+            conn.execute("ALTER TABLE participants ADD COLUMN build_order TEXT")
+        if "skill_order" not in part_columns:  # ability max order Q/W/E (timeline)
+            conn.execute("ALTER TABLE participants ADD COLUMN skill_order TEXT")
     cp_columns = {r["name"] for r in conn.execute("PRAGMA table_info(comparison_players)")}
     if cp_columns and "platform" not in cp_columns:  # per-player server added later
         conn.execute("ALTER TABLE comparison_players ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
@@ -340,10 +360,15 @@ def insert_match(conn, match_row: dict, participant_rows: list) -> bool:
         conn.executemany(
             """INSERT OR IGNORE INTO participants
                (match_id, puuid, riot_id_name, champion_name, team_id, team_position,
-                win, kills, deaths, assists, cs, gold_earned, damage_to_champions)
+                win, kills, deaths, assists, cs, gold_earned, damage_to_champions,
+                summoner1_id, summoner2_id, items)
                VALUES (:match_id, :puuid, :riot_id_name, :champion_name, :team_id, :team_position,
-                       :win, :kills, :deaths, :assists, :cs, :gold_earned, :damage_to_champions)""",
-            [{**p, "match_id": match_row["match_id"]} for p in participant_rows],
+                       :win, :kills, :deaths, :assists, :cs, :gold_earned, :damage_to_champions,
+                       :summoner1_id, :summoner2_id, :items)""",
+            # loadout keys default so older callers (and the test fixture) that
+            # omit them still bind; parse_match always supplies real values.
+            [{"summoner1_id": None, "summoner2_id": None, "items": None,
+              **p, "match_id": match_row["match_id"]} for p in participant_rows],
         )
     return is_new
 
@@ -382,7 +407,7 @@ def delete_account_data(conn, puuid):
 # data still lands in matches/participants like anyone else; this table just
 # records who they are and whether each is currently active. ----------
 
-MAX_COMPARISON_PLAYERS = 5
+MAX_COMPARISON_PLAYERS = 6  # 3 + 3 in the comparison window's 3-per-row grid
 COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
 
 
@@ -688,6 +713,38 @@ def update_participant_timeline(conn, match_id, puuid, deltas):
             f"WHERE match_id=:match_id AND puuid=:puuid",
             {**deltas, "match_id": match_id, "puuid": puuid},
         )
+
+
+def update_participant_loadout(conn, match_id, puuid, summoner1_id, summoner2_id, items):
+    """Fill the summoner-spell + item columns on an existing participants row.
+    Used by backfill_items to populate rows stored before loadout tracking
+    (INSERT OR IGNORE never overwrites them on a re-crawl). items: a list of
+    item ids (stored as JSON) or None."""
+    with conn:
+        conn.execute(
+            "UPDATE participants SET summoner1_id=?, summoner2_id=?, items=? "
+            "WHERE match_id=? AND puuid=?",
+            (summoner1_id, summoner2_id,
+             json.dumps(items) if items is not None else None, match_id, puuid))
+
+
+def update_participant_timeline_items(conn, match_id, puuid, starting, build, skill=None):
+    """Store the timeline-derived info (game-start buy, build order, ability max
+    order) on an existing participants row. Each arg is a list (stored as JSON)
+    or None to leave that column unset; an empty list is stored as '[]'
+    (timeline seen, nothing found) so it isn't re-fetched forever."""
+    sets, params = [], []
+    if starting is not None:
+        sets.append("starting_items=?"); params.append(json.dumps(starting))
+    if build is not None:
+        sets.append("build_order=?"); params.append(json.dumps(build))
+    if skill is not None:
+        sets.append("skill_order=?"); params.append(json.dumps(skill))
+    if not sets:
+        return
+    with conn:
+        conn.execute(f"UPDATE participants SET {', '.join(sets)} WHERE match_id=? AND puuid=?",
+                     (*params, match_id, puuid))
 
 
 def insert_participant_runes(conn, match_id, puuid, runes):

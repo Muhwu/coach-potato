@@ -88,6 +88,43 @@ async function loadItemData() {
 function itemByName(name) { return ITEMS.find((i) => i.name === name); }
 function itemIconUrl(icon) { return `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/item/${icon}`; }
 
+// item icons for the comparison view come from raw match ids (item0..item6),
+// not build names — the icon filename is just <id>.png under the current patch.
+function itemIconUrlById(id) {
+  return id && state.ddragonVersion
+    ? `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/item/${id}.png` : "";
+}
+
+// summoner-spell id -> icon filename, from DDragon summoner.json (only needed
+// by the comparison view's per-game spell strip).
+const SPELL_ICONS = {};
+async function loadSummonerSpells() {
+  if (Object.keys(SPELL_ICONS).length || !state.ddragonVersion) return;
+  try {
+    const data = await getJSON(
+      `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/data/en_US/summoner.json`);
+    Object.values(data.data || {}).forEach((s) => { SPELL_ICONS[s.key] = s.image.full; });
+  } catch { /* icons just won't render */ }
+}
+function spellIconUrlById(id) {
+  return id && SPELL_ICONS[id] && state.ddragonVersion
+    ? `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/spell/${SPELL_ICONS[id]}` : "";
+}
+
+// shared per-game strips (comparison + the guide's Recent games column):
+// summoner spells (round) and the first 3 items (square).
+function spellStripHtml(g, size = 18) {
+  const icons = [g.spell1, g.spell2].map((id) => spellIconUrlById(id)).filter(Boolean)
+    .map((u) => `<img class="loadout-spell" src="${u}" width="${size}" height="${size}" alt="">`).join("");
+  return icons ? `<span class="loadout-spells">${icons}</span>` : "";
+}
+function itemStripHtml(g, size = 20) {
+  const icons = (g.items || []).filter(Boolean).slice(0, 3) // first 3 inventory slots
+    .map((id) => itemIconUrlById(id)).filter(Boolean)
+    .map((u) => `<img class="loadout-item" src="${u}" width="${size}" height="${size}" alt="">`).join("");
+  return icons ? `<span class="loadout-items">${icons}</span>` : "";
+}
+
 function runeIconUrl(icon) { return `https://ddragon.leagueoflegends.com/cdn/img/${icon}`; }
 function shardIconUrl(icon) {
   return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/${icon}`;
@@ -153,7 +190,8 @@ async function initGuide() {
     wireExportImport();
   }
   await loadChampionRoster(); // loadGuideChampionOptions needs the full roster
-  await Promise.all([loadGuideChampionOptions(), loadRuneTrees(), loadItemData()]);
+  await Promise.all([loadGuideChampionOptions(), loadRuneTrees(), loadItemData(),
+                     loadSummonerSpells()]); // spell icons for the Recent-games loadout
   await loadGuide();
   if (guideState.pendingFocus) {
     const champ = guideState.pendingFocus;
@@ -627,6 +665,8 @@ function recentGamesColumn(champ) {
       ? `<div class="guide-game-runes">${
           runePageIcons(g.runes, { keystoneSize: 18, minorSize: 14, treeSize: 16, shardSize: 12 })}</div>`
       : "";
+    const loadout = (spellStripHtml(g) || itemStripHtml(g))
+      ? `<div class="guide-game-loadout">${spellStripHtml(g)}${itemStripHtml(g)}</div>` : "";
     return `<div class="guide-game-entry">
       <div class="guide-game-row">
         <span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span>
@@ -635,6 +675,7 @@ function recentGamesColumn(champ) {
         <span class="muted">${csMin} cs/min</span>
         <span class="muted">${fmtDuration(g.game_duration_s)}</span>
       </div>
+      ${loadout}
       ${runesStrip}
     </div>`;
   }).join("");
@@ -980,16 +1021,40 @@ function comparisonBodyHtml(my, opp, data) {
   const csmin = (s) => (s.games && s.cs_min ? ` · ${s.cs_min.toFixed(1)} CS/min` : "");
   const statLine = (label, s) => `<div class="cmp-stat"><span class="cmp-stat-l">${label}</span>
     <span>${s.games || 0} games · ${pct(s.winrate)}${s.games ? ` · ${kda(s)}${csmin(s)}` : ""}</span></div>`;
+  // Always show the lane Δ @14m for every player (— when no timeline recorded).
+  const deltaLine = (s) => {
+    const m = s.metrics || {};
+    const cs = m.cs_diff_14 != null ? `ΔCS ${(+m.cs_diff_14).toFixed(1)}` : null;
+    const gold = m.gold_diff_14 != null ? `ΔGold ${Math.round(+m.gold_diff_14)}` : null;
+    const val = (cs || gold) ? [cs, gold].filter(Boolean).join(" · ")
+      : (s.games ? "<span class='muted'>no timeline data</span>" : "—");
+    return `<div class="cmp-stat"><span class="cmp-stat-l">Lane Δ @14m</span><span>${val}</span></div>`;
+  };
+  const spellStrip = (g) => {
+    const icons = [g.spell1, g.spell2].map((id) => spellIconUrlById(id))
+      .filter(Boolean)
+      .map((u) => `<img class="cmp-spell-icon" src="${u}" width="18" height="18" alt="">`).join("");
+    return icons ? `<span class="cmp-spells">${icons}</span>` : "";
+  };
+  const itemStrip = (g) => {
+    const icons = (g.items || []).filter(Boolean).slice(0, 3) // first 3 inventory slots
+      .map((id) => itemIconUrlById(id))
+      .map((u) => `<img class="cmp-item-icon" src="${u}" width="20" height="20" alt="">`).join("");
+    return icons ? `<span class="cmp-items">${icons}</span>` : "";
+  };
   const recentRunes = (recent) => (recent && recent.length
     ? recent.slice(0, 8).map((g) => `<div class="cmp-game">
         <span class="cmp-res ${g.win ? "w" : "l"}">${g.win ? "W" : "L"}</span>
+        ${spellStrip(g)}
         <span class="cmp-runes">${g.runes ? runePageIcons(g.runes, smallRunes)
-          : "<span class='muted'>no runes recorded</span>"}</span></div>`).join("")
+          : "<span class='muted'>no runes recorded</span>"}</span>
+        ${itemStrip(g)}</div>`).join("")
     : `<p class="muted">No recent games recorded — add or "Fetch more" in Settings.</p>`);
 
   const cards = (data.players || []).map((p) => `<div class="cmp-card"><h2>${escapeHtml(p.game_name)}
     <span class="muted">#${escapeHtml(p.tag_line)}</span></h2>
     ${statLine(`This matchup vs ${displayName(opp)}`, p.matchup)}
+    ${deltaLine(p.matchup)}
     ${statLine(`Overall on ${displayName(my)}`, p.overall)}
     <h3>Recent runes played</h3>${recentRunes(p.recent)}</div>`).join("")
     || `<div class="cmp-card"><p class="muted">No enabled comparison players — add them in
@@ -1035,7 +1100,7 @@ async function openComparisonWindow(opp) {
     let win = null;
     try {
       win = window.open(url, `cp-compare-${my}-${opp}`,
-        "width=820,height=960,scrollbars=yes,resizable=yes");
+        "width=470,height=940,scrollbars=yes,resizable=yes"); // one card wide; widen for up to 3
     } catch (e) { win = null; }
     if (win) return;
   }
@@ -1043,6 +1108,9 @@ async function openComparisonWindow(opp) {
   // pop-up): an in-app overlay — not free-floating, but keeps it usable.
   let data;
   try {
+    // spell/item icons for the per-game strips need the DDragon version
+    await loadDdragonVersion();
+    await loadSummonerSpells();
     data = await getJSON(`/api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
       + `&opp_champion=${encodeURIComponent(opp)}`);
   } catch (e) { alert("Failed to load the comparison."); return; }

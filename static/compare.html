@@ -9,17 +9,61 @@
   /* standalone comparison window — reuses .cmp-* from style.css */
   body { max-width: none; padding: 18px; }
   .cmp-title { font-size: 18px; margin: 0 0 4px; }
-  .cmp-sub { margin: 0 0 14px; }
+  .cmp-sub { margin: 0 0 12px; }
   .cmp-note { color: var(--muted); font-size: 12px; margin-top: 16px; }
-  .cmp-game .cmp-kda { width: 58px; }
+  .cmp-controls { margin: 0 0 14px; }
+  .cmp-toggle {
+    font: inherit; font-size: 12px; cursor: pointer; padding: 5px 12px;
+    border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface-1); color: var(--text-primary);
+  }
+  .cmp-toggle[aria-pressed="true"] { border-color: var(--series-1); color: var(--series-1); }
+
+  /* Recent games: one aligned grid line per game with a header row on top, so
+     KDA · Skill · Spells · Runes · Start · Build read as labelled columns. */
+  .cmp-recent { margin-top: 6px; }
+  .cmp-ghead, .cmp-game {
+    display: grid; align-items: center; justify-items: start; gap: 7px;
+    grid-template-columns: 14px 40px 1fr;
+  }
+  .cmp-recent.loadout .cmp-ghead,
+  .cmp-recent.loadout .cmp-game {
+    grid-template-columns: 16px 42px 46px 40px minmax(128px, 1fr) auto;
+  }
+  .cmp-ghead {
+    font-size: 8.5px; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--muted); padding-bottom: 3px; margin-bottom: 2px;
+    border-bottom: 1px solid var(--grid);
+  }
+  .cmp-ghead span { overflow: hidden; text-overflow: ellipsis; }
+  .cmp-game { padding: 3px 0; min-height: 22px; }
+  .cmp-game + .cmp-game { border-top: 1px solid rgba(128,128,128,.09); }
+  .cmp-res { font-weight: 700; font-size: 12px; }
+  .cmp-res.w { color: var(--good); }
+  .cmp-res.l { color: var(--critical); }
+  .cmp-kda { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-secondary); }
+  .cmp-skill { font-size: 11px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; letter-spacing: .5px; }
+  .cmp-runes { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; overflow: hidden; }
+  .cmp-runes .sep { width: 4px; flex: none; }
+  .cmp-spells, .cmp-start, .cmp-build { display: inline-flex; gap: 2px; }
+  .cmp-item-empty {
+    width: 16px; height: 16px; border-radius: 3px; display: inline-block;
+    background: rgba(128,128,128,.13);
+  }
+  .cmp-card img { vertical-align: middle; }
 </style>
 </head>
 <body class="cmp-doc">
 <h1 class="cmp-title" id="title">Comparison</h1>
 <p class="cmp-sub muted" id="subtitle"></p>
+<div class="cmp-controls">
+  <button type="button" id="loadout-toggle" class="cmp-toggle" aria-pressed="false">Show spells &amp; items</button>
+</div>
 <div class="cmp-cards" id="cards"><p class="muted">Loading…</p></div>
-<p class="cmp-note">Runes are what each player actually ran in recent games.
-  Item builds for other players aren't tracked yet.</p>
+<p class="cmp-note">Runes (with shards) are what each player actually ran in recent games.
+  Toggle "Show spells &amp; items" to also reveal the ability max order (Skill),
+  summoner spells, and the full Build in purchase order (from the timeline; ward
+  trinkets and consumables omitted).</p>
 <script>
 const P = new URLSearchParams(location.search);
 const my = P.get("my") || "", opp = P.get("opp") || "";
@@ -28,7 +72,7 @@ document.getElementById("subtitle").textContent = `Playing ${my} into ${opp}`;
 document.title = `Compare · ${my} vs ${opp}`;
 
 // name -> icon maps, built from the same runes.json the guide uses
-const treeIcon = {}, runeIconMap = {};
+const treeIcon = {}, runeIconMap = {}, shardIconMap = {};
 async function loadRunes() {
   try {
     const d = await (await fetch("runes.json")).json();
@@ -37,9 +81,34 @@ async function loadRunes() {
       (t.rows || []).forEach((row) =>
         (row.runes || []).forEach((r) => { runeIconMap[r.name] = r.icon; }));
     });
+    (d.shardRows || []).forEach((row) =>
+      (row.shards || []).forEach((s) => { shardIconMap[s.name] = s.icon; }));
   } catch (e) { /* icons just won't render; stats still do */ }
 }
 const ddImg = (i) => (i ? `https://ddragon.leagueoflegends.com/cdn/img/${i}` : "");
+const shardImgUrl = (i) => (i ? "https://raw.communitydragon.org/latest/plugins/"
+  + `rcp-be-lol-game-data/global/default/v1/perk-images/statmods/${i}` : "");
+
+// DDragon version + summoner-spell icons, for the spells + items shown per
+// game. Item icons are just <id>.png under the current version — no extra
+// data file needed; spells need summoner.json to map id -> icon filename.
+let ddVer = "";
+const spellIcon = {}; // numeric spell id -> image filename
+async function loadDdragon() {
+  try {
+    const v = await (await fetch("https://ddragon.leagueoflegends.com/api/versions.json")).json();
+    ddVer = v[0] || "";
+  } catch (e) { return; }
+  try {
+    const d = await (await fetch(
+      `https://ddragon.leagueoflegends.com/cdn/${ddVer}/data/en_US/summoner.json`)).json();
+    Object.values(d.data || {}).forEach((s) => { spellIcon[s.key] = s.image.full; });
+  } catch (e) { /* spell icons just won't render */ }
+}
+const spellUrl = (id) => (ddVer && spellIcon[id]
+  ? `https://ddragon.leagueoflegends.com/cdn/${ddVer}/img/spell/${spellIcon[id]}` : "");
+const itemUrl = (id) => (ddVer && id
+  ? `https://ddragon.leagueoflegends.com/cdn/${ddVer}/img/item/${id}.png` : "");
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -48,15 +117,63 @@ function img(url, size, title) {
   return url ? `<img src="${url}" width="${size}" height="${size}" title="${esc(title)}"
     style="border-radius:50%;vertical-align:middle">` : "";
 }
+// runes in one cell (compact so the whole game fits on one line): keystone +
+// primary minors | secondary tree + minors | shards
 function runeStrip(page) {
-  if (!page) return "<span class='muted'>no runes recorded</span>";
-  const ks = img(ddImg(runeIconMap[page.keystone]), 22, page.keystone);
+  if (!page) return `<span class="cmp-runes"><span class="muted" style="font-size:10px">—</span></span>`;
+  const ks = img(ddImg(runeIconMap[page.keystone]), 20, page.keystone);
   const minors = (page.primary_runes || []).filter(Boolean)
-    .map((n) => img(ddImg(runeIconMap[n]), 13, n)).join("");
-  const sec = img(ddImg(treeIcon[page.secondary_tree]), 16, page.secondary_tree);
+    .map((n) => img(ddImg(runeIconMap[n]), 12, n)).join("");
+  const sec = img(ddImg(treeIcon[page.secondary_tree]), 15, page.secondary_tree);
   const secMinors = (page.secondary_runes || []).filter(Boolean)
-    .map((n) => img(ddImg(runeIconMap[n]), 13, n)).join("");
-  return `<span class="cmp-runes">${ks}${minors}<span style="width:6px"></span>${sec}${secMinors}</span>`;
+    .map((n) => img(ddImg(runeIconMap[n]), 12, n)).join("");
+  const shards = (page.shards || []).filter(Boolean)
+    .map((n) => img(shardImgUrl(shardIconMap[n]), 10, n)).join("");
+  return `<span class="cmp-runes">${ks}${minors}<span class="sep"></span>${sec}${secMinors}`
+    + `${shards ? `<span class="sep"></span>${shards}` : ""}</span>`;
+}
+// ability max order Q > W > E, from g.skill_order (slots 1/2/3)
+const SKILL_LETTER = { 1: "Q", 2: "W", 3: "E" };
+function skillOrder(g) {
+  const order = (g.skill_order || []).map((s) => SKILL_LETTER[s]).filter(Boolean);
+  return `<span class="cmp-skill" title="Ability max order">${order.length ? order.join("›") : "—"}</span>`;
+}
+// square item icon (not round like spells/runes)
+function itemImg(url, size, title) {
+  return url ? `<img src="${url}" width="${size}" height="${size}" title="${esc(title)}"
+    style="border-radius:3px;vertical-align:middle">` : "";
+}
+// always render 2 spell slots so the column aligns even when a game has none
+function spellStrip(g) {
+  const cells = [g.spell1, g.spell2].map((id) => {
+    const u = spellUrl(id);
+    return u ? img(u, 18, "Summoner spell") : `<span class="cmp-item-empty" style="border-radius:50%;width:18px;height:18px"></span>`;
+  });
+  return `<span class="cmp-spells">${cells.join("")}</span>`;
+}
+// ward trinkets are bought at start too but are noise for "what did they open
+// with", so drop them from the Start group
+const TRINKETS = new Set([3340, 3363, 3364]);
+function itemSlots(ids, n, size, title) {
+  return [...Array(n)].map((_, i) => {
+    const u = itemUrl(ids[i]);
+    return u ? itemImg(u, size, title)
+      : `<span class="cmp-item-empty" style="width:${size}px;height:${size}px"></span>`;
+  }).join("");
+}
+// consumables/pots/wards that linger in the final inventory but aren't "build"
+const CONSUMABLES = new Set([2003, 2010, 2022, 2031, 2033, 2055, 2138, 2139, 2140, 2150, 2151, 2152]);
+// Full build in purchase order. build_order (from the timeline) excludes the
+// game-start buy, so prepend the opener(s) — final items not already in
+// build_order (bought at start) — to show the whole build including Doran's.
+function buildSlots(g) {
+  const skip = (id) => !id || TRINKETS.has(id) || CONSUMABLES.has(id);
+  const bo = (g.build_order || []).filter((id) => !skip(id));
+  const final = (g.items || []).filter((id) => !skip(id));
+  const openers = final.filter((id) => !bo.includes(id)); // opener(s): bought first, not in build_order
+  const full = [...openers, ...bo];
+  if (!full.length) return itemSlots([], 3, 18, "Build");
+  return full.map((id) => itemImg(itemUrl(id), 18, "Build")).join("");
 }
 
 const pct = (v) => (v == null ? "—" : Math.round(v * 100) + "%");
@@ -70,29 +187,74 @@ function aggLine(s) {
     ? `${s.games} games · ${pct(s.winrate)} · ${kda(s)} · ${num(s.cs_min)} CS/min`
     : "no games recorded";
 }
+// Always render the lane Δ @14m line for every player, even when no timeline
+// data was recorded (shows "—") so the comparison is consistent across cards.
 function deltaRow(s) {
-  const m = s.metrics || {}, parts = [];
-  if (m.cs_diff_14 != null) parts.push(`ΔCS ${(+m.cs_diff_14).toFixed(1)}`);
-  if (m.gold_diff_14 != null) parts.push(`ΔGold ${Math.round(+m.gold_diff_14)}`);
-  return parts.length ? statRow("Lane Δ @14m", parts.join(" · ")) : "";
+  const m = s.metrics || {};
+  const cs = m.cs_diff_14 != null ? `ΔCS ${(+m.cs_diff_14).toFixed(1)}` : null;
+  const gold = m.gold_diff_14 != null ? `ΔGold ${Math.round(+m.gold_diff_14)}` : null;
+  const val = (cs || gold)
+    ? [cs, gold].filter(Boolean).join(" · ")
+    : (s.games ? "<span class='muted'>no timeline data</span>" : "—");
+  return statRow("Lane Δ @14m", val);
+}
+let showLoadout = localStorage.getItem("cmp-loadout") === "1";
+let CMP_PLAYERS = [];
+
+function headRow() {
+  const cols = showLoadout
+    ? ["", "KDA", "Skill", "Spells", "Runes", "Build"]
+    : ["", "KDA", "Runes"];
+  return `<div class="cmp-ghead">${cols.map((c) => `<span>${c}</span>`).join("")}</div>`;
+}
+function gameRow(g) {
+  const kdaTxt = `${num(g.kills, 0)}/${num(g.deaths, 0)}/${num(g.assists, 0)}`;
+  const cells = [
+    `<span class="cmp-res ${g.win ? "w" : "l"}">${g.win ? "W" : "L"}</span>`,
+    `<span class="cmp-kda">${kdaTxt}</span>`,
+  ];
+  if (showLoadout) {
+    cells.push(skillOrder(g), spellStrip(g), runeStrip(g.runes),
+               `<span class="cmp-build">${buildSlots(g)}</span>`);
+  } else {
+    cells.push(runeStrip(g.runes));
+  }
+  return `<div class="cmp-game">${cells.join("")}</div>`;
 }
 function card(p) {
-  const recent = (p.recent || []).slice(0, 10).map((g) => `<div class="cmp-game">
-      <span class="cmp-res ${g.win ? "w" : "l"}">${g.win ? "W" : "L"}</span>
-      <span class="muted cmp-kda">${num(g.kills, 0)}/${num(g.deaths, 0)}/${num(g.assists, 0)}</span>
-      ${runeStrip(g.runes)}</div>`).join("")
-    || "<p class='muted'>No recent games — use \"Fetch more\" in Settings.</p>";
+  const recent = (p.recent || []).length
+    ? `<div class="cmp-recent ${showLoadout ? "loadout" : ""}">${headRow()}`
+      + `${p.recent.slice(0, 10).map(gameRow).join("")}</div>`
+    : "<p class='muted'>No recent games — use \"Fetch more\" in Settings.</p>";
   return `<div class="cmp-card">
     <h2>${esc(p.game_name)}<span class="muted">#${esc(p.tag_line)}</span></h2>
     ${statRow(`This matchup vs ${esc(opp)}`, aggLine(p.matchup))}
     ${deltaRow(p.matchup)}
     ${statRow(`Overall on ${esc(my)}`, aggLine(p.overall))}
-    <h3>Recent games &amp; runes</h3>${recent}
+    <h3>Recent games</h3>${recent}
   </div>`;
+}
+function renderCards() {
+  document.getElementById("cards").innerHTML = CMP_PLAYERS.length
+    ? CMP_PLAYERS.map(card).join("")
+    : "<p class='muted'>No enabled comparison players — add them in "
+      + "Settings → Research &amp; comparison.</p>";
+}
+function syncToggle() {
+  const btn = document.getElementById("loadout-toggle");
+  btn.setAttribute("aria-pressed", showLoadout ? "true" : "false");
+  btn.textContent = showLoadout ? "Hide spells & items" : "Show spells & items";
 }
 
 (async function () {
-  await loadRunes();
+  document.getElementById("loadout-toggle").addEventListener("click", () => {
+    showLoadout = !showLoadout;
+    localStorage.setItem("cmp-loadout", showLoadout ? "1" : "0");
+    syncToggle();
+    renderCards();
+  });
+  syncToggle();
+  await Promise.all([loadRunes(), loadDdragon()]);
   let data;
   try {
     data = await (await fetch(`api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
@@ -101,11 +263,8 @@ function card(p) {
     document.getElementById("cards").innerHTML = "<p class='muted'>Failed to load comparison.</p>";
     return;
   }
-  const players = data.players || [];
-  document.getElementById("cards").innerHTML = players.length
-    ? players.map(card).join("")
-    : "<p class='muted'>No enabled comparison players — add them in "
-      + "Settings → Research &amp; comparison.</p>";
+  CMP_PLAYERS = data.players || [];
+  renderCards();
 })();
 </script>
 </body>
