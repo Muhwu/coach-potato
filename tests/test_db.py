@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -736,8 +737,12 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     db.set_champion_note(c, "Gwen", "general champion note")
     db.set_item_build(c, "Gwen", ["Riftmaker"], [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}])
     research_id = db.create_research_entry(c, "Faker", "Azir", "Zed", "Level 1", "keep this too")
+    tier_data = {"tiers": [{"label": "S", "color": "#ff0000", "champions": ["Gwen"]}]}
+    tier_id = db.create_tier_list(c, "Top lane", tier_data)
+    guide_tier_id = db.create_tier_list(c, "vs AP", tier_data, champion="Gwen")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
+    c.execute("ALTER TABLE tier_lists DROP COLUMN champion")
     c.commit()
     c.close()
     c = db.connect(path)  # "upgrade": _migrate + SCHEMA re-run
@@ -752,6 +757,11 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
         "core": ["Riftmaker"], "situational": [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}]}
     assert db.get_research_entry(c, research_id)["notes"] == "keep this too"
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
+    # tier lists survive, and the re-added champion column defaults to '' rather
+    # than dropping the list out of the Tier list tab
+    assert json.loads(db.get_tier_list(c, tier_id)["data"]) == tier_data
+    assert db.get_tier_list(c, tier_id)["champion"] == ""
+    assert db.get_tier_list(c, guide_tier_id)["title"] == "vs AP"
     c.close()
 
 
