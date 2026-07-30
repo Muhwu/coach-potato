@@ -694,3 +694,13 @@ def test_games_in_range_includes_lane_metrics(conn):
     by_id = {g["match_id"]: g for g in games}
     assert (by_id[m1]["lane_adv_early"], by_id[m1]["lane_adv_late"]) == (1, 0)
     assert by_id[m2]["lane_adv_early"] is None
+
+
+def test_champion_roles_dominant_and_secondary(conn):
+    add_match(conn, my_champ="Malphite", my_pos="TOP")
+    add_match(conn, my_champ="Malphite", my_pos="TOP")
+    add_match(conn, my_champ="Malphite", my_pos="MIDDLE")  # 67% top / 33% mid
+    roles = stats.champion_roles(conn)
+    assert roles["Malphite"] == ["TOP", "MIDDLE"]          # secondary >= 20% share
+    add_match(conn, my_champ="Sion", my_pos="TOP")
+    assert stats.champion_roles(conn)["Sion"] == ["TOP"]   # seen once = that lane only

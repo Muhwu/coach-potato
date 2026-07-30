@@ -1637,3 +1637,47 @@ def test_tier_lists_crud_and_validation(client):
     assert client.delete(f"/api/tier-lists/{tid}").status_code == 200
     assert client.get("/api/tier-lists").json() == []
     assert client.delete(f"/api/tier-lists/{tid}").status_code == 404
+
+
+def test_champion_tier_lists_save_multiple_and_overwrite_by_title(client):
+    assert client.get("/api/champions/Fiora/tier-lists").json() == []  # nothing auto-created
+    first = client.post("/api/champions/Fiora/tier-lists", json={
+        "title": "vs melee",
+        "data": {"tiers": [{"label": "S", "color": "#ff0000",
+                            "champions": ["Darius", "bogus"]}]}}).json()
+    assert (first["champion"], first["replaced"]) == ("Fiora", False)
+    assert first["data"]["tiers"][0]["champions"] == ["Darius"]  # bogus dropped
+    # a champion can hold more than one saved list
+    second = client.post("/api/champions/Fiora/tier-lists",
+                         json={"title": "vs ranged", "data": {"tiers": []}}).json()
+    assert second["id"] != first["id"]
+    assert [t["title"] for t in client.get("/api/champions/Fiora/tier-lists").json()] \
+        == ["vs melee", "vs ranged"]
+    # re-saving the same title overwrites that copy rather than piling up
+    again = client.post("/api/champions/Fiora/tier-lists", json={
+        "title": "VS Melee",
+        "data": {"tiers": [{"label": "A", "color": "#00ff00", "champions": ["Garen"]}]}}).json()
+    assert (again["id"], again["replaced"]) == (first["id"], True)
+    assert again["data"]["tiers"][0]["champions"] == ["Garen"]
+    assert len(client.get("/api/champions/Fiora/tier-lists").json()) == 2
+    # guide copies stay out of the standalone Tier list tab, and off other champions
+    assert client.get("/api/tier-lists").json() == []
+    # ...but the compare window sees everything, guide copies carrying their champion
+    every = client.get("/api/tier-lists?scope=all").json()
+    assert {t["id"] for t in every} == {first["id"], second["id"]}
+    assert {t["champion"] for t in every} == {"Fiora"}
+    assert client.get("/api/champions/Gwen/tier-lists").json() == []
+    assert client.post("/api/champions/NotAChamp/tier-lists", json={}).status_code == 400
+    # removing one from the guide is the shared delete endpoint
+    assert client.delete(f"/api/tier-lists/{first['id']}").status_code == 200
+    assert [t["id"] for t in client.get("/api/champions/Fiora/tier-lists").json()] == [second["id"]]
+
+
+def test_tier_row_icon_validation(client):
+    r = client.post("/api/tier-lists", json={"title": "t", "data": {"tiers": [
+        {"label": "S", "image": "Teemo", "champions": []},
+        {"label": "A", "image": "NotAChamp", "champions": []}]}}).json()
+    tiers = r["data"]["tiers"]
+    assert (tiers[0]["image"], tiers[0]["image_kind"]) == ("Teemo", "champion")
+    assert (tiers[1]["image"], tiers[1]["image_kind"]) == ("", "champion")  # unknown dropped
+    client.delete(f"/api/tier-lists/{r['id']}")

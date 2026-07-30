@@ -460,6 +460,15 @@
   <div id="guide-item-build" style="margin-top:18px"></div>
 </section>
 
+<section class="panel" id="guide-tier-panel">
+  <details id="guide-tier-details">
+    <summary class="guide-tier-summary">🏆 Tier lists</summary>
+    <p class="muted">Tier lists you saved into this champion's guide from the Tier list tab —
+      shown read-only here; edit them there and save again to update.</p>
+    <div id="guide-tier-lists"></div>
+  </details>
+</section>
+
 <section class="panel">
   <div class="section-head">
     <h2>Matchup guide</h2>
@@ -524,13 +533,23 @@
       <button id="tier-rename" class="preset" type="button" title="Rename this list">✎ Rename</button>
       <button id="tier-add-row" class="preset" type="button" title="Add a tier row">+ Tier</button>
       <button id="tier-delete" class="preset" type="button" title="Delete this list">🗑 Delete</button>
+      <button id="tier-compare" class="preset" type="button"
+        title="Compare up to 4 tier lists in a 2×2 layout">⇄ Compare</button>
       <span id="tier-status" class="muted"></span>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="tier-guide-champion">Save to guide</label>
+      <select id="tier-guide-champion" style="max-width:11em"
+        title="Which champion's Matchup guide to save a copy of this list into"></select>
+      <button id="tier-save-to-guide" class="preset" type="button"
+        title="Save a copy of this list into that champion's Matchup guide">📖 Save</button>
     </div>
   </section>
   <div id="tier-rows"></div>
   <section class="panel tier-pool-panel">
     <div class="tier-pool-head">
       <h3>Champions <span class="muted" id="tier-pool-count"></span></h3>
+      <div id="tier-role-filter" class="tier-role-filter"></div>
       <input id="tier-search" class="chip-input" placeholder="search champion…"
         spellcheck="false" autocomplete="off" style="max-width:180px">
     </div>
@@ -650,6 +669,18 @@
 <div id="onepager-overlay" class="hidden" aria-modal="true" role="dialog"
   aria-label="Matchup one pager">
   <div id="onepager-body"></div>
+</div>
+
+<div id="tier-compare-overlay" class="hidden" aria-modal="true" role="dialog"
+  aria-label="Compare tier lists">
+  <div class="tier-compare-head">
+    <strong>Compare tier lists</strong>
+    <span class="muted">pick up to 4 — laid out 2 on top, 2 below</span>
+    <button type="button" class="preset icon-btn" id="tier-compare-close"
+      title="Close (Esc)" aria-label="Close">✕</button>
+  </div>
+  <div id="tier-compare-picker" class="tier-compare-picker"></div>
+  <div id="tier-compare-grid" class="tier-compare-grid"></div>
 </div>
 
 <script src="matchups.js"></script>

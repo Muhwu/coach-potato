@@ -230,6 +230,7 @@ async function loadGuide() {
   guideState.editingGeneralRunes = false;
   guideState.generalRunes = [];
   guideState.editingItemBuild = false;
+  $("#guide-tier-panel").classList.toggle("hidden", !guideState.myChampion);
   if (!guideState.myChampion) {
     guideState.matchups = [];
     guideState.guide = {};
@@ -263,6 +264,53 @@ async function loadGuide() {
   renderGuideGeneral();
   renderGuideItemBuild();
   updateGuideAddOptions();
+  loadGuideTierLists();  // tier lists saved into this champion's guide
+}
+
+// ---------- tier lists saved into this guide (read-only copies) ----------
+// Built and edited in the Tier list tab; "Save to guide" there drops a snapshot
+// here. The guide only displays them and can remove one.
+
+async function loadGuideTierLists() {
+  const champ = guideState.myChampion;
+  if (!champ) return;
+  const el = $("#guide-tier-lists");
+  el.innerHTML = `<p class="muted">Loading…</p>`;
+  await loadChampionRoster();  // champion display names
+  await loadRuneIcons();       // rune row icons (tierlist.js)
+  const lists = await getJSON(`/api/champions/${encodeURIComponent(champ)}/tier-lists`).catch(() => []);
+  if (guideState.myChampion !== champ) return;  // champion changed mid-load
+  renderGuideTierLists(lists);
+}
+
+function renderGuideTierLists(lists) {
+  const el = $("#guide-tier-lists");
+  if (!lists.length) {
+    el.innerHTML = `<p class="muted">No tier list saved for
+      ${escapeHtml(champDisplay(guideState.myChampion))} yet — build one in the
+      <button type="button" class="link-btn" id="guide-tier-goto">Tier list tab</button>
+      and use its “Save to guide” button. You can save more than one.</p>`;
+    $("#guide-tier-goto").addEventListener("click", () => setMainView("tiers"));
+    return;
+  }
+  el.innerHTML = lists.map((l) => `
+    <div class="guide-tier-card" data-id="${l.id}">
+      <div class="guide-tier-card-head">
+        <strong>${escapeHtml(l.title)}</strong>
+        <span class="muted">saved ${l.updated_at_ms ? escapeHtml(fmtDate(l.updated_at_ms)) : ""}</span>
+        <button type="button" class="icon-btn-sm guide-tier-del" data-id="${l.id}"
+          title="Remove this tier list from the guide" aria-label="Remove tier list">🗑</button>
+      </div>
+      ${tierBoardStaticHtml(l.data)}
+    </div>`).join("");
+  el.querySelectorAll(".guide-tier-del").forEach((btn) =>
+    btn.addEventListener("click", () => removeGuideTierList(+btn.dataset.id)));
+}
+
+async function removeGuideTierList(id) {
+  if (!confirm("Remove this tier list from the guide? The original in the Tier list tab is kept.")) return;
+  const res = await fetch(`/api/tier-lists/${id}`, { method: "DELETE" }).catch(() => null);
+  if (res && res.ok) loadGuideTierLists();
 }
 
 // "Add a matchup" dropdown: full roster minus opponents that already have a
