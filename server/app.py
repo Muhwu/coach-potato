@@ -564,9 +564,13 @@ def api_export_all():
         clip_rows = [dict(r) for r in conn.execute(
             """SELECT id, owner_type, owner_id, label, kind, file_name, url, created_at_ms
                FROM clips ORDER BY id""")]
+        tier_list_rows = [dict(r) for r in conn.execute(
+            "SELECT id, title, data, created_at_ms, updated_at_ms FROM tier_lists ORDER BY id")]
     finally:
         conn.close()
 
+    for row in tier_list_rows:
+        row["data"] = json.loads(row["data"]) if row["data"] else {"tiers": []}
     for row in matchup_notes_rows:
         row["runes"] = json.loads(row["runes"]) if row["runes"] else []
         row["skill_order"] = json.loads(row["skill_order"]) if row["skill_order"] else []
@@ -591,6 +595,7 @@ def api_export_all():
         "research_entries": research_rows,
         "research_screenshots": screenshot_rows,
         "clips": clip_rows,
+        "tier_lists": tier_list_rows,
     }
 
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
@@ -667,6 +672,9 @@ def _import_conflicts(conn, payload):
     for row in payload.get("clips") or []:
         if conn.execute("SELECT 1 FROM clips WHERE id=?", (row["id"],)).fetchone():
             conflicts.append(f"clip #{row['id']}")
+    for row in payload.get("tier_lists") or []:
+        if conn.execute("SELECT 1 FROM tier_lists WHERE id=?", (row["id"],)).fetchone():
+            conflicts.append(f"tier list #{row['id']}")
     return conflicts
 
 
@@ -679,6 +687,7 @@ def _import_counts(payload):
         "item_builds": len(payload.get("item_builds") or []),
         "research_entries": len(payload.get("research_entries") or []),
         "clips": len(payload.get("clips") or []),
+        "tier_lists": len(payload.get("tier_lists") or []),
     }
 
 
@@ -785,6 +794,14 @@ async def api_import_all(file: UploadFile = File(...)):
                     member = f"clips/{row['file_name']}"
                     if member in zf.namelist():
                         (get_clips_dir() / row["file_name"]).write_bytes(zf.read(member))
+            for row in payload.get("tier_lists") or []:
+                data = row.get("data")
+                conn.execute(
+                    """INSERT INTO tier_lists (id, title, data, created_at_ms, updated_at_ms)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (row["id"], row.get("title", ""),
+                     json.dumps(data) if isinstance(data, (dict, list)) else (data or "{}"),
+                     row.get("created_at_ms"), row.get("updated_at_ms")))
         return {"imported": _import_counts(payload)}
     finally:
         conn.close()
@@ -2061,6 +2078,99 @@ def api_delete_research_screenshot(screenshot_id: int):
         conn.close()
     _unlink_screenshot_files([screenshot["file_name"]])
     return {"deleted": True}
+
+
+# ---------- tier lists ----------
+
+_MAX_TIERS = 12
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _validate_tier_data(data):
+    """Clean a tier-list payload: {"tiers": [{label, color, champions:[ids]}]}.
+    Unknown champions are dropped (roster changes over patches); returns the
+    normalised dict."""
+    if not isinstance(data, dict):
+        raise HTTPException(400, "tier list data must be an object")
+    tiers = data.get("tiers")
+    if not isinstance(tiers, list):
+        raise HTTPException(400, "data.tiers must be a list")
+    if len(tiers) > _MAX_TIERS:
+        raise HTTPException(400, f"at most {_MAX_TIERS} tiers")
+    known = {c.lower(): c for c in CHAMPION_IDS}
+    seen, out = set(), []
+    for t in tiers:
+        if not isinstance(t, dict):
+            raise HTTPException(400, "each tier must be an object")
+        color = str(t.get("color") or "").strip()
+        if color and not _HEX_COLOR.match(color):
+            raise HTTPException(400, f"bad tier color {color!r}")
+        champs = []
+        for c in (t.get("champions") or []):
+            key = str(c).lower()
+            if key in known and known[key] not in seen:  # valid + no dupes across tiers
+                champs.append(known[key])
+                seen.add(known[key])
+        out.append({"label": str(t.get("label") or "")[:24], "color": color, "champions": champs})
+    return {"tiers": out}
+
+
+def _tier_list_dict(row):
+    d = dict(row)
+    try:
+        d["data"] = json.loads(d["data"]) if d["data"] else {"tiers": []}
+    except (ValueError, TypeError):
+        d["data"] = {"tiers": []}
+    return d
+
+
+@app.get("/api/tier-lists")
+def api_list_tier_lists():
+    conn = get_conn()
+    try:
+        return [_tier_list_dict(r) for r in db.list_tier_lists(conn)]
+    finally:
+        conn.close()
+
+
+@app.post("/api/tier-lists")
+def api_create_tier_list(body: dict):
+    body = body or {}
+    title = str(body.get("title") or "").strip() or "Tier list"
+    data = _validate_tier_data(body.get("data") or {"tiers": []})
+    conn = get_conn()
+    try:
+        tid = db.create_tier_list(conn, title, data)
+        return _tier_list_dict(db.get_tier_list(conn, tid))
+    finally:
+        conn.close()
+
+
+@app.put("/api/tier-lists/{tier_list_id}")
+def api_update_tier_list(tier_list_id: int, body: dict):
+    body = body or {}
+    conn = get_conn()
+    try:
+        existing = db.get_tier_list(conn, tier_list_id)
+        if not existing:
+            raise HTTPException(404, "no such tier list")
+        title = str(body.get("title", existing["title"]) or "").strip() or "Tier list"
+        data = _validate_tier_data(body["data"]) if "data" in body else None
+        db.update_tier_list(conn, tier_list_id, title=title, data=data)
+        return _tier_list_dict(db.get_tier_list(conn, tier_list_id))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/tier-lists/{tier_list_id}")
+def api_delete_tier_list(tier_list_id: int):
+    conn = get_conn()
+    try:
+        if not db.delete_tier_list(conn, tier_list_id):
+            raise HTTPException(404, "no such tier list")
+        return {"deleted": True}
+    finally:
+        conn.close()
 
 
 def _clip_dict(row):

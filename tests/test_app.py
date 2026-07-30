@@ -1612,3 +1612,28 @@ def test_import_all_rejects_bad_files(client):
     assert client.post("/api/import-all/preview",
                        files={"file": ("x.zip", buf.getvalue(), "application/zip")}
                        ).status_code == 400
+
+
+def test_tier_lists_crud_and_validation(client):
+    assert client.get("/api/tier-lists").json() == []
+    # create: unknown champ dropped, case-folded dupe removed, dedup across tiers
+    created = client.post("/api/tier-lists", json={"title": "Top", "data": {"tiers": [
+        {"label": "S", "color": "#ff0000", "champions": ["Garen", "Bogus", "garen", "Darius"]}]}}).json()
+    tid = created["id"]
+    assert created["title"] == "Top"
+    assert created["data"]["tiers"][0]["champions"] == ["Garen", "Darius"]
+    assert [l["id"] for l in client.get("/api/tier-lists").json()] == [tid]
+    # update title + data
+    up = client.put(f"/api/tier-lists/{tid}", json={"title": "Top lane", "data": {"tiers": [
+        {"label": "A", "color": "#00ff00", "champions": ["Teemo"]}]}}).json()
+    assert up["title"] == "Top lane"
+    assert up["data"]["tiers"][0]["label"] == "A"
+    assert up["data"]["tiers"][0]["champions"] == ["Teemo"]
+    # bad colour rejected; missing list 404
+    assert client.put(f"/api/tier-lists/{tid}",
+                      json={"data": {"tiers": [{"color": "red"}]}}).status_code == 400
+    assert client.put("/api/tier-lists/9999", json={"title": "x"}).status_code == 404
+    # delete
+    assert client.delete(f"/api/tier-lists/{tid}").status_code == 200
+    assert client.get("/api/tier-lists").json() == []
+    assert client.delete(f"/api/tier-lists/{tid}").status_code == 404
