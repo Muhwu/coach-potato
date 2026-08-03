@@ -57,8 +57,8 @@ const BLOCK_GAME_SORT = {
   account: { type: "text", get: (g) => g.account },
   me: { type: "text", get: (g) => displayName(g.my_champion) },
   opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
-  lane7: { type: "num", get: (g) => g.lane_adv_early },
-  lane14: { type: "num", get: (g) => g.lane_adv_late },
+  lane7: { type: "num", get: (g) => laneSortValue(g, 7) },
+  lane14: { type: "num", get: (g) => laneSortValue(g, 14) },
   cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
   level_diff_7: { type: "num", get: (g) => g.level_diff_7 },
   gold_diff_7: { type: "num", get: (g) => g.gold_diff_7 },
@@ -354,7 +354,8 @@ function gameMetricsPanel(entryId, game) {
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
   }</div>` : "";
-  return `${metrics}${runes}${clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
+  return `${laneResultControl(entryId, game)}${metrics}${runes}${
+    clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
 
 async function toggleGameStats(entryId, matchId, puuid) {
@@ -375,11 +376,80 @@ async function toggleGameStats(entryId, matchId, puuid) {
   renderBlocks();
 }
 
-function laneCell(value) {
+// A game's lane verdict at one mark. A manually-set lane_result_<mark> wins
+// over Riot's laning flag: the flag can't see a lane the player knows they
+// won (a scripted all-in, a disconnect, a gank the numbers don't explain), so
+// their own read overrules it. Graded per mark, since a game can read
+// differently at 7m and 14m.
+const LANE_RESULT_LABELS = {
+  stomped: "Stomped loss", lost: "Lost", even: "Even", won: "Won", stomp: "Stomp win",
+};
+const LANE_RESULT_MARKS = {
+  stomp: { symbol: "⇈", cls: "lane-stomp" },
+  won: { symbol: "✓", cls: "lane-yes" },
+  even: { symbol: "=", cls: "lane-even" },
+  lost: { symbol: "✗", cls: "lane-no" },
+  stomped: { symbol: "⇊", cls: "lane-stomped" },
+};
+
+function manualLaneResult(game, mark) {
+  const value = game[`lane_result_${mark}`];
+  return value && LANE_RESULT_MARKS[value] ? value : null;
+}
+
+// Sorting has to follow what the column actually shows, so a manual verdict
+// sorts on its own scale rather than on Riot's flag it replaced.
+const LANE_RESULT_RANK = { stomp: 2, won: 1, even: 0, lost: -1, stomped: -2 };
+function laneSortValue(game, mark) {
+  const manual = manualLaneResult(game, mark);
+  if (manual) return LANE_RESULT_RANK[manual];
+  const flag = mark === 7 ? game.lane_adv_early : game.lane_adv_late;
+  return flag == null ? null : (flag >= 1 ? 1 : -1);
+}
+
+function laneCell(value, game, mark) {
+  const manual = game ? manualLaneResult(game, mark) : null;
+  if (manual) {
+    const { symbol, cls } = LANE_RESULT_MARKS[manual];
+    return `<td><span class="${cls}"
+      title="${LANE_RESULT_LABELS[manual]} @${mark}m (set by you)">${symbol}</span></td>`;
+  }
   if (value == null) return `<td class="muted">–</td>`;
   return value >= 1
     ? `<td><span class="lane-yes" title="Ahead in lane">✓</span></td>`
     : `<td><span class="lane-no" title="Behind in lane">✗</span></td>`;
+}
+
+// Strongside/weakside: a lane deficit is read differently when you were the
+// sacrificial lane rather than the jungle-prioritised one.
+function weaksideControl(entryId, game) {
+  const opt = (value, label) => `<option value="${value}"${
+    (game.weakside == null ? value === "" : String(game.weakside) === value)
+      ? " selected" : ""}>${label}</option>`;
+  return `<span class="filter-label">Side</span>
+    <select class="game-weakside" data-entry="${entryId}" aria-label="Strongside or weakside">
+      ${opt("", "— not set")}${opt("0", "Strongside")}${opt("1", "Weakside")}
+    </select>`;
+}
+
+function laneResultControl(entryId, game) {
+  const select = (mark) => {
+    const current = game[`lane_result_${mark}`];
+    const opt = (value, label) => `<option value="${value}"${
+      (current == null ? value === "" : current === value) ? " selected" : ""}>${label}</option>`;
+    return `<select class="game-lane-result" data-entry="${entryId}" data-mark="${mark}"
+        aria-label="Lane result at ${mark} minutes">
+        ${opt("", "Auto")}${opt("stomped", "Stomped loss")}${opt("lost", "Lost")}
+        ${opt("even", "Even")}${opt("won", "Won")}${opt("stomp", "Stomp win")}
+      </select>`;
+  };
+  return `<div class="lane-result-row">
+    <span class="filter-label">Lane result @7m</span>${select(7)}
+    <span class="filter-label">@14m</span>${select(14)}
+    ${weaksideControl(entryId, game)}
+    <span class="muted">Your own verdict — overrides the lane column for that
+      mark when the automatic read doesn't tell the whole story.</span>
+  </div>`;
 }
 
 // signed lane-delta cell. Until the game's timeline has been fetched
@@ -431,8 +501,8 @@ function blockGameRow(g) {
     result: `<td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>`,
     kda: `<td>${g.kills}/${g.deaths}/${g.assists}</td>`,
     cs: `<td>${(g.cs * 60 / g.game_duration_s).toFixed(1)}</td>`,
-    lane7: laneCell(g.lane_adv_early),
-    lane14: laneCell(g.lane_adv_late),
+    lane7: laneCell(g.lane_adv_early, g, 7),
+    lane14: laneCell(g.lane_adv_late, g, 14),
     cs_diff_7: deltaCell(g, g.cs_diff_7, 1),
     level_diff_7: deltaCell(g, g.level_diff_7, 0),
     gold_diff_7: deltaCell(g, g.gold_diff_7, 0),
@@ -696,6 +766,28 @@ function renderBlocks() {
       renderBlocks();
     });
   });
+  // manual lane verdict / side — each patches only its own field, so the two
+  // marks and the side flag never clobber each other or the notes
+  const patchGame = async (entryId, body) => {
+    await fetch(`/api/blocks/games/${entryId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    for (const block of blockState.blocks) {
+      const game = block.games.find((g) => g.entry_id === entryId);
+      if (game) Object.assign(game, body);
+    }
+    renderBlocks();
+  };
+  target.querySelectorAll(".game-lane-result").forEach((select) =>
+    select.addEventListener("change", () => patchGame(+select.dataset.entry, {
+      [`lane_result_${select.dataset.mark}`]: select.value || null,
+    })));
+  target.querySelectorAll(".game-weakside").forEach((select) =>
+    select.addEventListener("change", () => patchGame(+select.dataset.entry, {
+      weakside: select.value === "" ? null : select.value === "1",
+    })));
   target.querySelectorAll(".game-remove").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("Remove this game from the block?")) return;

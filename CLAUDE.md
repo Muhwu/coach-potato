@@ -223,7 +223,17 @@ change, not a crawler change.
   whose game time is > `block_gap_hours` (setting, default 3 h, 0 = off)
   from the open block's latest game 412s with `{"reason": "gap"}` for
   client confirmation (skipped when `block_gap_confirm` is off), then
-  closes the block (`db.block_gap_exceeded`). Hydration via
+  closes the block (`db.block_gap_exceeded`). Each `block_games` row also
+  carries manual, user-set flags edited in the game's expanded stats panel
+  (`blocks.js`): `weakside` (nullable bool — Strongside/Weakside, a note that a
+  lane deficit was expected because you weren't the jungle-prioritised lane)
+  and `lane_result_7`/`lane_result_14` (nullable text each, one of
+  `db.LANE_RESULT_VALUES` = stomped/lost/even/won/stomp — overrides that mark's
+  lane column, graded independently per mark since a game can read differently
+  at 7m vs 14m, e.g. a losing all-in that pays off by the second read).
+  All are additive columns, partial-updatable via
+  `PATCH /api/blocks/games/{id}` (each field set independently, so none
+  clobbers the notes or the other mark). Hydration via
   `stats.block_games_detailed`. API: `/api/pool`, `/api/blocks`,
   `POST /api/blocks/games` (409 names holding block),
   `GET /api/blocks/game-notes?opp_champion=` (read-only; feeds the matchup
