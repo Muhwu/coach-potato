@@ -767,8 +767,11 @@ function renderBlocks() {
     });
   });
   // manual lane verdict / side — each patches only its own field, so the two
-  // marks and the side flag never clobber each other or the notes
-  const patchGame = async (entryId, body) => {
+  // marks and the side flag never clobber each other or the notes.
+  // `stored` is what the API would return for those fields (weakside comes back
+  // as 1/0, not true/false); the local rows must match that shape or the
+  // re-render can't tell which option is selected.
+  const patchGame = async (entryId, body, stored = body) => {
     await fetch(`/api/blocks/games/${entryId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -776,7 +779,7 @@ function renderBlocks() {
     });
     for (const block of blockState.blocks) {
       const game = block.games.find((g) => g.entry_id === entryId);
-      if (game) Object.assign(game, body);
+      if (game) Object.assign(game, stored);
     }
     renderBlocks();
   };
@@ -785,9 +788,10 @@ function renderBlocks() {
       [`lane_result_${select.dataset.mark}`]: select.value || null,
     })));
   target.querySelectorAll(".game-weakside").forEach((select) =>
-    select.addEventListener("change", () => patchGame(+select.dataset.entry, {
-      weakside: select.value === "" ? null : select.value === "1",
-    })));
+    select.addEventListener("change", () => patchGame(
+      +select.dataset.entry,
+      { weakside: select.value === "" ? null : select.value === "1" },
+      { weakside: select.value === "" ? null : +select.value })));
   target.querySelectorAll(".game-remove").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("Remove this game from the block?")) return;
