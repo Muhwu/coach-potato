@@ -319,6 +319,51 @@ def test_block_patch_and_deletes(client):
     assert client.delete(f"/api/blocks/{block_id}").status_code == 404
 
 
+def test_block_game_manual_lane_result_api(client):
+    game = client.get("/api/stats/games").json()[0]
+    client.post("/api/blocks/games",
+                json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    entry_id = client.get("/api/blocks").json()["blocks"][0]["games"][0]["entry_id"]
+
+    assert client.patch(f"/api/blocks/games/{entry_id}",
+                        json={"lane_result_7": "lost", "lane_result_14": "won"}
+                        ).status_code == 200
+    stored = client.get("/api/blocks").json()["blocks"][0]["games"][0]
+    assert (stored["lane_result_7"], stored["lane_result_14"]) == ("lost", "won")
+
+    # a mark not in the body is left alone, so the two never clobber each other
+    client.patch(f"/api/blocks/games/{entry_id}", json={"lane_result_7": None})
+    stored = client.get("/api/blocks").json()["blocks"][0]["games"][0]
+    assert (stored["lane_result_7"], stored["lane_result_14"]) == (None, "won")
+
+    # ...and neither clobbers the notes
+    client.patch(f"/api/blocks/games/{entry_id}", json={"notes": "dove at 6"})
+    client.patch(f"/api/blocks/games/{entry_id}", json={"lane_result_14": "stomp"})
+    stored = client.get("/api/blocks").json()["blocks"][0]["games"][0]
+    assert stored["notes"] == "dove at 6"
+    assert stored["lane_result_14"] == "stomp"
+
+    assert client.patch(f"/api/blocks/games/{entry_id}",
+                        json={"lane_result_7": "sideways"}).status_code == 400
+    assert client.patch(f"/api/blocks/games/{entry_id}", json={}).status_code == 400
+    assert client.patch("/api/blocks/games/999",
+                        json={"lane_result_7": "won"}).status_code == 404
+
+
+def test_block_game_weakside_api(client):
+    game = client.get("/api/stats/games").json()[0]
+    client.post("/api/blocks/games",
+                json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    entry_id = client.get("/api/blocks").json()["blocks"][0]["games"][0]["entry_id"]
+    stored = lambda: client.get("/api/blocks").json()["blocks"][0]["games"][0]  # noqa: E731
+    assert stored()["weakside"] is None
+    assert client.patch(f"/api/blocks/games/{entry_id}",
+                        json={"weakside": True}).status_code == 200
+    assert stored()["weakside"] == 1
+    client.patch(f"/api/blocks/games/{entry_id}", json={"weakside": None})
+    assert stored()["weakside"] is None
+
+
 def _disable_block_gap(client):
     import os
     conn = db.connect(os.environ["LOL_DB_PATH"])

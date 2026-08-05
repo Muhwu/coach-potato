@@ -445,6 +445,50 @@ def test_block_update_and_game_notes_and_deletes(conn):
     assert conn.execute("SELECT COUNT(*) c FROM block_games").fetchone()["c"] == 0
 
 
+def test_block_game_manual_lane_result(conn):
+    ids = _seed_block_matches(conn, 1)
+    db.add_game_to_block(conn, ids[0], "me")
+    entry_id = conn.execute("SELECT id FROM block_games LIMIT 1").fetchone()["id"]
+    assert conn.execute("SELECT lane_result_7, lane_result_14 FROM block_games WHERE id=?",
+                        (entry_id,)).fetchone()["lane_result_7"] is None
+    for tier in db.LANE_RESULT_VALUES:
+        assert db.set_block_game_lane_result(conn, entry_id, 7, tier) is True
+        assert conn.execute("SELECT lane_result_7 FROM block_games WHERE id=?",
+                            (entry_id,)).fetchone()["lane_result_7"] == tier
+    # the two marks are graded independently
+    db.set_block_game_lane_result(conn, entry_id, 7, "lost")
+    db.set_block_game_lane_result(conn, entry_id, 14, "won")
+    row = conn.execute("SELECT lane_result_7, lane_result_14 FROM block_games WHERE id=?",
+                       (entry_id,)).fetchone()
+    assert (row["lane_result_7"], row["lane_result_14"]) == ("lost", "won")
+    # unset clears back to automatic, without touching the other mark
+    assert db.set_block_game_lane_result(conn, entry_id, 7, None) is True
+    row = conn.execute("SELECT lane_result_7, lane_result_14 FROM block_games WHERE id=?",
+                       (entry_id,)).fetchone()
+    assert (row["lane_result_7"], row["lane_result_14"]) == (None, "won")
+    with pytest.raises(ValueError):
+        db.set_block_game_lane_result(conn, entry_id, 7, "sideways")
+    with pytest.raises(ValueError):
+        db.set_block_game_lane_result(conn, entry_id, 10, "won")
+    assert db.set_block_game_lane_result(conn, 999, 7, "won") is False
+
+
+def test_block_game_weakside_flag(conn):
+    ids = _seed_block_matches(conn, 1)
+    db.add_game_to_block(conn, ids[0], "me")
+    entry_id = conn.execute("SELECT id FROM block_games LIMIT 1").fetchone()["id"]
+    weakside = lambda: conn.execute(  # noqa: E731
+        "SELECT weakside FROM block_games WHERE id=?", (entry_id,)).fetchone()["weakside"]
+    assert weakside() is None
+    assert db.set_block_game_weakside(conn, entry_id, True) is True
+    assert weakside() == 1
+    db.set_block_game_weakside(conn, entry_id, False)
+    assert weakside() == 0
+    db.set_block_game_weakside(conn, entry_id, None)
+    assert weakside() is None
+    assert db.set_block_game_weakside(conn, 999, True) is False
+
+
 def test_crawl_watermark_round_trip(conn):
     assert db.get_crawl_watermark(conn, "pu1", 420) == (None, False)
     db.set_crawl_watermark(conn, "pu1", 420, newest_ms=123, complete=False)

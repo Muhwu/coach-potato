@@ -1901,11 +1901,30 @@ def api_update_block(block_id: int, body: dict):
 
 @app.patch("/api/blocks/games/{entry_id}")
 def api_update_block_game(entry_id: int, body: dict):
-    if body.get("notes") is None:
-        raise HTTPException(400, "provide notes")
+    """Partial update of a block game: `notes` (Markdown), `weakside`
+    (true/false/null — the manual side flag), and/or `lane_result_7`/
+    `lane_result_14` (each one of db.LANE_RESULT_VALUES, or null — the manual
+    lane-verdict override, graded independently per mark)."""
+    body = body or {}
+    has_notes = body.get("notes") is not None
+    has_weakside = "weakside" in body
+    lane_result_marks = [m for m in (7, 14) if f"lane_result_{m}" in body]
+    if not has_notes and not has_weakside and not lane_result_marks:
+        raise HTTPException(400, "provide notes, weakside, and/or lane_result_7/lane_result_14")
+    for m in lane_result_marks:
+        value = body[f"lane_result_{m}"]
+        if value is not None and value not in db.LANE_RESULT_VALUES:
+            raise HTTPException(400, f"invalid lane_result_{m}")
     conn = get_conn()
     try:
-        if not db.update_block_game(conn, entry_id, body["notes"]):
+        ok = True
+        if has_notes:
+            ok = db.update_block_game(conn, entry_id, body["notes"])
+        if has_weakside:
+            ok = db.set_block_game_weakside(conn, entry_id, body["weakside"]) and ok
+        for m in lane_result_marks:
+            ok = db.set_block_game_lane_result(conn, entry_id, m, body[f"lane_result_{m}"]) and ok
+        if not ok:
             raise HTTPException(404, "no such block game")
         return {"updated": True}
     finally:

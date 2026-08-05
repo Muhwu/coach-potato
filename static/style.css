@@ -388,6 +388,16 @@ tbody tr.games-row:hover td { background: var(--page); }
 .delta-neutral { color: var(--muted); font-size: 12px; font-weight: 650; }
 .lane-yes { color: var(--good-text); font-weight: 700; }
 .lane-no { color: var(--critical); font-weight: 700; }
+/* the two extra tiers a manually-set lane result can take */
+.lane-stomp { color: var(--good-text); font-weight: 700; }
+.lane-stomped { color: var(--critical); font-weight: 700; }
+.lane-even { color: var(--text-secondary); font-weight: 700; }
+.lane-result-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin-bottom: 10px;
+}
+.lane-result-row .filter-label { margin: 0; }
+.lane-result-row select { max-width: 11em; }
 
 .metric-groups {
   display: grid;
