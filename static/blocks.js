@@ -421,15 +421,41 @@ function laneCell(value, game, mark) {
 }
 
 // Strongside/weakside: a lane deficit is read differently when you were the
-// sacrificial lane rather than the jungle-prioritised one.
+// sacrificial lane rather than the jungle-prioritised one. Detected from where
+// your jungler started (opposite half to your lane = strong side) and
+// overridable per game, mirroring the lane-result picker's Auto behaviour.
+const SIDE_WORD = { true: "Strongside", false: "Weakside", null: "unknown" };
+const HALF_WORD = { top: "top side", bot: "bot side" };
+
+function sideWord(strong) {
+  return SIDE_WORD[strong == null ? null : Boolean(strong)];
+}
+
 function weaksideControl(entryId, game) {
   const opt = (value, label) => `<option value="${value}"${
     (game.weakside == null ? value === "" : String(game.weakside) === value)
       ? " selected" : ""}>${label}</option>`;
   return `<span class="filter-label">Side</span>
     <select class="game-weakside" data-entry="${entryId}" aria-label="Strongside or weakside">
-      ${opt("", "— not set")}${opt("0", "Strongside")}${opt("1", "Weakside")}
+      ${opt("", `Auto — ${sideWord(game.auto_strongside)}`)}
+      ${opt("0", "Strongside")}${opt("1", "Weakside")}
     </select>`;
+}
+
+// where the two junglers started, and what that made of the enemy laner —
+// the context a manual flag can't give you
+function jungleSideHint(game) {
+  if (game.my_jungle_half == null && game.opp_jungle_half == null) {
+    return `<span class="muted">Jungle start not detected for this game.</span>`;
+  }
+  const mine = HALF_WORD[game.my_jungle_half];
+  const theirs = HALF_WORD[game.opp_jungle_half];
+  const parts = [];
+  if (mine) parts.push(`your jungler started ${mine}`);
+  if (theirs) {
+    parts.push(`theirs ${theirs} → enemy laner ${sideWord(game.opp_auto_strongside).toLowerCase()}`);
+  }
+  return `<span class="muted">${escapeHtml(parts.join(" · "))}</span>`;
 }
 
 function laneResultControl(entryId, game) {
@@ -449,6 +475,7 @@ function laneResultControl(entryId, game) {
     ${weaksideControl(entryId, game)}
     <span class="muted">Your own verdict — overrides the lane column for that
       mark when the automatic read doesn't tell the whole story.</span>
+    <div class="lane-side-hint">${jungleSideHint(game)}</div>
   </div>`;
 }
 

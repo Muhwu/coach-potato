@@ -2,8 +2,9 @@
   "entries": [
     {
       "version": "1.49.0",
-      "date": "2026-07-30",
+      "date": "2026-08-05",
       "items": [
+        "Strong side / weak side is now detected automatically: a block game's Side picker defaults to Auto and works it out from where your jungler started — you're strong side when they start on the map half opposite your lane. It also shows where both junglers began and what that made of your lane opponent, so a deficit can be read in context. You can still override it per game. New games get it automatically; run ./crawl.sh --backfill-jungle-sides to fill in older ones",
         "Blocks: tell the app yourself whether you won the lane — each game's expanded panel gets a 'Lane result' picker (Stomped loss / Lost / Even / Won / Stomp win) for the 7m and 14m marks, set independently, plus a Strongside/Weakside flag. A result you set overrides that mark's lane column, for the games the automatic read gets wrong (a proactive dive, a disconnect, a gank the numbers can't see); leave it on Auto to keep the existing behaviour",
         "New Tier list maker (own tab): drag any champion from the full roster into S/A/B/C/D tiers (rename/recolour tiers, add/remove rows), keep multiple named lists, and it all auto-saves and rides along in your backups. Thanks to @bs1phc",
         "Tier lists can now be saved into a champion's Matchup guide: build one in the Tier list tab, pick a champion and hit 'Save to guide' — it shows up read-only on that champion's guide page (several per champion; re-saving the same list updates its copy). Plus a new '⇄ Compare' window that puts up to 4 tier lists side by side in a 2×2 layout. Thanks to @bs1phc",

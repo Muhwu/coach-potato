@@ -397,7 +397,9 @@ tbody tr.games-row:hover td { background: var(--page); }
   margin-bottom: 10px;
 }
 .lane-result-row .filter-label { margin: 0; }
-.lane-result-row select { max-width: 11em; }
+.lane-result-row select { max-width: 13em; }
+/* detected jungle starts — own line so the controls above stay on one row */
+.lane-side-hint { flex-basis: 100%; font-size: 12px; }
 
 .metric-groups {
   display: grid;

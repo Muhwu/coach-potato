@@ -175,7 +175,29 @@ change, not a crawler change.
   `./crawl.sh --backfill-lane-deltas` fills existing rows (has_timeline=0)
   using only the timeline + stored participants for the lane opponent, via
   `db.update_participant_timeline` (which never clobbers challenge metrics).
-  These six are `default_hidden`. Across the app the pattern is: EXPANDED
+  These six are `default_hidden`.
+- **Strong side / weak side** rides on the SAME timeline fetch (no extra API
+  calls). `metrics.parse_jungle_starts` reads each jungler's position at the
+  earliest frame where they've cleared a camp (`jungleMinionsKilled >= 1`,
+  else the ~60s frame — never frame 0, where everyone is in the fountain ON
+  the mid diagonal and the test is meaningless) and maps it to a half via
+  `metrics.map_half` (`'top' if y > x`). The halves are ABSOLUTE, so a team's
+  jungle start can be compared straight against a lane half regardless of
+  side. `metrics.strongside(position, half)` applies the rule — you are strong
+  side when your jungler started OPPOSITE your lane — and returns None for
+  MIDDLE/JUNGLE (`metrics.LANE_HALVES`) or an unknown start. Junglers are
+  identified from stored participants (`db.jungler_puuids`) since the timeline
+  carries no roles; `crawler._store_jungle_starts` writes both teams via
+  `db.set_match_jungle_starts`. `backfill_lane_deltas` fills it opportunistically
+  from its own timeline fetch, so `crawler.backfill_jungle_starts()` /
+  `./crawl.sh --backfill-jungle-sides` is only needed for matches whose
+  timeline was already processed before this existed.
+  `stats.block_games_detailed` derives `auto_strongside` /
+  `opp_auto_strongside` (+ `my_jungle_half`/`opp_jungle_half` for the UI hint)
+  in `_add_jungle_sides`; the lane counterpart shares the lane half, so their
+  verdict is the same comparison against the ENEMY jungler's start. It
+  measures the START, not where the jungler actually spent the game.
+  Across the app the pattern is: EXPANDED
   per-game/segment stat panels always show ALL metrics (no picker), and each
   aggregate TABLE has a column picker whose metric-average columns start off.
   Matchups (`muAllCols`/`cp-mucols`, base cols default on) and coaching
@@ -226,7 +248,9 @@ change, not a crawler change.
   closes the block (`db.block_gap_exceeded`). Each `block_games` row also
   carries manual, user-set flags edited in the game's expanded stats panel
   (`blocks.js`): `weakside` (nullable bool — Strongside/Weakside, a note that a
-  lane deficit was expected because you weren't the jungle-prioritised lane)
+  lane deficit was expected because you weren't the jungle-prioritised lane;
+  it is the OVERRIDE for the auto-detected side, so leaving it NULL means
+  "use Auto" — see the strong/weak-side detection below)
   and `lane_result_7`/`lane_result_14` (nullable text each, one of
   `db.LANE_RESULT_VALUES` = stomped/lost/even/won/stomp — overrides that mark's
   lane column, graded independently per mark since a game can read differently
@@ -297,7 +321,15 @@ change, not a crawler change.
 ## Schema (data/lol.sqlite)
 
 `players(puuid PK, game_name, tag_line, is_tracked, solo_tier/division/lp, rank_fetched_at_ms)`
-`matches(match_id PK, queue_id, game_creation_ms, game_duration_s, game_version, crawled_at_ms)`
+`matches(match_id PK, queue_id, game_creation_ms, game_duration_s, game_version,
+crawled_at_ms, jungle_start_100, jungle_start_200)` — the two `jungle_start_*`
+columns hold the map half each team's jungler started in, for strong/weak-side
+detection: `'top'`/`'bot'`, `''` when the timeline was read but no jungler could
+be identified, `NULL` when never looked at (that distinction is what stops
+`backfill_jungle_starts` re-fetching jungler-less matches forever). Note the
+`matches` DDL keeps its comments OUTSIDE the parens — SQLite re-parses a stored
+CREATE TABLE on `ALTER TABLE ... DROP COLUMN`, and an inline `--` comment
+truncates it ("incomplete input"); `tier_lists` still has an inline one.
 `participants(match_id+puuid PK, champion_name, team_id, team_position, win, k/d/a, cs, gold_earned, damage_to_champions, riot_id_name, summoner1_id, summoner2_id, items)`
 — `summoner1_id`/`summoner2_id` are match-v5 summoner-spell ids; `items` is a
 JSON array of the 7 final inventory slots (item0..item6; slot 6 = trinket,

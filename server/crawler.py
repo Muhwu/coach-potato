@@ -3,8 +3,8 @@ import json
 import time
 
 from . import db, rune_data
-from .metrics import (parse_build_order, parse_metrics, parse_skill_order,
-                      parse_starting_items, parse_timeline_deltas)
+from .metrics import (parse_build_order, parse_jungle_starts, parse_metrics,
+                      parse_skill_order, parse_starting_items, parse_timeline_deltas)
 from .parsing import parse_match
 
 _NO_TIMELINE = object()  # _store_metrics sentinel: no timeline fetch was attempted
@@ -77,7 +77,10 @@ class Crawler:
                     # participant row into an already-stored match too
                     db.insert_match(self.conn, match_row, participant_rows)
                     if fetch_timeline:
-                        self._store_metrics(match_json, self._safe_timeline(match_id))
+                        timeline = self._safe_timeline(match_id)
+                        self._store_metrics(match_json, timeline)
+                        # same timeline, no extra API call
+                        self._store_jungle_starts(match_id, timeline)
                     else:  # skip the timeline fetch (halves API calls) — no lane Δ
                         self._store_metrics(match_json)
                     self._store_runes(match_json)
@@ -130,6 +133,15 @@ class Crawler:
             return self.client.get_match_timeline(match_id)
         except Exception:  # noqa: BLE001 — never let a timeline break the crawl
             return None
+
+    def _store_jungle_starts(self, match_id, timeline):
+        """Record which map half each team's jungler started in (strong/weak
+        side). Match-level, so it's stored once per match rather than per
+        tracked participant, and it always writes — a match with no
+        identifiable jungler records '' so the backfill doesn't retry it."""
+        junglers = db.jungler_puuids(self.conn, match_id)
+        db.set_match_jungle_starts(
+            self.conn, match_id, parse_jungle_starts(timeline, junglers))
 
     def _store_metrics(self, match_json, timeline=_NO_TIMELINE):
         """Store challenge/participant metrics for tracked players. When a
@@ -356,8 +368,39 @@ class Crawler:
             timeline = self._safe_timeline(row["match_id"])
             deltas = parse_timeline_deltas(timeline, row["puuid"], row["opp_puuid"])
             db.update_participant_timeline(self.conn, row["match_id"], row["puuid"], deltas)
+            # the jungle start halves come off the same timeline — filling them
+            # here means most installs never need the dedicated backfill below
+            self._store_jungle_starts(row["match_id"], timeline)
             count += 1
             self.status_cb(f"lane-delta backfill: {count}/{len(rows)} matches")
+        return count
+
+    def backfill_jungle_starts(self, limit=None, block_games_only=False):
+        """Fetch timelines for matches whose jungle start halves were never
+        looked at (jungle_start_100 IS NULL) and fill them in — i.e. matches
+        stored before strong/weak-side detection existed, whose timeline was
+        already processed for lane deltas so backfill_lane_deltas skips them.
+        Restricted to matches a tracked/comparison player actually played.
+        block_games_only narrows to games sitting in a block, matching the
+        lane-delta backfill. Returns matches fetched."""
+        block_filter = ("AND EXISTS (SELECT 1 FROM block_games bg "
+                        "WHERE bg.match_id = m.match_id)"
+                        if block_games_only else "")
+        rows = self.conn.execute(
+            f"""SELECT DISTINCT m.match_id FROM matches m
+                JOIN participants p ON p.match_id = m.match_id
+                JOIN players pl ON pl.puuid = p.puuid
+                  AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
+                WHERE m.jungle_start_100 IS NULL {block_filter}
+                ORDER BY m.match_id"""
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            self._store_jungle_starts(row["match_id"], self._safe_timeline(row["match_id"]))
+            count += 1
+            self.status_cb(f"jungle-side backfill: {count}/{len(rows)} matches")
         return count
 
     def _stale_before(self):

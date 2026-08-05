@@ -1726,3 +1726,40 @@ def test_tier_row_icon_validation(client):
     assert (tiers[0]["image"], tiers[0]["image_kind"]) == ("Teemo", "champion")
     assert (tiers[1]["image"], tiers[1]["image_kind"]) == ("", "champion")  # unknown dropped
     client.delete(f"/api/tier-lists/{r['id']}")
+
+
+def test_block_game_exposes_detected_strong_weak_side(client):
+    import os
+    game = client.get("/api/stats/games").json()[0]
+    client.post("/api/blocks/games",
+                json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    stored = lambda: client.get("/api/blocks").json()["blocks"][0]["games"][0]  # noqa: E731
+    # nothing detected yet: the fixture matches have no jungle start recorded
+    assert stored()["auto_strongside"] is None
+    assert stored()["my_jungle_half"] is None
+
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    # tracked player is TOP on team 100; their jungler started bot (opposite the
+    # lane -> strong side), the enemy's started top (same half -> enemy is weak)
+    db.set_match_jungle_starts(conn, game["match_id"], {100: "bot", 200: "top"})
+    conn.close()
+    row = stored()
+    assert row["auto_strongside"] is True
+    assert row["opp_auto_strongside"] is False
+    assert (row["my_jungle_half"], row["opp_jungle_half"]) == ("bot", "top")
+    # the manual flag is untouched by detection — it's the override
+    assert row["weakside"] is None
+
+
+def test_block_game_undetermined_jungle_start_reads_as_unknown(client):
+    import os
+    game = client.get("/api/stats/games").json()[0]
+    client.post("/api/blocks/games",
+                json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.set_match_jungle_starts(conn, game["match_id"], {100: None, 200: None})
+    conn.close()
+    row = client.get("/api/blocks").json()["blocks"][0]["games"][0]
+    # '' in the db must surface as None, not as a falsy half that grades wrongly
+    assert row["my_jungle_half"] is None
+    assert row["auto_strongside"] is None

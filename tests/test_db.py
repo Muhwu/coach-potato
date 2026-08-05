@@ -858,3 +858,35 @@ def test_block_gap_exceeded_detects_time_gap(conn):
     assert db.block_gap_exceeded(conn, "G3") is None
     db.set_settings(conn, {"block_gap_hours": "0"})   # disabled
     assert db.block_gap_exceeded(conn, "G0") is None
+
+
+def test_jungle_starts_round_trip_and_unknown_is_not_null(conn):
+    db.insert_match(conn, make_match(), [
+        make_participant("jg-blue", team_id=100, team_position="JUNGLE"),
+        make_participant("jg-red", team_id=200, team_position="JUNGLE"),
+        make_participant("top-blue", team_id=100, team_position="TOP"),
+    ])
+    assert db.jungler_puuids(conn, "EUW1_1") == {100: "jg-blue", 200: "jg-red"}
+    db.set_match_jungle_starts(conn, "EUW1_1", {100: "top", 200: "bot"})
+    row = conn.execute("SELECT * FROM matches WHERE match_id='EUW1_1'").fetchone()
+    assert (row["jungle_start_100"], row["jungle_start_200"]) == ("top", "bot")
+    # undetermined stores '' — NULL has to keep meaning "never looked at", or
+    # the backfill would re-fetch jungler-less matches forever
+    db.set_match_jungle_starts(conn, "EUW1_1", {100: None, 200: None})
+    row = conn.execute("SELECT * FROM matches WHERE match_id='EUW1_1'").fetchone()
+    assert (row["jungle_start_100"], row["jungle_start_200"]) == ("", "")
+
+
+def test_jungle_start_columns_added_to_existing_db(tmp_path):
+    path = tmp_path / "old.sqlite"
+    c = db.connect(path)
+    db.insert_match(c, make_match(), [make_participant("a")])
+    c.execute("ALTER TABLE matches DROP COLUMN jungle_start_100")
+    c.execute("ALTER TABLE matches DROP COLUMN jungle_start_200")
+    c.commit()
+    c.close()
+    c = db.connect(path)  # "upgrade": _migrate re-adds them, match row survives
+    row = c.execute("SELECT * FROM matches WHERE match_id='EUW1_1'").fetchone()
+    assert row["jungle_start_100"] is None  # never looked at
+    assert db.has_match(c, "EUW1_1")
+    c.close()

@@ -18,13 +18,20 @@ CREATE TABLE IF NOT EXISTS players (
     rank_fetched_at_ms INTEGER
 );
 
+-- jungle_start_100/200: map half each team's jungler started in, read from the
+-- timeline — 'top'/'bot', '' when looked at but undetermined, NULL when never
+-- looked at. Strong/weak side is derived from these (see metrics.strongside).
+-- Comments stay OUTSIDE the parens: SQLite re-parses this DDL on ALTER TABLE
+-- ... DROP COLUMN, and an inline comment truncates it ("incomplete input").
 CREATE TABLE IF NOT EXISTS matches (
     match_id TEXT PRIMARY KEY,
     queue_id INTEGER NOT NULL,
     game_creation_ms INTEGER NOT NULL,
     game_duration_s INTEGER NOT NULL,
     game_version TEXT,
-    crawled_at_ms INTEGER
+    crawled_at_ms INTEGER,
+    jungle_start_100 TEXT,
+    jungle_start_200 TEXT
 );
 
 CREATE TABLE IF NOT EXISTS participants (
@@ -277,6 +284,12 @@ def _migrate(conn):
     tl_columns = {r["name"] for r in conn.execute("PRAGMA table_info(tier_lists)")}
     if tl_columns and "champion" not in tl_columns:  # per-champion matchup tier lists
         conn.execute("ALTER TABLE tier_lists ADD COLUMN champion TEXT NOT NULL DEFAULT ''")
+    match_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matches)")}
+    if match_columns:  # jungle start halves (strong/weak side) added later
+        if "jungle_start_100" not in match_columns:
+            conn.execute("ALTER TABLE matches ADD COLUMN jungle_start_100 TEXT")
+        if "jungle_start_200" not in match_columns:
+            conn.execute("ALTER TABLE matches ADD COLUMN jungle_start_200 TEXT")
     part_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participants)")}
     if part_columns:  # summoner spells + item build added later
         if "summoner1_id" not in part_columns:
@@ -741,6 +754,28 @@ def update_participant_timeline(conn, match_id, puuid, deltas):
             f"WHERE match_id=:match_id AND puuid=:puuid",
             {**deltas, "match_id": match_id, "puuid": puuid},
         )
+
+
+def set_match_jungle_starts(conn, match_id, starts):
+    """Store the map half each team's jungler started in for a match.
+    `starts` is {100: 'top'|'bot'|None, 200: ...}. An undetermined half is
+    written as '' rather than NULL, so NULL keeps meaning "timeline never
+    looked at" — otherwise the backfill would re-fetch matches that simply
+    have no identifiable jungler, forever."""
+    with conn:
+        conn.execute(
+            "UPDATE matches SET jungle_start_100=?, jungle_start_200=? WHERE match_id=?",
+            (starts.get(100) or "", starts.get(200) or "", match_id))
+
+
+def jungler_puuids(conn, match_id):
+    """{team_id: puuid} for the JUNGLE player on each team, from the stored
+    participants (the timeline carries no roles). Teams whose jungler wasn't
+    stored or has no team_position are simply absent."""
+    rows = conn.execute(
+        """SELECT team_id, puuid FROM participants
+           WHERE match_id=? AND team_position='JUNGLE'""", (match_id,)).fetchall()
+    return {r["team_id"]: r["puuid"] for r in rows}
 
 
 def update_participant_loadout(conn, match_id, puuid, summoner1_id, summoner2_id, items):

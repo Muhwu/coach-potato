@@ -35,6 +35,9 @@ def main():
                         help="only backfill lane ΔCS/level/gold (needs the match timeline), no crawl")
     parser.add_argument("--backfill-items", action="store_true",
                         help="only backfill summoner spells + items for stored matches, no crawl")
+    parser.add_argument("--backfill-jungle-sides", action="store_true",
+                        help="only backfill jungle start halves / strong-weak side "
+                             "(needs the match timeline), no crawl")
     args = parser.parse_args()
 
     config = load_config()
@@ -69,6 +72,11 @@ def main():
         if args.backfill_items:
             print("Backfilling summoner spells + items for stored matches ...")
             n = crawler.backfill_items(limit=args.limit)
+            print(f"  -> {n} matches re-fetched")
+            return
+        if args.backfill_jungle_sides:
+            print("Backfilling jungle start sides (timeline) for stored matches ...")
+            n = crawler.backfill_jungle_starts(limit=args.limit)
             print(f"  -> {n} matches re-fetched")
             return
         for game_name, tag_line in accounts:

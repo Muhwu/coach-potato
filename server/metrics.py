@@ -271,3 +271,80 @@ def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
         out[f"level_diff_{minute}"] = (mine.get("level") or 0) - (theirs.get("level") or 0)
         out[f"gold_diff_{minute}"] = (mine.get("totalGold") or 0) - (theirs.get("totalGold") or 0)
     return out
+
+
+# ---------- jungle start side (strong side / weak side) ----------
+#
+# Summoner's Rift splits along the mid-lane diagonal into a top half (top lane
+# and both teams' top-side jungles) and a bot half. The halves are ABSOLUTE:
+# top lane sits in the top half for blue and red alike, so a team's jungle
+# start half can be compared directly against a lane half regardless of side.
+# You are "strong side" when your jungler starts in the half OPPOSITE your
+# lane — a full clear starting at the far end arrives at your lane first.
+JUNGLE_START_FRAME_MS = 60_000     # first frame after the fountain
+JUNGLE_START_MAX_MS = 180_000      # give up past ~3 min (first clear is over)
+# mid/jungle deliberately absent — they have no strong/weak side under this rule
+LANE_HALVES = {"TOP": "top", "BOTTOM": "bot", "UTILITY": "bot"}
+
+
+def map_half(x, y):
+    """Which half of the map a position is in: 'top' above the mid diagonal,
+    'bot' below it. Positions exactly on the diagonal (the blue fountain at
+    game start, for one) are ambiguous — callers avoid frame 0 for that
+    reason; ties resolve to 'bot' rather than raising."""
+    return "top" if y > x else "bot"
+
+
+def _jungle_start_half(frames, pid):
+    """The half a jungler started in: the position at the earliest frame where
+    they have cleared a camp (jungleMinionsKilled >= 1), else the ~60s frame.
+    Preferring the first cleared camp rides out slow starts and leashes, and
+    keeps an invading jungler anchored to the camps they actually took."""
+    fallback = None
+    for frame in frames:
+        ts = frame.get("timestamp") or 0
+        if ts <= 0 or ts > JUNGLE_START_MAX_MS:
+            continue  # frame 0 is the fountain — on the diagonal, meaningless
+        pf = (frame.get("participantFrames") or {}).get(str(pid))
+        position = (pf or {}).get("position") or {}
+        x, y = position.get("x"), position.get("y")
+        if x is None or y is None:
+            continue
+        if fallback is None and ts <= JUNGLE_START_FRAME_MS + FRAME_TOLERANCE_MS:
+            fallback = map_half(x, y)
+        if (pf.get("jungleMinionsKilled") or 0) >= 1:
+            return map_half(x, y)
+    return fallback
+
+
+def parse_jungle_starts(timeline_json, jungler_puuids):
+    """Which map half each team's jungler started in, from the match timeline:
+    {team_id: 'top' | 'bot' | None}. `jungler_puuids` maps team_id (100/200)
+    to that team's JUNGLE player's puuid — derived from stored participants,
+    since the timeline itself carries no roles. A team with no identified
+    jungler (or no usable frame) is None rather than guessed."""
+    out = {team: None for team in jungler_puuids}
+    if not timeline_json:
+        return out
+    info = timeline_json.get("info") or {}
+    pid_by_puuid = {p.get("puuid"): p.get("participantId")
+                    for p in info.get("participants") or []}
+    frames = info.get("frames") or []
+    if not frames:
+        return out
+    for team, puuid in jungler_puuids.items():
+        pid = pid_by_puuid.get(puuid)
+        if pid is not None:
+            out[team] = _jungle_start_half(frames, pid)
+    return out
+
+
+def strongside(lane_position, lane_jungle_half):
+    """Whether a player in `lane_position` is strong side, given the half their
+    OWN team's jungler started in. None when it doesn't apply: mid and jungle
+    have no strong/weak side under this rule, and an unknown jungle start
+    can't be graded."""
+    lane_half = LANE_HALVES.get(lane_position)
+    if lane_half is None or lane_jungle_half is None:
+        return None
+    return lane_jungle_half != lane_half

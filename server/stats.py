@@ -9,7 +9,7 @@ import json
 import time
 from datetime import datetime, timezone
 
-from .metrics import METRICS, metric_keys
+from .metrics import METRICS, metric_keys, strongside
 
 REMAKE_S = 300
 
@@ -478,6 +478,8 @@ def block_games_detailed(conn):
         """SELECT bg.id AS entry_id, bg.block_id, bg.notes, bg.match_id, bg.puuid,
                   bg.weakside, bg.lane_result_7, bg.lane_result_14,
                   m.game_creation_ms, m.game_duration_s, m.queue_id,
+                  m.jungle_start_100, m.jungle_start_200,
+                  me.team_id AS my_team_id, me.team_position AS my_position,
                   me.champion_name AS my_champion, me.win,
                   me.kills, me.deaths, me.assists, me.cs,
                   pm.lane_adv_early, pm.lane_adv_late, pm.has_timeline,
@@ -499,7 +501,26 @@ def block_games_detailed(conn):
                ON oppr.match_id = bg.match_id AND oppr.puuid = opp.puuid
            ORDER BY m.game_creation_ms"""
     ).fetchall()
-    return [_decode_game_runes(r) for r in rows]
+    return [_add_jungle_sides(_decode_game_runes(r)) for r in rows]
+
+
+def _add_jungle_sides(game):
+    """Derive strong/weak side for the player and their lane counterpart from
+    the stored jungle start halves, and drop the raw columns the client has no
+    use for. Both sides share a lane half, so the counterpart's verdict is the
+    same comparison against the ENEMY jungler's start. Either can be None
+    (mid/jungle, or a match whose jungle start was never determined) — the
+    client falls back to the manual `weakside` flag then."""
+    team = game.pop("my_team_id", None)
+    position = game.pop("my_position", None)
+    starts = {100: game.pop("jungle_start_100", None) or None,
+              200: game.pop("jungle_start_200", None) or None}
+    mine, theirs = starts.get(team), starts.get(200 if team == 100 else 100)
+    game["my_jungle_half"] = mine
+    game["opp_jungle_half"] = theirs
+    game["auto_strongside"] = strongside(position, mine)
+    game["opp_auto_strongside"] = strongside(position, theirs)
+    return game
 
 
 def _decode_game_runes(row):

@@ -1,5 +1,6 @@
-from server.metrics import (METRICS, metric_keys, parse_build_order, parse_metrics,
-                            parse_skill_order, parse_starting_items, parse_timeline_deltas)
+from server.metrics import (METRICS, map_half, metric_keys, parse_build_order,
+                            parse_jungle_starts, parse_metrics, parse_skill_order,
+                            parse_starting_items, parse_timeline_deltas, strongside)
 
 
 def sample_match(puuid="p1", challenges=True):
@@ -183,3 +184,102 @@ def test_parse_metrics_without_challenges_gives_nulls_for_challenge_fields():
 
 def test_parse_metrics_unknown_puuid_returns_none():
     assert parse_metrics(sample_match(), "other") is None
+
+
+# ---------- jungle start side (strong side / weak side) ----------
+
+# blue team's jungle: blue buff top half, red buff bot half; red team's is the
+# 180° rotation of that (their blue buff sits in the bot half)
+BLUE_TEAM_BLUE_BUFF = (3800, 7900)    # top half
+BLUE_TEAM_RED_BUFF = (7800, 4000)     # bot half
+RED_TEAM_BLUE_BUFF = (11000, 6900)    # bot half
+RED_TEAM_RED_BUFF = (7100, 10900)     # top half
+
+
+def _jg_frame(ts, positions, cleared=()):
+    """positions: {participantId: (x, y)}; cleared: pids with a camp done."""
+    return {"timestamp": ts, "participantFrames": {
+        str(pid): {"position": {"x": x, "y": y},
+                   "jungleMinionsKilled": 4 if pid in cleared else 0}
+        for pid, (x, y) in positions.items()}}
+
+
+def _jg_timeline(frames, pids=(("blue-jg", 2), ("red-jg", 7))):
+    return {"info": {
+        "participants": [{"participantId": pid, "puuid": puuid} for puuid, pid in pids],
+        "frames": frames}}
+
+
+def test_map_half_splits_on_the_mid_diagonal():
+    assert map_half(*BLUE_TEAM_BLUE_BUFF) == "top"
+    assert map_half(*BLUE_TEAM_RED_BUFF) == "bot"
+    assert map_half(*RED_TEAM_BLUE_BUFF) == "bot"
+    assert map_half(*RED_TEAM_RED_BUFF) == "top"
+    assert map_half(5000, 5000) == "bot"  # on the diagonal: resolved, not raised
+
+
+def test_parse_jungle_starts_reads_both_teams_first_camp():
+    tl = _jg_timeline([
+        _jg_frame(0, {2: (400, 400), 7: (14400, 14400)}),          # fountains
+        _jg_frame(60_000, {2: BLUE_TEAM_BLUE_BUFF, 7: RED_TEAM_BLUE_BUFF},
+                  cleared=(2, 7)),
+    ])
+    assert parse_jungle_starts(tl, {100: "blue-jg", 200: "red-jg"}) == {
+        100: "top", 200: "bot"}
+
+
+def test_parse_jungle_starts_ignores_the_fountain_frame():
+    # frame 0 puts everyone on/near the diagonal — using it would misread the
+    # blue jungler as "bot" despite a top-half start
+    tl = _jg_timeline([
+        _jg_frame(0, {2: (400, 400)}),
+        _jg_frame(60_000, {2: BLUE_TEAM_BLUE_BUFF}, cleared=(2,)),
+    ])
+    assert parse_jungle_starts(tl, {100: "blue-jg"}) == {100: "top"}
+
+
+def test_parse_jungle_starts_falls_back_to_the_60s_frame_when_no_camp_cleared():
+    # slow start / leash: no camp done yet, but they're standing at one
+    tl = _jg_timeline([_jg_frame(60_000, {2: BLUE_TEAM_RED_BUFF})])
+    assert parse_jungle_starts(tl, {100: "blue-jg"}) == {100: "bot"}
+
+
+def test_parse_jungle_starts_prefers_the_cleared_camp_over_an_early_position():
+    # at 60s they're pathing through the bot half having cleared nothing; the
+    # first camp they actually finish is top-side
+    tl = _jg_timeline([
+        _jg_frame(60_000, {2: BLUE_TEAM_RED_BUFF}),
+        _jg_frame(120_000, {2: BLUE_TEAM_BLUE_BUFF}, cleared=(2,)),
+    ])
+    assert parse_jungle_starts(tl, {100: "blue-jg"}) == {100: "top"}
+
+
+def test_parse_jungle_starts_unknown_when_jungler_or_timeline_missing():
+    tl = _jg_timeline([_jg_frame(60_000, {2: BLUE_TEAM_BLUE_BUFF}, cleared=(2,))])
+    assert parse_jungle_starts(tl, {100: "blue-jg", 200: "nobody"}) == {
+        100: "top", 200: None}
+    assert parse_jungle_starts(None, {100: "blue-jg"}) == {100: None}
+    assert parse_jungle_starts({"info": {"frames": []}}, {100: "blue-jg"}) == {100: None}
+
+
+def test_parse_jungle_starts_ignores_frames_past_the_first_clear():
+    # by 4 min the jungler has crossed the map — must not count as the start
+    tl = _jg_timeline([_jg_frame(240_000, {2: BLUE_TEAM_RED_BUFF}, cleared=(2,))])
+    assert parse_jungle_starts(tl, {100: "blue-jg"}) == {100: None}
+
+
+def test_strongside_is_the_lane_opposite_the_jungle_start():
+    # the user's worked example: red team top laner, their jungler starts blue
+    # buff (bot half for red) -> opposite the lane -> strong side
+    assert strongside("TOP", "bot") is True
+    assert strongside("TOP", "top") is False
+    assert strongside("BOTTOM", "top") is True
+    assert strongside("UTILITY", "top") is True   # support shares the bot lane
+    assert strongside("BOTTOM", "bot") is False
+
+
+def test_strongside_undefined_for_mid_jungle_and_unknown_starts():
+    assert strongside("MIDDLE", "top") is None
+    assert strongside("JUNGLE", "top") is None
+    assert strongside("", "top") is None
+    assert strongside("TOP", None) is None

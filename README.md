@@ -139,6 +139,7 @@ resumable backfill:
 ./crawl.sh --backfill-metrics        # challenges-based metrics
 ./crawl.sh --backfill-lane-deltas    # timeline ΔCS/ΔLevel/ΔGold
 ./crawl.sh --backfill-runes          # actual runes played
+./crawl.sh --backfill-jungle-sides   # jungle start halves (strong/weak side)
 ```
 
 Each session has a **title** and full **notes in Markdown** — expand a session
