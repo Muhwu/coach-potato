@@ -823,29 +823,26 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-series-bubble {
   font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
   background: var(--accent-wash); border: 1px solid var(--border);
-  color: var(--text-secondary); white-space: nowrap;
+  color: var(--text-secondary); white-space: nowrap; cursor: pointer;
 }
+.block-series-bubble:hover { border-color: var(--series-1); color: var(--text-primary); }
 /* current block: subtle accent tint + left border so it stands out */
 .block-card.block-current { border-left: 3px solid var(--series-1); }
 .block-card.block-current > .session-head { background: var(--accent-wash); }
-/* series header: names the run and carries its goals, above its blocks */
-.series-group { margin-bottom: 22px; }
-.series-header {
-  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
-  margin-bottom: 10px; background: var(--surface-1);
+/* active series on the champion-pool line: always on screen, so a series with
+   no games yet is still visible; both it and the block bubbles open the goals */
+.series-current-inline { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.series-chip {
+  font-weight: 650; padding: 3px 12px; border-radius: 999px;
+  background: var(--accent-wash); border: 1px solid var(--series-1);
+  max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.series-header.series-current { border-color: var(--series-1); }
-.series-header .session-head { gap: 8px; }
-.series-header .session-body { padding-top: 2px; }
-.series-title {
-  font-size: 15px; font-weight: 650; flex: 1; min-width: 8em; max-width: 22em;
-  padding: 3px 6px; border: 1px solid transparent; border-radius: 6px;
-  background: transparent; color: var(--text-primary);
-}
-.series-title:hover { border-color: var(--border); }
-.series-title:focus { border-color: var(--series-1); background: var(--page); outline: none; }
-.series-title::placeholder { color: var(--text-secondary); font-weight: 600; opacity: 1; }
-.series-empty { margin: 0 0 4px 4px; }
+.series-modal { min-width: min(560px, 86vw); max-width: 720px; }
+.series-modal .section-head { margin-bottom: 10px; }
+.series-modal-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.series-modal-title input { flex: 1; min-width: 8em; }
+.series-modal .md-body { max-height: 50vh; overflow-y: auto; }
+.series-modal textarea { width: 100%; }
 .import-all-row { display: flex; align-items: center; gap: 8px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 

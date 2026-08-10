@@ -220,15 +220,21 @@ change, not a crawler change.
   `create_block` attaches the current (newest) series; `start_new_series`
   (POST `/api/blocks/series`) opens a fresh one, finalizing an in-progress
   non-empty block or absorbing an empty one so the next game starts clean.
-  `goals` is Markdown (what a two-week challenge is FOR), edited on the series
-  header via `PATCH /api/blocks/series/{id}` (partial — title and goals are
-  written independently so the two editors can't clobber each other).
+  `goals` is Markdown (what a two-week challenge is FOR), edited via
+  `PATCH /api/blocks/series/{id}` (partial — title and goals are written
+  independently so the two editors can't clobber each other).
   `/api/blocks` returns `series` (all rows, newest first) + `current_series_id`
   INDEPENDENTLY of the blocks: a series is described even when it holds no
   blocks yet, which is what makes a just-started series visible before its
   first game (it used to be derivable only from a block's `series_title`).
-  blocks.js renders one `seriesHeader` per consecutive same-series run
-  (`seriesGroups()`), prepending the current series when it has no blocks.
+  UI: the ACTIVE series sits on the champion-pool line (`#series-current` in
+  the `#pool-summary` panel, `renderCurrentSeries` in blocks.js) — the one row
+  always on screen. Goals live in a popup (`openSeriesModal`/
+  `renderSeriesModal`, reusing the shared `#modal-overlay`/`#modal-box` shell
+  and `closeModal()` from cooldowns.js), opened by the ✎ next to the active
+  series or by a block's series bubble — the bubble is what keeps an OLDER
+  series' goals reachable once a newer series is current. Title is editable in
+  the same popup.
   Block header label is series-title + a less-prominent per-series index
   when the `block_series_enabled` setting is on (default), else a bare
   continuous `#global_index`. BOTH indices are positional/gapless (computed
