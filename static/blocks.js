@@ -6,6 +6,7 @@
 
 const blockState = {
   wired: false, blocks: [], blockSize: 3, editingLearnings: null, editingNotes: null,
+  series: [], currentSeriesId: null, editingGoals: null,
   pool: { main_blind: [], core: [], counter: [] },
   collapsed: new Set(JSON.parse(localStorage.getItem("cp-collapsed-blocks") || "[]")),
   expandedGameStats: new Set(),
@@ -330,6 +331,8 @@ async function loadBlocks() {
   blockState.blocks = data.blocks;
   blockState.blockSize = data.block_size;
   blockState.seriesEnabled = data.series_enabled;
+  blockState.series = data.series || [];
+  blockState.currentSeriesId = data.current_series_id ?? null;
   renderBlocks();
   maybeBackfillBlockTimelines();
   if (blockState.focusId != null) {
@@ -594,6 +597,15 @@ function blockIndex(block) {
   return blockState.seriesEnabled ? block.series_index : block.global_index;
 }
 
+async function patchSeries(seriesId, body) {
+  const response = await fetch(`/api/blocks/series/${seriesId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return response.ok;
+}
+
 async function startNewSeries() {
   const suggested = `Since ${fmtDate(Date.now())}`;  // app.js — honours the date-format setting
   const title = prompt("Name this block series (blocks in it number from #1):", suggested);
@@ -604,6 +616,57 @@ async function startNewSeries() {
     body: JSON.stringify({ title: title.trim() }),
   });
   loadBlocks();
+}
+
+// A series header sits above the blocks belonging to it, so the current series
+// is visible the moment it's started — before any game has been added — and
+// every series carries its own goals (a two-week challenge is *for* something).
+function seriesHeader(series, blockCount, isCurrent) {
+  const editing = blockState.editingGoals === series.id;
+  const goals = editing
+    ? `<label class="filter-label" for="series-goals-${series.id}">Goals (Markdown)</label>
+       <textarea id="series-goals-${series.id}" rows="6">${escapeHtml(series.goals || "")}</textarea>
+       <div class="session-actions">
+         <button class="preset series-goals-save" data-id="${series.id}">Save</button>
+         <button class="preset series-goals-cancel">Cancel</button>
+         <span class="muted series-goals-status"></span>
+       </div>`
+    : `<div class="learnings-head">
+         <h4>Goals</h4>
+         <button class="preset icon-btn series-goals-edit" data-id="${series.id}"
+           title="Edit series goals" aria-label="Edit series goals">✎</button>
+       </div>
+       <div class="md-body">${series.goals
+         ? renderNotes(series.goals)
+         : `<p class="muted">No goals set for this series yet.</p>`}</div>`;
+  return `<div class="series-header${isCurrent ? " series-current" : ""}">
+    <div class="session-head">
+      <input type="text" class="series-title" data-id="${series.id}"
+        value="${escapeHtml(series.title || "")}" placeholder="Series name"
+        title="Series name (blocks in it number from #1)">
+      ${isCurrent ? `<span class="block-badge">active</span>` : ""}
+      <span class="muted">${blockCount} ${blockCount === 1 ? "block" : "blocks"}</span>
+    </div>
+    <div class="session-body">${goals}</div>
+  </div>`;
+}
+
+// blocks (newest first) split into consecutive same-series runs, with the
+// current series always present even when it holds no blocks yet
+function seriesGroups() {
+  const byId = new Map(blockState.series.map((s) => [s.id, s]));
+  const groups = [];
+  for (const block of blockState.blocks) {
+    const last = groups[groups.length - 1];
+    if (last && last.series.id === block.series_id) last.blocks.push(block);
+    else groups.push({ series: byId.get(block.series_id) || { id: block.series_id,
+                       title: block.series_title, goals: "" }, blocks: [block] });
+  }
+  const currentId = blockState.currentSeriesId;
+  if (currentId != null && !groups.some((g) => g.series.id === currentId)) {
+    groups.unshift({ series: byId.get(currentId), blocks: [] });  // started, no games yet
+  }
+  return groups;
 }
 
 function blockCard(block, isCurrent) {
@@ -683,20 +746,24 @@ function blockCard(block, isCurrent) {
 
 function renderBlocks() {
   $("#new-series-btn").classList.toggle("hidden", !blockState.seriesEnabled);
-  // show the active (current) series name next to the button — the series of
-  // the newest block, which is where new blocks land
-  const current = blockState.blocks.length
-    ? blockState.blocks.reduce((a, b) => (b.id > a.id ? b : a)) : null;
-  $("#active-series-name").textContent =
-    blockState.seriesEnabled && current ? `Series: ${current.series_title}` : "";
   const target = $("#blocks-list");
-  if (!blockState.blocks.length) {
-    target.innerHTML = `<div class="muted">No blocks yet — add a game below to start your first block.</div>`;
-    return;
+  const emptyMsg = `<div class="muted">No blocks yet — add a game below to start your first block.</div>`;
+  const currentId = blockState.blocks.length
+    ? Math.max(...blockState.blocks.map((b) => b.id)) : null;
+  const card = (b) => blockCard(b, b.id === currentId && !b.closed);
+  if (!blockState.seriesEnabled) {
+    target.innerHTML = blockState.blocks.length ? blockState.blocks.map(card).join("") : emptyMsg;
+  } else {
+    // series headers carry the goals and make the active series visible even
+    // before its first game — the block list alone can't show an empty series
+    target.innerHTML = seriesGroups().map((group) => `<div class="series-group">
+      ${seriesHeader(group.series, group.blocks.length,
+                     group.series.id === blockState.currentSeriesId)}
+      ${group.blocks.length ? group.blocks.map(card).join("")
+        : `<div class="muted series-empty">No blocks in this series yet — add a game
+             below to start one.</div>`}
+    </div>`).join("") || emptyMsg;
   }
-  const currentId = Math.max(...blockState.blocks.map((b) => b.id));
-  target.innerHTML = blockState.blocks
-    .map((b) => blockCard(b, b.id === currentId && !b.closed)).join("");
 
   // one shared game-sort across every block table (app.js helper)
   wireSortable(target, blockState.gameSort, BLOCK_GAME_COLS_ALL, () => renderBlocks());
@@ -729,6 +796,36 @@ function renderBlocks() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: input.value }),
       })));
+  // series title + goals (goals are Markdown, edited like block learnings)
+  target.querySelectorAll(".series-title").forEach((input) =>
+    input.addEventListener("change", async () => {
+      const id = +input.dataset.id;
+      await patchSeries(id, { title: input.value });
+      const series = blockState.series.find((s) => s.id === id);
+      if (series) series.title = input.value.trim();
+    }));
+  target.querySelectorAll(".series-goals-edit").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      blockState.editingGoals = +btn.dataset.id;
+      renderBlocks();
+    }));
+  target.querySelectorAll(".series-goals-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      blockState.editingGoals = null;
+      renderBlocks();
+    }));
+  target.querySelectorAll(".series-goals-save").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const id = +btn.dataset.id;
+      const status = btn.parentElement.querySelector(".series-goals-status");
+      const ok = await patchSeries(id, { goals: $(`#series-goals-${id}`).value });
+      if (!ok) {  // don't drop what they typed on a failed save
+        status.textContent = "save failed";
+        return;
+      }
+      blockState.editingGoals = null;
+      loadBlocks();
+    }));
   target.querySelectorAll(".learnings-edit").forEach((btn) =>
     btn.addEventListener("click", () => {
       blockState.editingLearnings = +btn.dataset.id;

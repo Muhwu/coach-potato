@@ -1763,3 +1763,40 @@ def test_block_game_undetermined_jungle_start_reads_as_unknown(client):
     # '' in the db must surface as None, not as a falsy half that grades wrongly
     assert row["my_jungle_half"] is None
     assert row["auto_strongside"] is None
+
+
+def test_blocks_expose_current_series_before_any_game(client):
+    # the bug this fixes: a series started before its first game was invisible,
+    # because the payload only described series through the blocks in them
+    body = client.get("/api/blocks").json()
+    assert body["blocks"] == []
+    assert body["current_series_id"] is not None
+    assert len(body["series"]) == 1
+    assert body["series"][0]["id"] == body["current_series_id"]
+    assert body["series"][0]["goals"] == ""
+
+    new_id = client.post("/api/blocks/series", json={"title": "Two-week challenge"}).json()["series_id"]
+    body = client.get("/api/blocks").json()
+    assert body["current_series_id"] == new_id  # visible with zero blocks in it
+    assert body["series"][0]["title"] == "Two-week challenge"
+
+
+def test_update_block_series_title_and_goals_independently(client):
+    sid = client.get("/api/blocks").json()["current_series_id"]
+    assert client.patch(f"/api/blocks/series/{sid}",
+                        json={"goals": "- 70 CS by 10m\n- no solo deaths"}).status_code == 200
+    assert client.patch(f"/api/blocks/series/{sid}", json={"title": "August"}).status_code == 200
+    series = client.get("/api/blocks").json()["series"][0]
+    assert series["title"] == "August"           # goals edit didn't clobber it
+    assert series["goals"].startswith("- 70 CS")  # nor the reverse
+    assert client.patch(f"/api/blocks/series/{sid}", json={}).status_code == 400
+    assert client.patch("/api/blocks/series/9999", json={"title": "x"}).status_code == 404
+
+
+def test_block_series_goals_survive_a_new_series(client):
+    first = client.get("/api/blocks").json()["current_series_id"]
+    client.patch(f"/api/blocks/series/{first}", json={"goals": "first goals"})
+    client.post("/api/blocks/series", json={"title": "second"})
+    series = {s["id"]: s for s in client.get("/api/blocks").json()["series"]}
+    assert len(series) == 2
+    assert series[first]["goals"] == "first goals"  # older series keeps its goals

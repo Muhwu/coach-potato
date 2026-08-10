@@ -214,12 +214,21 @@ change, not a crawler change.
   double-drives the rate limiter). `block_games_detailed` returns
   `has_timeline` per game; blocks.js shows a ⏳ marker on games still being
   fetched and polls `/api/blocks/timeline-status`.
-- Block series: `block_series(id, title, created_at_ms)`; every `blocks` row
-  has a `series_id` (added in `_migrate`; `seed_block_series` on connect
+- Block series: `block_series(id, title, goals, created_at_ms)`; every `blocks`
+  row has a `series_id` (added in `_migrate`; `seed_block_series` on connect
   ensures ≥1 series exists and assigns orphan/legacy blocks to it).
   `create_block` attaches the current (newest) series; `start_new_series`
   (POST `/api/blocks/series`) opens a fresh one, finalizing an in-progress
   non-empty block or absorbing an empty one so the next game starts clean.
+  `goals` is Markdown (what a two-week challenge is FOR), edited on the series
+  header via `PATCH /api/blocks/series/{id}` (partial — title and goals are
+  written independently so the two editors can't clobber each other).
+  `/api/blocks` returns `series` (all rows, newest first) + `current_series_id`
+  INDEPENDENTLY of the blocks: a series is described even when it holds no
+  blocks yet, which is what makes a just-started series visible before its
+  first game (it used to be derivable only from a block's `series_title`).
+  blocks.js renders one `seriesHeader` per consecutive same-series run
+  (`seriesGroups()`), prepending the current series when it has no blocks.
   Block header label is series-title + a less-prominent per-series index
   when the `block_series_enabled` setting is on (default), else a bare
   continuous `#global_index`. BOTH indices are positional/gapless (computed

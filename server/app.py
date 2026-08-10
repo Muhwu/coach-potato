@@ -1404,8 +1404,7 @@ def _blocks_payload(conn):
     for game in stats.block_games_detailed(conn):
         game["account"] = names.get(game["puuid"], "?")
         games_by_block.setdefault(game["block_id"], []).append(game)
-    series_titles = {r["id"]: r["title"] for r in
-                     conn.execute("SELECT id, title FROM block_series")}
+    series_titles = {r["id"]: r["title"] for r in db.list_block_series(conn)}
     # positional, gapless indices (by creation order) — deleting a block and
     # making a new one never skips a number. global_index numbers across all
     # blocks (series-off display); series_index restarts per series (series-on).
@@ -1441,7 +1440,12 @@ def _blocks_payload(conn):
 def api_blocks():
     conn = get_conn()
     try:
+        # `series` is returned independently of the blocks so a series that has
+        # no games yet is still visible (and editable) the moment it's started
+        series = [dict(r) for r in db.list_block_series(conn)]
         return {"blocks": _blocks_payload(conn), "block_size": db.get_block_size(conn),
+                "series": series,
+                "current_series_id": series[0]["id"] if series else None,
                 "series_enabled": db.get_settings(conn).get("block_series_enabled") != "0"}
     finally:
         conn.close()
@@ -1456,6 +1460,29 @@ def api_start_block_series(body: dict):
     try:
         series_id = db.start_new_series(conn, title or None)
         return {"series_id": series_id}
+    finally:
+        conn.close()
+
+
+@app.patch("/api/blocks/series/{series_id}")
+def api_update_block_series(series_id: int, body: dict):
+    """Rename a series and/or set its Markdown `goals` (what a two-week
+    challenge is actually for). Partial: only the keys present are written."""
+    body = body or {}
+    title = body.get("title")
+    goals = body.get("goals")
+    if title is None and goals is None:
+        raise HTTPException(400, "provide title and/or goals")
+    conn = get_conn()
+    try:
+        updated = db.update_block_series(
+            conn, series_id,
+            title=None if title is None else str(title).strip(),
+            goals=None if goals is None else str(goals))
+        if not updated:
+            raise HTTPException(404, "no such series")
+        row = next((r for r in db.list_block_series(conn) if r["id"] == series_id), None)
+        return dict(row) if row else {"updated": True}
     finally:
         conn.close()
 

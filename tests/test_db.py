@@ -890,3 +890,32 @@ def test_jungle_start_columns_added_to_existing_db(tmp_path):
     assert row["jungle_start_100"] is None  # never looked at
     assert db.has_match(c, "EUW1_1")
     c.close()
+
+
+def test_block_series_goals_round_trip_and_partial_update(conn):
+    sid = db.current_series_id(conn)
+    row = next(r for r in db.list_block_series(conn) if r["id"] == sid)
+    assert row["goals"] == ""  # default, not NULL
+    assert db.update_block_series(conn, sid, goals="# Two-week challenge\n- ff at 15") is True
+    assert db.update_block_series(conn, sid, title="August push") is True
+    row = next(r for r in db.list_block_series(conn) if r["id"] == sid)
+    # each field survives the other's write — the editors are independent
+    assert row["title"] == "August push"
+    assert row["goals"].startswith("# Two-week challenge")
+    assert db.update_block_series(conn, sid) is False        # nothing to write
+    assert db.update_block_series(conn, 999, title="x") is False  # no such series
+
+
+def test_block_series_goals_column_added_to_existing_db(tmp_path):
+    path = tmp_path / "old.sqlite"
+    c = db.connect(path)
+    sid = db.current_series_id(c)
+    db.update_block_series(c, sid, title="kept", goals="kept goals")
+    c.execute("ALTER TABLE block_series DROP COLUMN goals")
+    c.commit()
+    c.close()
+    c = db.connect(path)  # upgrade re-adds the column, series survives
+    row = next(r for r in db.list_block_series(c) if r["id"] == sid)
+    assert row["title"] == "kept"
+    assert row["goals"] == ""
+    c.close()

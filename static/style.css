@@ -828,6 +828,24 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 /* current block: subtle accent tint + left border so it stands out */
 .block-card.block-current { border-left: 3px solid var(--series-1); }
 .block-card.block-current > .session-head { background: var(--accent-wash); }
+/* series header: names the run and carries its goals, above its blocks */
+.series-group { margin-bottom: 22px; }
+.series-header {
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 10px; background: var(--surface-1);
+}
+.series-header.series-current { border-color: var(--series-1); }
+.series-header .session-head { gap: 8px; }
+.series-header .session-body { padding-top: 2px; }
+.series-title {
+  font-size: 15px; font-weight: 650; flex: 1; min-width: 8em; max-width: 22em;
+  padding: 3px 6px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--text-primary);
+}
+.series-title:hover { border-color: var(--border); }
+.series-title:focus { border-color: var(--series-1); background: var(--page); outline: none; }
+.series-title::placeholder { color: var(--text-secondary); font-weight: 600; opacity: 1; }
+.series-empty { margin: 0 0 4px 4px; }
 .import-all-row { display: flex; align-items: center; gap: 8px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 
