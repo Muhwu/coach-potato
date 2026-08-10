@@ -280,6 +280,25 @@ change, not a crawler change.
   card). UI in `blocks.js`; "+ Block" promote buttons on Recent-games and
   segment game rows. A block game's Clips section (see `clips` table below)
   lives in its per-game stats panel, loaded together on first expand.
+- **Top nav is two rows, driven by `NAV_SECTIONS` in `app.js`** — sections
+  (Analyze / Coach / Prepare) on the first row, the active section's views on
+  the second (`#main-view-toggle` / `#sub-view-toggle`, both rendered by
+  `renderNav()`, both empty in the markup). Adding a view = one line in
+  `NAV_SECTIONS` + its `VIEW_LABELS` entry + a `<div id="<key>-view">` + an
+  init call in `setMainView` — no nav markup to touch, and it gets
+  hash deep-linking, Settings' visible-tabs checkbox behaviour and the section
+  bars for free. A section auto-hides when all its views are hidden
+  (`sectionVisible`); entering a section lands on the view you last used there
+  (`sectionEntryView`, localStorage `cp-nav-last-<section>`); `1`/`2`/`3`
+  switch sections (ignored while typing or with a modal open). Settings is
+  deliberately NOT a section — it stays the ⚙ icon, `state.mainView ===
+  "settings"` with the sub-bar still showing the section you came from.
+  The view key is the URL hash (`#blocks`, `#tiers`, …); `overview` is `#`.
+  NOTE the display name of the `guide` view is **Playbook** (renamed so it
+  stops colliding with the Matchups stats tab) — the key, hash, file
+  (`guide.js`) and API paths are all still `guide`/`matchups/notes`.
+- Champion pool has its own view (`#pool-view`, `initPool` in blocks.js) under
+  Coach; it used to be a field inside Settings, which still links to it.
 - `static/` — no build step; state + fetch + innerHTML render in `app.js`;
   matchups view (own tab: expanded rows with Overview [win/loss strip + block
   notes] / Games tabs; a 📖 link per row — shown only when a specific "My

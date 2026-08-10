@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.50.0",
+      "date": "2026-08-11",
+      "items": [
+        "The top bar is now grouped into three sections — Analyze (Overview, Matchups, Trends), Coach (Coaching progress, Blocks, Champion pool) and Prepare (Playbook, Tier list, Research) — with the section's views on a second row. Each section remembers the view you last used in it, and 1/2/3 jump between sections. The bar is sticky, so it stays reachable down a long page",
+        "Champion pool is its own view under Coach instead of a field buried in Settings — it's a commitment you revise, not app configuration. The ✎ on the Blocks page opens it directly",
+        "\"Matchup guide\" is now called \"Playbook\", so it stops reading like the Matchups stats tab it sits next to",
+        "Every view can be deep-linked by URL again, including the Tier list (#tiers was written to the address bar but never read back)"
+      ]
+    },
+    {
       "version": "1.49.0",
       "date": "2026-08-10",
       "items": [

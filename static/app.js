@@ -1166,18 +1166,75 @@ async function loadProgress() {
 
 const WIDE_VIEWS = new Set(["matchups", "progress", "trends", "blocks"]);
 
+// The ONE place the top nav is defined: sections in bar order, each with its
+// views in sub-bar order. Adding a view = one line here (plus its <div
+// id="<key>-view"> and an init call in setMainView) — no markup to touch.
+// Settings is deliberately absent: it's a place you enter and leave, not a
+// mode you work in, so it stays the ⚙ icon.
+const NAV_SECTIONS = [
+  { key: "analyze", label: "Analyze", views: ["overview", "matchups", "trends"] },
+  { key: "coach", label: "Coach", views: ["progress", "blocks", "pool"] },
+  { key: "prepare", label: "Prepare", views: ["guide", "tiers", "research"] },
+];
+const VIEW_LABELS = {
+  overview: "Overview", matchups: "Matchups", trends: "Trends",
+  progress: "Coaching progress", blocks: "Blocks", pool: "Champion pool",
+  guide: "Playbook", tiers: "Tier list", research: "Research",
+};
+const ALL_VIEWS = NAV_SECTIONS.flatMap((s) => s.views);
+
+function sectionOf(view) {
+  return NAV_SECTIONS.find((s) => s.views.includes(view)) || null;
+}
+
+function viewHidden(view) {
+  return (state.hiddenViews || []).includes(view);
+}
+
+// a section disappears entirely once all its views are hidden in Settings
+function sectionVisible(section) {
+  return section.views.some((v) => !viewHidden(v));
+}
+
+function renderNav() {
+  const active = sectionOf(state.mainView);
+  $("#main-view-toggle").innerHTML = NAV_SECTIONS
+    .filter(sectionVisible)
+    .map((s) => `<button type="button" role="tab" data-section="${s.key}"
+      class="${active && active.key === s.key ? "active" : ""}">${s.label}</button>`).join("");
+  // the sub-bar shows the ACTIVE section's views; Settings has no section, so
+  // it keeps showing the section you came from rather than emptying the bar
+  const shown = active || sectionOf(state.lastView) || NAV_SECTIONS[0];
+  $("#sub-view-toggle").innerHTML = shown.views.filter((v) => !viewHidden(v))
+    .map((v) => `<button type="button" role="tab" data-view="${v}"
+      class="${state.mainView === v ? "active" : ""}">${VIEW_LABELS[v]}</button>`).join("");
+}
+
+// entering a section lands on the view you last used there, so switching back
+// and forth doesn't dump you on its first tab every time
+function sectionEntryView(section) {
+  const remembered = localStorage.getItem(`cp-nav-last-${section.key}`);
+  if (remembered && section.views.includes(remembered) && !viewHidden(remembered)) {
+    return remembered;
+  }
+  return section.views.find((v) => !viewHidden(v)) || section.views[0];
+}
+
 function setMainView(view) {
   state.mainView = view;
-  if (history.replaceState) {
-    const hash = { matchups: "#matchups", progress: "#progress", trends: "#trends",
-                   blocks: "#blocks", guide: "#guide", research: "#research",
-                   tiers: "#tiers" }[view] || "#";
-    history.replaceState(null, "", hash);
+  const section = sectionOf(view);
+  if (section) {
+    state.lastView = view;
+    localStorage.setItem(`cp-nav-last-${section.key}`, view);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "tiers", "settings"]) {
-    $(`#nav-${v}`).classList.toggle("active", view === v);
+  if (history.replaceState) {
+    history.replaceState(null, "", view === "overview" ? "#" : `#${view}`);
+  }
+  for (const v of [...ALL_VIEWS, "settings"]) {
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
+  $("#nav-settings").classList.toggle("active", view === "settings");
+  renderNav();
   // Column-picker views can get very wide (many metric columns); let them use
   // the full window width instead of the centred reading column, so the user
   // can widen the window to reveal columns rather than scroll (issue #8).
@@ -1189,6 +1246,7 @@ function setMainView(view) {
   if (view === "guide") initGuide();
   if (view === "research") initResearch();
   if (view === "tiers") initTiers();
+  if (view === "pool") initPool();
   if (view === "settings") initSettings();
 }
 
@@ -1277,13 +1335,10 @@ function applyAppearance(data) {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "tiers"]) {
-    $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
-  }
-  if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "tiers"]
-      .find((view) => !state.hiddenViews.includes(view));
-    setMainView(fallback || "settings");
+  if (viewHidden(state.mainView)) {
+    setMainView(ALL_VIEWS.find((view) => !viewHidden(view)) || "settings");
+  } else {
+    renderNav();  // a hidden view (or an emptied section) drops out of the bars
   }
 }
 
@@ -1335,7 +1390,7 @@ async function refreshLegacySection() {
   $("#legacy-notes-summary").textContent =
     `${info.count} matchup note(s) from before the champ-guide update — ` +
     `${Object.keys(info.notes).map(displayName).join(", ")} — aren't tied to one of ` +
-    `your champions, so they don't appear in the Matchup guide. Assign them to a ` +
+    `your champions, so they don't appear in the Playbook. Assign them to a ` +
     `champion, or delete them.`;
   const select = $("#legacy-migrate-champion");
   if (!select.options.length) {
@@ -1467,8 +1522,7 @@ async function initSettings() {
   state.enableComparison = Boolean(data.enable_player_comparison);
   loadComparisonPlayers();
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
-  await loadChampionRoster(); // pool chips + legacy select need display names
-  loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
+  await loadChampionRoster(); // legacy migrate select needs display names
   refreshLegacySection();
   $("#setting-accent-color").value = data.accent_color
     || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
@@ -1480,8 +1534,7 @@ async function initSettings() {
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
-  $("#pool-save").addEventListener("click", savePool); // blocks.js
-  wireChipBoxes(); // blocks.js — chip add/remove/drag inside #pool-card
+  $("#settings-pool-link").addEventListener("click", () => setMainView("pool"));
   $("#setting-enable-comparison").addEventListener("change", (e) =>
     $("#comparison-card").classList.toggle("hidden", !e.target.checked));
   $("#comparison-add").addEventListener("click", addComparisonPlayer);
@@ -1681,15 +1734,31 @@ async function initSettings() {
 }
 
 function wireProgress() {
-  $("#nav-overview").addEventListener("click", () => setMainView("overview"));
-  $("#nav-matchups").addEventListener("click", () => setMainView("matchups"));
-  $("#nav-progress").addEventListener("click", () => setMainView("progress"));
-  $("#nav-trends").addEventListener("click", () => setMainView("trends"));
-  $("#nav-blocks").addEventListener("click", () => setMainView("blocks"));
-  $("#nav-guide").addEventListener("click", () => setMainView("guide"));
-  $("#nav-research").addEventListener("click", () => setMainView("research"));
-  $("#nav-tiers").addEventListener("click", () => setMainView("tiers"));
+  // both nav rows re-render on every view change, so the listeners are
+  // delegated to the containers rather than the buttons
+  $("#main-view-toggle").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-section]");
+    if (!btn) return;
+    const section = NAV_SECTIONS.find((s) => s.key === btn.dataset.section);
+    if (section) setMainView(sectionEntryView(section));
+  });
+  $("#sub-view-toggle").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-view]");
+    if (btn) setMainView(btn.dataset.view);
+  });
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
+  // 1/2/3 jump between sections — ignored while typing so notes editors and
+  // champion inputs keep working
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const el = document.activeElement;
+    if (el && (el.matches("input, textarea, select") || el.isContentEditable)) return;
+    if (!$("#modal-overlay").classList.contains("hidden")) return;
+    const index = ["1", "2", "3"].indexOf(e.key);
+    if (index === -1) return;
+    const section = NAV_SECTIONS.filter(sectionVisible)[index];
+    if (section) setMainView(sectionEntryView(section));
+  });
   $("#progress-champion").addEventListener("change", (e) => {
     state.progressChampion = e.target.value; loadProgress();
   });
@@ -1990,13 +2059,14 @@ async function init(firstLoad = true) {
   // user never visits the Matchup guide tab
   await Promise.all([loadFilterOptions(), loadRuneTrees()]);
   await refresh();
-  if (firstLoad && location.hash === "#matchups") setMainView("matchups");
-  if (firstLoad && location.hash === "#progress") setMainView("progress");
-  if (firstLoad && location.hash === "#trends") setMainView("trends");
-  if (firstLoad && location.hash === "#blocks") setMainView("blocks");
-  if (firstLoad && location.hash === "#guide") setMainView("guide");
-  if (firstLoad && location.hash === "#research") setMainView("research");
-  if (firstLoad && location.hash === "#settings") setMainView("settings");
+  // every view is deep-linkable by its own key (#tiers used to be written to
+  // the URL but never read back, so the Tier list couldn't be linked to)
+  if (firstLoad) {
+    const target = location.hash.slice(1);
+    if ([...ALL_VIEWS, "settings"].includes(target) && target !== "overview") {
+      setMainView(target);
+    }
+  }
 }
 
 init();

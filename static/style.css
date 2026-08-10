@@ -80,6 +80,23 @@ header {
   flex-wrap: wrap;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--grid);
+  /* sticky so the section row stays reachable down a long Blocks/Trends page;
+     --page is translucent under a background image, so the header needs its
+     own solid-enough backing or the content scrolls visibly through it */
+  position: sticky; top: 0; z-index: 20;
+  background: var(--page); backdrop-filter: blur(6px);
+}
+/* section row (top): the three modes. Sub row: the active section's views. */
+.section-toggle button { font-size: 14px; padding: 4px 14px; }
+.sub-toggle {
+  flex-basis: 100%; margin-top: 2px; padding-top: 8px;
+  border-top: 1px solid var(--grid);
+}
+.sub-toggle button { font-size: 13px; }
+.sub-toggle:empty { display: none; }
+.linkish {
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--series-1); text-decoration: underline;
 }
 .crawl-box { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 #crawl-btn {

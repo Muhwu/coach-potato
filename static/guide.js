@@ -1642,7 +1642,7 @@ function openOnePager(opp, enemies) {
     </div>
     ${switcher}
     ${sections.join("") || `<p class="muted">Nothing recorded for this matchup yet —
-      add runes, a build, or notes in the Matchup guide first.</p>`}`;
+      add runes, a build, or notes in the Playbook first.</p>`}`;
   $("#onepager-overlay").classList.remove("hidden");
   $("#onepager-close").addEventListener("click", closeOnePager);
   $("#onepager-body").querySelectorAll(".op-enemy-btn").forEach((btn) =>

@@ -11,16 +11,10 @@
 <div id="bg-image"></div>
 <header>
   <h1>Coach Potato</h1>
-  <div class="view-toggle" id="main-view-toggle" role="tablist">
-    <button id="nav-overview" class="active" role="tab">Overview</button>
-    <button id="nav-matchups" role="tab">Matchups</button>
-    <button id="nav-progress" role="tab">Coaching progress</button>
-    <button id="nav-trends" role="tab">Trends</button>
-    <button id="nav-blocks" role="tab">Blocks</button>
-    <button id="nav-guide" role="tab">Matchup guide</button>
-    <button id="nav-research" role="tab">Research</button>
-    <button id="nav-tiers" role="tab">Tier list</button>
-  </div>
+  <!-- both rows are rendered from NAV_SECTIONS in app.js — adding a view is a
+       one-line change there, not markup -->
+  <div class="view-toggle section-toggle" id="main-view-toggle" role="tablist"
+       aria-label="Sections"></div>
   <details id="account-select" class="col-picker hidden" aria-label="Accounts">
     <summary id="account-select-btn" class="preset">All accounts ▾</summary>
     <div class="col-menu" id="account-select-menu"></div>
@@ -35,6 +29,8 @@
     <button id="nav-changelog" class="preset icon-btn" title="What's new" aria-label="What's new">📋</button>
     <button id="nav-settings" class="preset icon-btn" title="Settings" aria-label="Settings">⚙</button>
   </div>
+  <div class="view-toggle sub-toggle" id="sub-view-toggle" role="tablist"
+       aria-label="Views in this section"></div>
 </header>
 
 <div id="changelog-overlay" class="overlay hidden">
@@ -167,15 +163,17 @@
       <div class="view-toggles">
         <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
         <label><input type="checkbox" class="view-toggle-cb" value="matchups" checked> Matchups</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
         <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
         <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Matchup guide</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="pool" checked> Champion pool</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Playbook</label>
         <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
       </div>
       <p class="muted">Untick views you don't use to hide them from the top bar
-        (data collection is unaffected).</p>
+        (data collection is unaffected). A section disappears when all of its
+        views are hidden.</p>
     </div>
     <div class="settings-field">
       <label><input type="checkbox" id="setting-hide-rank"> Hide my rank / LP</label>
@@ -184,39 +182,11 @@
         keeps being recorded and reappears when you untick this.</p>
     </div>
     <div class="settings-field">
-      <span class="filter-label">Champion pool</span>
-      <div id="pool-card" aria-label="Champion pool">
-        <div class="pool-group">
-          <span class="filter-label">Main Blind</span>
-          <div class="chip-box" data-role="main_blind">
-            <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
-          </div>
-        </div>
-        <div class="pool-group">
-          <span class="filter-label">Core Pool</span>
-          <div class="chip-box" data-role="core">
-            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
-          </div>
-        </div>
-        <div class="pool-group">
-          <span class="filter-label">Counter Picks</span>
-          <div class="chip-box" data-role="counter">
-            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
-          </div>
-        </div>
-        <div class="pool-actions">
-          <button id="pool-save" class="preset">Save pool</button>
-          <span id="pool-status" class="muted"></span>
-        </div>
-        <datalist id="champ-list"></datalist>
-      </div>
-      <p class="muted">Ordered — drag chips to reorder; the first champion is
-        your main and acts as your default (Matchup guide, cooldown comparison).
-        The pool is grouped on top of champion dropdowns and stamped onto
-        completed blocks. Saves immediately with "Save pool".</p>
+      <p class="muted">The champion pool moved to its own view — Coach →
+        <button id="settings-pool-link" class="linkish" type="button">Champion pool</button>.</p>
     </div>
 
-    <h3 class="settings-group-head">Matchup guide</h3>
+    <h3 class="settings-group-head">Playbook</h3>
     <div class="settings-field">
       <label class="filter-label" for="setting-runes-mode">Runes</label>
       <select id="setting-runes-mode" style="max-width:22em">
@@ -234,7 +204,7 @@
       <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
       <p class="muted">Add up to five other players (looked up via the Riot API) to
         compare yourself against in a matchup — their stats, runes and recent games
-        show side by side with yours in the Matchup guide, for theorycrafting runes
+        show side by side with yours in the Playbook, for theorycrafting runes
         and notes. Games are fetched deep in the background when you add a player
         (Riot's API is slow, so it can take a few minutes); "Fetch more" pulls further
         back. The guide comparison shows every stored game, regardless of date.</p>
@@ -421,14 +391,14 @@
     <span id="mu-metric-cols" style="margin-left:auto"></span>
   </div>
   <p class="muted">Expand a matchup for the win/loss timeline and block notes. Pick a
-    "My champion" filter to jump to its Matchup guide (📖) for runes, patch, and
+    "My champion" filter to jump to its Playbook entry (📖) for runes, patch, and
     notes on how to play the matchup.</p>
   <div id="mu-table"></div>
 </section>
 </div>
 
 <div id="guide-view" class="hidden">
-<section class="filter-row" aria-label="Matchup guide filters">
+<section class="filter-row" aria-label="Playbook filters">
   <div class="filter-group">
     <label class="filter-label" for="guide-champion">My champion</label>
     <span id="guide-champion-icon"></span>
@@ -477,7 +447,7 @@
 
 <section class="panel">
   <div class="section-head">
-    <h2>Matchup guide</h2>
+    <h2>Playbook</h2>
     <input type="search" id="guide-search" placeholder="Search matchups…"
       aria-label="Search matchups" autocomplete="off" style="margin-left:auto;max-width:16em">
   </div>
@@ -546,9 +516,9 @@
     <div class="filter-group">
       <label class="filter-label" for="tier-guide-champion">Save to guide</label>
       <select id="tier-guide-champion" style="max-width:11em"
-        title="Which champion's Matchup guide to save a copy of this list into"></select>
+        title="Which champion's Playbook to save a copy of this list into"></select>
       <button id="tier-save-to-guide" class="preset" type="button"
-        title="Save a copy of this list into that champion's Matchup guide">📖 Save</button>
+        title="Save a copy of this list into that champion's Playbook">📖 Save</button>
     </div>
   </section>
   <div id="tier-rows"></div>
@@ -560,6 +530,46 @@
         spellcheck="false" autocomplete="off" style="max-width:180px">
     </div>
     <div id="tier-pool" class="tier-pool"></div>
+  </section>
+</div>
+
+<div id="pool-view" class="hidden">
+  <section class="panel">
+    <h2>Champion pool</h2>
+    <p class="muted">Your standing commitment: what you blind pick, what's in your
+      core pool, and what you keep for counters. Ordered — drag chips to reorder;
+      the first champion is your main and acts as your default (Playbook, cooldown
+      comparison). The pool is grouped on top of champion dropdowns and stamped
+      onto completed blocks.</p>
+      <div id="pool-card" aria-label="Champion pool">
+        <div class="pool-group">
+          <span class="filter-label">Main Blind</span>
+          <div class="chip-box" data-role="main_blind">
+            <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
+          </div>
+        </div>
+        <div class="pool-group">
+          <span class="filter-label">Core Pool</span>
+          <div class="chip-box" data-role="core">
+            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
+          </div>
+        </div>
+        <div class="pool-group">
+          <span class="filter-label">Counter Picks</span>
+          <div class="chip-box" data-role="counter">
+            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
+          </div>
+        </div>
+        <div class="pool-actions">
+          <button id="pool-save" class="preset">Save pool</button>
+          <span id="pool-status" class="muted"></span>
+        </div>
+        <datalist id="champ-list"></datalist>
+      </div>
+      <p class="muted">Ordered — drag chips to reorder; the first champion is
+        your main and acts as your default (Playbook, cooldown comparison).
+        The pool is grouped on top of champion dropdowns and stamped onto
+        completed blocks. Saves immediately with "Save pool".</p>
   </section>
 </div>
 

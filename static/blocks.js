@@ -99,11 +99,7 @@ async function initBlocks() {
       openSeriesModal(blockState.currentSeriesId));
     $("#series-edit-btn").addEventListener("click", () =>
       openSeriesModal(blockState.currentSeriesId, { editing: true }));
-    $("#pool-edit-btn").addEventListener("click", () => {
-      setMainView("settings");
-      requestAnimationFrame(() =>
-        $("#pool-card").scrollIntoView({ block: "center", behavior: "smooth" }));
-    });
+    $("#pool-edit-btn").addEventListener("click", () => setMainView("pool"));
     $("#copy-discord").addEventListener("click", () => {
       copyDiscordMarkdown(blockState.blocks);
       closeMenus();
@@ -296,6 +292,19 @@ function renderPoolSummary() {
     blockState.pool[role].map((c) => poolChip(role, c, false)));
   target.innerHTML = chips.join("")
     || `<span class="muted">No champion pool yet — add one in Settings.</span>`;
+}
+
+// Champion pool is its own view under Coach (it used to live inside Settings,
+// which is where you configure the app, not where you revise a commitment).
+const poolUi = { wired: false };
+
+async function initPool() {
+  await loadChampionRoster();  // chips render display names
+  await loadPool();
+  if (poolUi.wired) return;
+  poolUi.wired = true;
+  $("#pool-save").addEventListener("click", savePool);
+  wireChipBoxes();
 }
 
 async function loadPool() {
