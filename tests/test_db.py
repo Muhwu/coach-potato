@@ -919,3 +919,18 @@ def test_block_series_goals_column_added_to_existing_db(tmp_path):
     assert row["title"] == "kept"
     assert row["goals"] == ""
     c.close()
+
+
+def test_block_series_closing_notes_column_added_to_existing_db(tmp_path):
+    path = tmp_path / "old.sqlite"
+    c = db.connect(path)
+    sid = db.current_series_id(c)
+    db.update_block_series(c, sid, title="kept", goals="kept goals",
+                           closing_notes="kept retro")
+    c.execute("ALTER TABLE block_series DROP COLUMN closing_notes")
+    c.commit()
+    c.close()
+    c = db.connect(path)  # upgrade re-adds it; the other columns survive
+    row = next(r for r in db.list_block_series(c) if r["id"] == sid)
+    assert (row["title"], row["goals"], row["closing_notes"]) == ("kept", "kept goals", "")
+    c.close()

@@ -1800,3 +1800,26 @@ def test_block_series_goals_survive_a_new_series(client):
     series = {s["id"]: s for s in client.get("/api/blocks").json()["series"]}
     assert len(series) == 2
     assert series[first]["goals"] == "first goals"  # older series keeps its goals
+
+
+def test_series_closing_notes_round_trip_and_independence(client):
+    sid = client.get("/api/blocks").json()["current_series_id"]
+    assert client.get("/api/blocks").json()["series"][0]["closing_notes"] == ""
+    assert client.patch(f"/api/blocks/series/{sid}", json={
+        "closing_notes": "## How it went\n- hit 70 CS in 6/10 games"}).status_code == 200
+    # the retrospective must not disturb the goals it's judged against
+    client.patch(f"/api/blocks/series/{sid}", json={"goals": "- 70 CS by 10m"})
+    client.patch(f"/api/blocks/series/{sid}", json={"title": "August"})
+    series = client.get("/api/blocks").json()["series"][0]
+    assert series["closing_notes"].startswith("## How it went")
+    assert series["goals"] == "- 70 CS by 10m"
+    assert series["title"] == "August"
+
+
+def test_series_closing_notes_kept_when_a_new_series_starts(client):
+    first = client.get("/api/blocks").json()["current_series_id"]
+    client.patch(f"/api/blocks/series/{first}", json={"closing_notes": "wrapped up"})
+    client.post("/api/blocks/series", json={"title": "next"})
+    series = {s["id"]: s for s in client.get("/api/blocks").json()["series"]}
+    assert series[first]["closing_notes"] == "wrapped up"
+    assert series[max(series)]["closing_notes"] == ""  # the new one starts blank

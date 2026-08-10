@@ -227,6 +227,14 @@ change, not a crawler change.
   INDEPENDENTLY of the blocks: a series is described even when it holds no
   blocks yet, which is what makes a just-started series visible before its
   first game (it used to be derivable only from a block's `series_title`).
+  `closing_notes` is the end-of-series retrospective (did the goals land, what
+  actually changed), same partial-update rules.
+  The **Series view** (`#series-view`, `initSeriesView`/`renderSeriesView` in
+  blocks.js, under Coach) is the whole arc of a challenge on one page: goals →
+  each block's learnings (read-only there; they're edited on the block itself,
+  the title links across via `focusBlock`) → closing notes. It reuses
+  `/api/blocks` rather than adding an endpoint — that payload already carries
+  every series plus every block's learnings.
   UI: the ACTIVE series sits on the champion-pool line (`#series-current` in
   the `#pool-summary` panel, `renderCurrentSeries` in blocks.js) — the one row
   always on screen. Goals live in a popup (`openSeriesModal`/

@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS block_series (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL DEFAULT '',
     goals TEXT NOT NULL DEFAULT '',
+    closing_notes TEXT NOT NULL DEFAULT '',
     created_at_ms INTEGER
 );
 
@@ -262,8 +263,12 @@ def _migrate(conn):
     if session_columns and "start_ranks" not in session_columns:
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN start_ranks TEXT")
     series_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_series)")}
-    if series_columns and "goals" not in series_columns:  # Markdown series goals
-        conn.execute("ALTER TABLE block_series ADD COLUMN goals TEXT NOT NULL DEFAULT ''")
+    if series_columns:
+        if "goals" not in series_columns:  # Markdown series goals
+            conn.execute("ALTER TABLE block_series ADD COLUMN goals TEXT NOT NULL DEFAULT ''")
+        if "closing_notes" not in series_columns:  # the series retrospective
+            conn.execute(
+                "ALTER TABLE block_series ADD COLUMN closing_notes TEXT NOT NULL DEFAULT ''")
     block_columns = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
     if block_columns:
         if "pool_snapshot" not in block_columns:
@@ -1003,18 +1008,23 @@ def current_series_id(conn):
 def list_block_series(conn):
     """All block series, newest first (the current one is the newest)."""
     return conn.execute(
-        "SELECT id, title, goals, created_at_ms FROM block_series ORDER BY id DESC").fetchall()
+        """SELECT id, title, goals, closing_notes, created_at_ms
+           FROM block_series ORDER BY id DESC""").fetchall()
 
 
-def update_block_series(conn, series_id, title=None, goals=None):
+def update_block_series(conn, series_id, title=None, goals=None, closing_notes=None):
     """Partial update — only the fields passed are written, so editing the
     goals never clobbers a title being renamed in another tab (and vice
-    versa). Returns False when the series doesn't exist."""
+    versa). `closing_notes` is the end-of-series retrospective: how the
+    challenge went, whether the goals were met, what was actually learnt.
+    Returns False when the series doesn't exist."""
     sets, params = [], []
     if title is not None:
         sets.append("title=?"); params.append(title)
     if goals is not None:
         sets.append("goals=?"); params.append(goals)
+    if closing_notes is not None:
+        sets.append("closing_notes=?"); params.append(closing_notes)
     if not sets:
         return False
     with conn:

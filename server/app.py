@@ -1467,18 +1467,22 @@ def api_start_block_series(body: dict):
 @app.patch("/api/blocks/series/{series_id}")
 def api_update_block_series(series_id: int, body: dict):
     """Rename a series and/or set its Markdown `goals` (what a two-week
-    challenge is actually for). Partial: only the keys present are written."""
+    challenge is actually for) and `closing_notes` (the retrospective: how it
+    went, were the goals met, what was actually learnt). Partial: only the keys
+    present are written."""
     body = body or {}
     title = body.get("title")
     goals = body.get("goals")
-    if title is None and goals is None:
-        raise HTTPException(400, "provide title and/or goals")
+    closing_notes = body.get("closing_notes")
+    if title is None and goals is None and closing_notes is None:
+        raise HTTPException(400, "provide title, goals and/or closing_notes")
     conn = get_conn()
     try:
         updated = db.update_block_series(
             conn, series_id,
             title=None if title is None else str(title).strip(),
-            goals=None if goals is None else str(goals))
+            goals=None if goals is None else str(goals),
+            closing_notes=None if closing_notes is None else str(closing_notes))
         if not updated:
             raise HTTPException(404, "no such series")
         row = next((r for r in db.list_block_series(conn) if r["id"] == series_id), None)

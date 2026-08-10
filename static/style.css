@@ -86,14 +86,6 @@ header {
   position: sticky; top: 0; z-index: 20;
   background: var(--page); backdrop-filter: blur(6px);
 }
-/* section row (top): the three modes. Sub row: the active section's views. */
-.section-toggle button { font-size: 14px; padding: 4px 14px; }
-.sub-toggle {
-  flex-basis: 100%; margin-top: 2px; padding-top: 8px;
-  border-top: 1px solid var(--grid);
-}
-.sub-toggle button { font-size: 13px; }
-.sub-toggle:empty { display: none; }
 .linkish {
   background: none; border: none; padding: 0; font: inherit; cursor: pointer;
   color: var(--series-1); text-decoration: underline;
@@ -204,6 +196,9 @@ select, input[type="date"], input[type="number"] {
 }
 .section-head h2 { margin-bottom: 0; }
 .head-actions { gap: 10px; padding: 2px 0; }
+/* The nav rows are rendered with join("") — there is no whitespace between
+   buttons to space them, so the container has to do it. */
+.view-toggle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .view-toggle button {
   border: 1px solid var(--border);
   background: transparent;
@@ -215,6 +210,64 @@ select, input[type="date"], input[type="number"] {
   font-size: 13px;
 }
 .view-toggle button.active { background: var(--accent-wash); border-color: var(--series-1); font-weight: 600; }
+
+/* ---- top nav: two levels, deliberately different weights ---- */
+/* keeps the "?" tight against the section pills instead of a header gap away */
+.nav-sections { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* level 1 — the three modes: roomy pills, the most prominent thing in the bar */
+.section-toggle { gap: 10px; }
+.section-toggle button {
+  font-size: 14px; font-weight: 550; letter-spacing: 0.01em;
+  padding: 6px 18px; border-radius: 999px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.section-toggle button:hover { border-color: var(--series-1); background: var(--accent-wash); }
+.section-toggle button.active { box-shadow: inset 0 0 0 1px var(--series-1); }
+/* level 2 — the section's views: no boxes, an underline marks the active one,
+   so two rows of outlined buttons don't fight each other */
+.sub-toggle {
+  flex-basis: 100%; gap: 2px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--grid);
+}
+.sub-toggle button {
+  font-size: 13px; color: var(--text-secondary);
+  border: none; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0;
+  padding: 5px 14px 4px;
+}
+.sub-toggle button:hover { background: var(--accent-wash); color: var(--text-primary); }
+.sub-toggle button.active {
+  background: transparent; color: var(--text-primary); font-weight: 600;
+  border-bottom-color: var(--series-1);
+}
+.sub-toggle:empty { display: none; }
+
+/* hover/focus help for the keyboard shortcuts — otherwise nothing advertises them */
+.nav-help { position: relative; display: inline-flex; }
+.nav-help-btn {
+  width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); font: inherit; font-size: 12px; line-height: 1;
+  cursor: help;
+}
+.nav-help-btn:hover, .nav-help:focus-within .nav-help-btn {
+  border-color: var(--series-1); color: var(--text-primary);
+}
+.nav-help-pop {
+  display: none; position: absolute; top: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%); z-index: 30; width: max-content; max-width: 280px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 12px; color: var(--text-secondary); text-align: left;
+}
+.nav-help:hover .nav-help-pop, .nav-help:focus-within .nav-help-pop { display: block; }
+.nav-help-pop kbd {
+  display: inline-block; min-width: 17px; text-align: center;
+  border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+  padding: 0 4px; margin-right: 2px; font-size: 11px; font-family: inherit;
+  color: var(--text-primary); background: var(--page);
+}
+.nav-help-pop p { margin: 0 0 6px; }
+.nav-help-pop p:last-child { margin-bottom: 0; }
 
 .table-wrap {
   overflow-x: auto;
@@ -854,6 +907,29 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   background: var(--accent-wash); border: 1px solid var(--series-1);
   max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Series view: goals → what each block taught → how it went */
+.series-card { margin-bottom: 16px; }
+.series-card-current { border-left: 3px solid var(--series-1); }
+.series-card-title {
+  font-size: 15px; font-weight: 650; flex: 1; min-width: 8em; max-width: 24em;
+  padding: 3px 6px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--text-primary);
+}
+.series-card-title:hover { border-color: var(--border); }
+.series-card-title:focus { border-color: var(--series-1); background: var(--page); outline: none; }
+.series-field { margin-bottom: 14px; }
+.series-field:last-child { margin-bottom: 0; }
+.series-field h4 { margin: 0 0 4px; }
+.series-field textarea { width: 100%; }
+.series-blocks { display: flex; flex-direction: column; gap: 10px; }
+.series-block { border-left: 2px solid var(--grid); padding-left: 10px; }
+.series-block-head { display: flex; align-items: center; gap: 8px; }
+.series-block-link {
+  border: none; background: none; padding: 0; font: inherit; font-weight: 600;
+  color: var(--series-1); cursor: pointer; text-align: left;
+}
+.series-block-link:hover { text-decoration: underline; }
+
 .series-modal { min-width: min(560px, 86vw); max-width: 720px; }
 .series-modal .section-head { margin-bottom: 10px; }
 .series-modal-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }

@@ -13,8 +13,18 @@
   <h1>Coach Potato</h1>
   <!-- both rows are rendered from NAV_SECTIONS in app.js — adding a view is a
        one-line change there, not markup -->
-  <div class="view-toggle section-toggle" id="main-view-toggle" role="tablist"
-       aria-label="Sections"></div>
+  <div class="nav-sections">
+    <div class="view-toggle section-toggle" id="main-view-toggle" role="tablist"
+         aria-label="Sections"></div>
+    <span class="nav-help">
+      <button class="nav-help-btn" type="button" aria-label="How to navigate quickly"
+              aria-describedby="nav-help-pop">?</button>
+      <span class="nav-help-pop" id="nav-help-pop" role="tooltip">
+        <p><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> jump to Analyze / Coach / Prepare.</p>
+        <p>Each section reopens the view you last used in it.</p>
+      </span>
+    </span>
+  </div>
   <details id="account-select" class="col-picker hidden" aria-label="Accounts">
     <summary id="account-select-btn" class="preset">All accounts ▾</summary>
     <div class="col-menu" id="account-select-menu"></div>
@@ -166,6 +176,7 @@
         <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
         <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
         <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="series" checked> Series</label>
         <label><input type="checkbox" class="view-toggle-cb" value="pool" checked> Champion pool</label>
         <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Playbook</label>
         <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
@@ -530,6 +541,17 @@
         spellcheck="false" autocomplete="off" style="max-width:180px">
     </div>
     <div id="tier-pool" class="tier-pool"></div>
+  </section>
+</div>
+
+<div id="series-view" class="hidden">
+  <section class="panel">
+    <div class="section-head">
+      <h2>Series</h2>
+      <span class="muted">Every challenge in one place — its goals, what each
+        block taught you, and how it actually went</span>
+    </div>
+    <div id="series-list"></div>
   </section>
 </div>
 

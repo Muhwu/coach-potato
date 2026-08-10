@@ -294,6 +294,140 @@ function renderPoolSummary() {
     || `<span class="muted">No champion pool yet — add one in Settings.</span>`;
 }
 
+// ---------- Series view ----------
+// One page for the whole arc of a challenge: what you set out to do (goals),
+// what each block in it taught you (block learnings, read-only here — they're
+// edited on the block itself), and how it actually went (closing notes).
+
+async function initSeriesView() {
+  await loadBlocks();  // renderBlocks also refreshes this view's data
+  renderSeriesView();
+}
+
+// which Markdown field is open for editing: {id, field: "goals"|"closing_notes"}
+const seriesEdit = { open: null };
+
+function seriesMdBlock(series, field, heading, emptyText, placeholder) {
+  const editing = seriesEdit.open
+    && seriesEdit.open.id === series.id && seriesEdit.open.field === field;
+  if (editing) {
+    return `<div class="series-field">
+      <label class="filter-label" for="series-${field}-${series.id}">${heading} (Markdown)</label>
+      <textarea id="series-${field}-${series.id}" rows="8"
+        placeholder="${escapeHtml(placeholder)}">${escapeHtml(series[field] || "")}</textarea>
+      <div class="session-actions">
+        <button class="preset series-field-save" data-id="${series.id}"
+          data-field="${field}">Save</button>
+        <button class="preset series-field-cancel">Cancel</button>
+        <span class="muted series-field-status"></span>
+      </div>
+    </div>`;
+  }
+  return `<div class="series-field">
+    <div class="learnings-head">
+      <h4>${heading}</h4>
+      <button class="preset icon-btn series-field-edit" data-id="${series.id}"
+        data-field="${field}" title="Edit ${heading.toLowerCase()}"
+        aria-label="Edit ${heading.toLowerCase()}">✎</button>
+    </div>
+    <div class="md-body">${series[field]
+      ? renderNotes(series[field])
+      : `<p class="muted">${escapeHtml(emptyText)}</p>`}</div>
+  </div>`;
+}
+
+function seriesCard(series, blocks, isCurrent) {
+  const games = blocks.flatMap((b) => b.games);
+  const wins = games.filter((g) => g.win).length;
+  const record = games.length ? `${wins}–${games.length - wins}` : "no games yet";
+  const learnings = blocks.length
+    ? blocks.map((block) => `<div class="series-block">
+        <div class="series-block-head">
+          <button class="preset series-block-link" data-id="${block.id}"
+            title="Open this block">${escapeHtml(block.title || blockDate(block))}
+            <span class="block-index">#${blockIndex(block)}</span></button>
+          <span class="muted">${block.games.length} games</span>
+        </div>
+        <div class="md-body">${block.learnings
+          ? renderNotes(block.learnings)
+          : `<p class="muted">No learnings recorded for this block.</p>`}</div>
+      </div>`).join("")
+    : `<p class="muted">No blocks in this series yet.</p>`;
+  return `<div class="session-card series-card${isCurrent ? " series-card-current" : ""}">
+    <div class="session-head">
+      <input type="text" class="series-card-title" data-id="${series.id}"
+        value="${escapeHtml(series.title || "")}" placeholder="Series name"
+        title="Series name">
+      ${isCurrent ? `<span class="block-badge">active</span>` : ""}
+      <span class="muted">${blocks.length} ${blocks.length === 1 ? "block" : "blocks"}
+        · ${record}</span>
+    </div>
+    <div class="session-body">
+      ${seriesMdBlock(series, "goals", "Goals", "No goals set for this series.",
+                      "What is this series for? e.g. – 70 CS by 10 min, – no solo deaths")}
+      <div class="series-field">
+        <h4>Block learnings</h4>
+        <div class="series-blocks">${learnings}</div>
+      </div>
+      ${seriesMdBlock(series, "closing_notes", "How it went",
+                      "No closing notes yet — write these when the challenge ends.",
+                      "Did you hit the goals? What actually changed, and what's next?")}
+    </div>
+  </div>`;
+}
+
+function renderSeriesView() {
+  const target = $("#series-list");
+  if (!blockState.series.length) {
+    target.innerHTML = `<div class="muted">No series yet.</div>`;
+    return;
+  }
+  const blocksBySeries = new Map();
+  for (const block of blockState.blocks) {  // newest first from the API
+    if (!blocksBySeries.has(block.series_id)) blocksBySeries.set(block.series_id, []);
+    blocksBySeries.get(block.series_id).push(block);
+  }
+  target.innerHTML = blockState.series.map((series) => seriesCard(
+    series, blocksBySeries.get(series.id) || [],
+    series.id === blockState.currentSeriesId)).join("");
+
+  target.querySelectorAll(".series-card-title").forEach((input) =>
+    input.addEventListener("change", async () => {
+      const id = +input.dataset.id;
+      await patchSeries(id, { title: input.value });
+      const series = seriesById(id);
+      if (series) series.title = input.value.trim();
+      renderCurrentSeries();
+    }));
+  target.querySelectorAll(".series-field-edit").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      seriesEdit.open = { id: +btn.dataset.id, field: btn.dataset.field };
+      renderSeriesView();
+    }));
+  target.querySelectorAll(".series-field-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      seriesEdit.open = null;
+      renderSeriesView();
+    }));
+  target.querySelectorAll(".series-field-save").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const id = +btn.dataset.id;
+      const field = btn.dataset.field;
+      const value = $(`#series-${field}-${id}`).value;
+      if (!await patchSeries(id, { [field]: value })) {
+        btn.parentElement.querySelector(".series-field-status").textContent = "save failed";
+        return;  // keep what they typed
+      }
+      const series = seriesById(id);
+      if (series) series[field] = value;
+      seriesEdit.open = null;
+      renderSeriesView();
+      renderCurrentSeries();
+    }));
+  target.querySelectorAll(".series-block-link").forEach((btn) =>
+    btn.addEventListener("click", () => focusBlock(+btn.dataset.id)));
+}
+
 // Champion pool is its own view under Coach (it used to live inside Settings,
 // which is where you configure the app, not where you revise a commitment).
 const poolUi = { wired: false };
