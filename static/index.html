@@ -559,39 +559,37 @@
   <section class="panel">
     <h2>Champion pool</h2>
     <p class="muted">Your standing commitment: what you blind pick, what's in your
-      core pool, and what you keep for counters. Ordered — drag chips to reorder;
-      the first champion is your main and acts as your default (Playbook, cooldown
-      comparison). The pool is grouped on top of champion dropdowns and stamped
-      onto completed blocks.</p>
-      <div id="pool-card" aria-label="Champion pool">
-        <div class="pool-group">
-          <span class="filter-label">Main Blind</span>
-          <div class="chip-box" data-role="main_blind">
-            <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
-          </div>
+      core pool, and what you keep for counters. Drag chips to reorder — the first
+      champion is your main, and becomes the default in the Playbook and the
+      cooldown comparison. Your pool champions are also listed first, under a
+      "Champion Pool" heading, in champion pickers across the app, and the whole
+      pool is stamped onto each block when it completes. Changes save when you
+      press "Save pool".</p>
+    <div id="pool-card" aria-label="Champion pool">
+      <div class="pool-group">
+        <span class="filter-label">Main Blind</span>
+        <div class="chip-box" data-role="main_blind">
+          <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
         </div>
-        <div class="pool-group">
-          <span class="filter-label">Core Pool</span>
-          <div class="chip-box" data-role="core">
-            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
-          </div>
-        </div>
-        <div class="pool-group">
-          <span class="filter-label">Counter Picks</span>
-          <div class="chip-box" data-role="counter">
-            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
-          </div>
-        </div>
-        <div class="pool-actions">
-          <button id="pool-save" class="preset">Save pool</button>
-          <span id="pool-status" class="muted"></span>
-        </div>
-        <datalist id="champ-list"></datalist>
       </div>
-      <p class="muted">Ordered — drag chips to reorder; the first champion is
-        your main and acts as your default (Playbook, cooldown comparison).
-        The pool is grouped on top of champion dropdowns and stamped onto
-        completed blocks. Saves immediately with "Save pool".</p>
+      <div class="pool-group">
+        <span class="filter-label">Core Pool</span>
+        <div class="chip-box" data-role="core">
+          <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
+        </div>
+      </div>
+      <div class="pool-group">
+        <span class="filter-label">Counter Picks</span>
+        <div class="chip-box" data-role="counter">
+          <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
+        </div>
+      </div>
+      <div class="pool-actions">
+        <button id="pool-save" class="preset">Save pool</button>
+        <span id="pool-status" class="muted"></span>
+      </div>
+      <datalist id="champ-list"></datalist>
+    </div>
   </section>
 </div>
 
