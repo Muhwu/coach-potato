@@ -545,7 +545,7 @@ function renderChampionTable(byChampion) {
   wireSortable(target, champSort, CHAMP_SORT_COLS, () => renderChampionTable(state.byChampion));
 }
 
-const recentUi = { runesOpen: new Set(), reflectOpen: new Set(),
+const recentUi = { runesOpen: new Set(), reflectOpen: new Set(), vodOpen: new Set(),
                    sort: { key: "date", dir: -1 } };
 // Full-game curve: separate from recentUi.runesOpen since curve data needs an
 // async fetch (runes are already inline on the game row) — cache is per
@@ -658,7 +658,7 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
-  const colCount = 12 + (multi ? 1 : 0);
+  const colCount = 13 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
   const cols = [
     { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
@@ -675,6 +675,7 @@ function renderRecent(recent) {
     { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
     { key: "runes", label: "Runes", sortable: false },
     { key: "curve", label: "Curve", sortable: false },
+    { key: "vod", label: "VOD", sortable: false },
     { key: "reflect", label: "Reflection", sortable: false },
     { key: "block", label: "", sortable: false },
   ];
@@ -682,6 +683,7 @@ function renderRecent(recent) {
     const gkey = `${g.match_id}:${g.my_puuid}`;
     const runesOpen = recentUi.runesOpen.has(gkey);
     const reflectOpen = recentUi.reflectOpen.has(gkey);
+    const vodOpen = recentUi.vodOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
     const curveOpen = curveUi.open.has(gkey);
     const tagCount = reflectionTagCount(g.match_id, g.my_puuid);
@@ -702,6 +704,10 @@ function renderRecent(recent) {
       <td><button class="preset seg-toggle curve-toggle" data-gkey="${gkey}"
              data-match="${g.match_id}" data-puuid="${g.my_puuid}" data-opp="${g.opp_puuid ?? ""}"
              aria-expanded="${curveOpen}" title="Full-game gold/CS curve">${curveOpen ? "▾" : "▸"} Curve</button></td>
+      <td><button class="preset seg-toggle vod-toggle" data-gkey="${gkey}"
+        data-match="${g.match_id}" data-puuid="${g.my_puuid}" aria-expanded="${vodOpen}"
+        title="Recorded VOD, with a map and chapter list of what happened"
+        >${vodOpen ? "▾" : "▸"} 🎬 VOD</button></td>
       <td><button class="preset seg-toggle reflect-toggle" data-gkey="${gkey}"
         data-match="${g.match_id}" data-puuid="${g.my_puuid}" aria-expanded="${reflectOpen}"
         title="Reflection">${reflectOpen ? "▾" : "▸"} Reflect${tagCount ? ` (${tagCount})` : ""}</button></td>
@@ -715,8 +721,18 @@ function renderRecent(recent) {
           g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
         }</div>` : ""}
         ${reflectOpen ? reflectionSection(g.match_id, g.my_puuid) : ""}
-        ${reflectOpen ? recordingSection(g.match_id, g.my_puuid) : ""}
       </td></tr>`;
+    }
+    // the VOD gets its own row: it used to ride along with Reflect, where a
+    // video player and event map sat behind a button about tags and notes.
+    // recordingSection() renders nothing when there is no recording, which is
+    // right when it's tucked inside another panel but reads as a broken toggle
+    // when it IS the panel — so say so explicitly here.
+    if (vodOpen) {
+      const rec = recordingSection(g.match_id, g.my_puuid);
+      html += `<tr class="games-row"><td colspan="${colCount}">${rec
+        || `<p class="muted">No recording found for this game. Ascent recordings are
+            matched by game id — press 🎬 in the header to re-scan.</p>`}</td></tr>`;
     }
     if (curveOpen) {
       html += `<tr class="games-row"><td colspan="${colCount}">${gameCurveSection(gkey)}</td></tr>`;
@@ -749,6 +765,18 @@ function renderRecent(recent) {
       recentUi.reflectOpen.add(gkey);
       renderRecent(recent); // show "Loading…" immediately
       await ensureReflection(btn.dataset.match, btn.dataset.puuid);
+      renderRecent(recent);
+    }));
+  target.querySelectorAll(".vod-toggle").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const gkey = btn.dataset.gkey;
+      if (recentUi.vodOpen.has(gkey)) {
+        recentUi.vodOpen.delete(gkey);
+        renderRecent(recent);
+        return;
+      }
+      recentUi.vodOpen.add(gkey);
+      renderRecent(recent); // show "Loading…" immediately
       await ensureRecentRecording(btn.dataset.match, btn.dataset.puuid);
       renderRecent(recent);
     }));
@@ -764,8 +792,7 @@ function renderRecent(recent) {
   });
 }
 
-// the recording panel rides along with the reflection toggle on a Recent games
-// row, so it loads on the same expand
+// loaded on demand when the 🎬 VOD toggle on a Recent games row is expanded
 async function ensureRecentRecording(matchId, puuid) {
   const key = recordingKey(matchId, puuid);
   if (recordingUi.cache.has(key)) return;
@@ -1603,7 +1630,19 @@ function recordingSeekRow(r) {
 function recordingMap(r) {
   const events = (r.events || []).filter(
     (e) => e.x != null && e.y != null && RECORDING_MAP_MARKS[e.event_type]);
-  if (!events.length) return "";
+  if (!events.length) {
+    // Silently rendering nothing here is what makes the map look broken: the
+    // usual cause is that this game's events came from Ascent's log, which is
+    // built on League's Live Client Data feed and carries no coordinates.
+    // Only the match timeline has positions, so say what to run.
+    const fromLog = (r.events || []).length > 0;
+    return `<div class="recording-map recording-map-empty"><p class="muted">${fromLog
+      ? `No positions recorded for this game — its events came from Ascent's log, which has
+         timings but no coordinates. Run <code>./crawl.sh --recompute-map-events</code> to
+         re-derive them from the match timeline.`
+      : `No map events for this game yet. Run <code>./crawl.sh --backfill-map-events</code>
+         to pull them from the match timeline.`}</p></div>`;
+  }
   const S = HEATMAP_SIZE;
   const dots = events.map((e) => {
     const [x, y] = heatmapPoint(e.x, e.y);

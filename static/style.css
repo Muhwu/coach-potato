@@ -1705,6 +1705,13 @@ footer {
 .recording-video { height: var(--rec-media-h); width: auto; max-height: none; }
 /* the map box is exactly as tall as the video, legend included — the square
    shrinks to make room rather than pushing the box taller */
+/* the "why is there no map" placeholder: same footprint as the real map so the
+   video doesn't jump sideways, but it wraps text instead of holding a square */
+.recording-map-empty {
+  width: var(--rec-media-h); align-items: center; justify-content: center;
+  padding: 0 14px; text-align: center;
+}
+.recording-map-empty code { font-size: 11px; word-break: break-all; }
 .recording-map {
   height: var(--rec-media-h); display: flex; flex-direction: column; min-width: 0;
 }
