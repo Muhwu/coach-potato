@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.51.0",
+      "date": "2026-08-12",
+      "items": [
+        "Fixed: the desktop app was throwing away every saved UI preference when you closed it — column choices, collapsed blocks, saved skill grids, the view each section reopens on. The native window ran in private mode, so nothing the app remembered survived a restart. It now keeps that state next to your database",
+        "Every column picker gets a \"Reset to defaults\" option, so you can get back to the standard columns without un-ticking them one at a time",
+        "Column pickers are now a ▥ icon button instead of the \"Columns\" text, matching the other icon controls in the header rows"
+      ]
+    },
+    {
       "version": "1.50.0",
       "date": "2026-08-11",
       "items": [

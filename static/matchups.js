@@ -68,7 +68,7 @@ async function initMatchups() {
     renderColPicker($("#mu-metric-cols"), "cp-mucols",
       muAllCols().map((c) => ({ key: c.key, label: c.label })),
       colPrefs("cp-mucols", muAllCols().map((c) => c.key), MU_BASE_COLS.map((c) => c.key)),
-      () => renderMU(muState.rows));
+      () => renderMU(muState.rows), MU_BASE_COLS.map((c) => c.key));
   }
   await loadMatchupFilterOptions();
   await loadMatchups();

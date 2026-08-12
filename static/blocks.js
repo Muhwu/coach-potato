@@ -109,7 +109,7 @@ async function initBlocks() {
       if (e.target.matches(".col-menu a")) closeMenus();
     });
     renderColPicker($("#blocks-cols"), "cp-cols-blocks-v3", BLOCK_COLS, blockCols,
-      () => renderBlocks());
+      () => renderBlocks(), BLOCK_COLS.filter((c) => !c.off).map((c) => c.key));
     await loadChampionRoster();
   }
   await Promise.all([loadPool(), loadBlocks()]);

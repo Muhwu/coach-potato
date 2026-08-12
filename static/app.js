@@ -123,6 +123,10 @@ function fmtRankList(ranks) {
 
 // ---------- persisted column choices ----------
 
+// "squared with vertical fill" — reads as table columns at any font size, and
+// unlike an emoji it inherits the button's colour in both themes
+const COLUMNS_ICON = "▥";
+
 function colPrefs(storageKey, allKeys, defaultKeys = allKeys) {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
@@ -131,18 +135,40 @@ function colPrefs(storageKey, allKeys, defaultKeys = allKeys) {
   return new Set(defaultKeys);
 }
 
-function renderColPicker(target, storageKey, columns, visible, onChange) {
-  target.innerHTML = `<details class="col-picker"><summary class="preset">Columns ▾</summary>
-    <div class="col-menu">` + columns.map((c) =>
-      `<label><input type="checkbox" data-col="${c.key}"
-         ${visible.has(c.key) ? "checked" : ""}> ${c.label}</label>`).join("") +
-    `</div></details>`;
-  target.querySelectorAll("input").forEach((cb) =>
-    cb.addEventListener("change", () => {
-      cb.checked ? visible.add(cb.dataset.col) : visible.delete(cb.dataset.col);
-      localStorage.setItem(storageKey, JSON.stringify([...visible]));
-      onChange();
-    }));
+// `defaultKeys` (optional) powers "Reset to defaults": it clears the saved
+// preference so the view falls back to its built-in default set.
+function renderColPicker(target, storageKey, columns, visible, onChange, defaultKeys) {
+  const draw = () => {
+    target.innerHTML = `<details class="col-picker">
+      <summary class="preset icon-btn" title="Choose columns" aria-label="Choose columns"
+        >${COLUMNS_ICON}</summary>
+      <div class="col-menu">` + columns.map((c) =>
+        `<label><input type="checkbox" data-col="${c.key}"
+           ${visible.has(c.key) ? "checked" : ""}> ${c.label}</label>`).join("")
+      + (defaultKeys
+        ? `<button type="button" class="col-reset">Reset to defaults</button>` : "")
+      + `</div></details>`;
+    target.querySelectorAll("input").forEach((cb) =>
+      cb.addEventListener("change", () => {
+        cb.checked ? visible.add(cb.dataset.col) : visible.delete(cb.dataset.col);
+        localStorage.setItem(storageKey, JSON.stringify([...visible]));
+        onChange();
+      }));
+    const reset = target.querySelector(".col-reset");
+    if (reset) {
+      reset.addEventListener("click", () => {
+        // mutate in place: some views (blocks) hold onto this Set
+        visible.clear();
+        defaultKeys.forEach((k) => visible.add(k));
+        localStorage.removeItem(storageKey);
+        const open = target.querySelector("details").open;
+        draw();
+        target.querySelector("details").open = open;  // keep the menu up
+        onChange();
+      });
+    }
+  };
+  draw();
 }
 
 // ---------- shared table sorting ----------
@@ -740,7 +766,8 @@ function visibleMeta(storageKey) {
 function renderMetricColPicker(target, storageKey, onChange) {
   const meta = state.metricsMeta || [];
   renderColPicker(target, storageKey, meta.map((m) => ({ key: m.key, label: m.label })),
-                  visibleMetricKeys(storageKey), onChange);
+                  visibleMetricKeys(storageKey), onChange,
+                  meta.filter((m) => !m.default_hidden).map((m) => m.key));
 }
 
 function metricDelta(current, previous, m) {
@@ -1983,7 +2010,8 @@ function wireFilters() {
   // averages incl. lane deltas (default off). Expanded panels show all metrics.
   renderColPicker($("#progress-cols"), "cp-cols-progress",
     progressAllCols().map((c) => ({ key: c.key, label: c.label })),
-    progressVisibleKeys(), () => renderProgress(segmentUi.segments));
+    progressVisibleKeys(), () => renderProgress(segmentUi.segments),
+    PROGRESS_COLS.map((c) => c.key));
   $("#crawl-btn").addEventListener("click", startCrawl);
   $("#champion-table-toggle").addEventListener("click", () => {
     const btn = $("#champion-table-toggle");

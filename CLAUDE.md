@@ -25,7 +25,11 @@ change, not a crawler change.
   The web app no longer needs `.env`; `crawl.py` CLI still uses it.
   `config.default_db_path()`: LOL_DB_PATH → env; frozen → OS app-data dir;
   else `data/lol.sqlite`. `desktop.py` + PyInstaller (`--add-data
-  static:static`) produce the packaged build; CI matrix in
+  static:static`) produce the packaged build; it starts pywebview with
+  `private_mode=False` + `storage_path=<db_dir>/webview` (`desktop.webview_storage_path`)
+  — pywebview's DEFAULT private mode discards localStorage on close, which
+  silently reset every saved UI preference (column pickers, collapsed
+  blocks, skill grids, per-section last view) on each launch; CI matrix in
   `.github/workflows/build.yml`. `desktop.py` redirects `sys.stdout`/
   `stderr` to `os.devnull` when they're `None` (before importing uvicorn) —
   a `--windowed` build has no console on Windows, so those streams are

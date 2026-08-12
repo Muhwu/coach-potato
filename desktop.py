@@ -26,8 +26,19 @@ if sys.stderr is None:
 import uvicorn
 
 from server.app import app
+from server.config import default_db_path
 
 WINDOW_TITLE = "Coach Potato"
+
+
+def webview_storage_path():
+    """Where the native window keeps cookies/localStorage. Sibling of the
+    sqlite file (like the clips/ and background/ dirs), so a packaged install
+    keeps its UI preferences in the OS app-data dir and a dev run keeps them
+    under the project's data/."""
+    path = default_db_path().parent / "webview"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class DesktopApi:
@@ -87,7 +98,15 @@ def main():
             pass  # older pywebview without the settings dict
         webview.create_window(WINDOW_TITLE, url, width=1280, height=880,
                               js_api=DesktopApi(url))
-        webview.start()
+        # pywebview defaults to private_mode=True, which throws away localStorage
+        # when the window closes — that silently wiped every saved UI preference
+        # (column choices, collapsed blocks, saved skill grids, last-used view
+        # per nav section). Persist it next to the database so it survives
+        # upgrades and moves with LOL_DB_PATH.
+        try:
+            webview.start(private_mode=False, storage_path=str(webview_storage_path()))
+        except TypeError:  # older pywebview without these arguments
+            webview.start()
     except Exception:
         webbrowser.open(url)
         print(f"{WINDOW_TITLE} running at {url}  (Ctrl+C to quit)")

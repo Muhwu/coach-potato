@@ -622,6 +622,14 @@ td.notes-cell { text-align: left; white-space: normal; }
 .view-toggles { display: flex; gap: 16px; flex-wrap: wrap; }
 .view-toggles label { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; }
 
+/* "Reset to defaults" sits under the checkboxes, separated from them */
+.col-reset {
+  display: block; width: 100%; margin-top: 6px; padding-top: 7px;
+  border: none; border-top: 1px solid var(--grid); background: none;
+  color: var(--series-1); font: inherit; font-size: 12px; text-align: left;
+  cursor: pointer;
+}
+.col-reset:hover { text-decoration: underline; }
 .col-picker { position: relative; display: inline-block; }
 .col-picker summary { list-style: none; cursor: pointer; }
 .col-picker summary::-webkit-details-marker { display: none; }
