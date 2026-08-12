@@ -90,17 +90,28 @@ CREATE TABLE IF NOT EXISTS participant_metrics (
 -- timeline-derived lane-delta metrics (see parse_death_events / crawler
 -- _store_map_events). x/y are raw match-v5 timeline coordinates
 -- (~0-14820 x, ~0-14881 y, origin bottom-left). Ward positions are NOT
--- available in match-v5's WARD_PLACED events (confirmed — see CLAUDE.md), so
--- event_type is deaths-only for now; the column stays generic for a future
--- Riot API addition rather than being named death_events.
+-- available in match-v5's WARD_PLACED events (confirmed — see CLAUDE.md).
+-- Deaths came first (the Trends heatmap); kills/assists/towers/inhibitors/
+-- objectives were added for VOD chapters. Anything reading this table for the
+-- heatmap MUST filter event_type='death' — see stats.map_events.
 CREATE TABLE IF NOT EXISTS player_map_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     match_id TEXT NOT NULL,
     puuid TEXT NOT NULL,
-    event_type TEXT NOT NULL CHECK (event_type IN ('death')),
-    x INTEGER NOT NULL,
-    y INTEGER NOT NULL,
-    timestamp_ms INTEGER NOT NULL
+    event_type TEXT NOT NULL CHECK (event_type IN
+        ('death','kill','assist','tower','inhibitor','objective')),
+    -- NULL when the source has no position: Ascent's log (League's Live Client
+    -- Data feed) gives timings but no coordinates, unlike the match timeline
+    x INTEGER,
+    y INTEGER,
+    timestamp_ms INTEGER NOT NULL,
+    -- short human label for VOD chapters ("Dragon", "-Outer tower"); a leading
+    -- "-" marks an event that went against the player's team
+    detail TEXT NOT NULL DEFAULT '',
+    -- 'timeline' (Riot, has positions) or 'ascent_log' (no positions). Lets a
+    -- later timeline recompute supersede log-derived rows instead of doubling
+    -- up on them.
+    source TEXT NOT NULL DEFAULT 'timeline'
 );
 CREATE INDEX IF NOT EXISTS idx_map_events_match_puuid ON player_map_events(match_id, puuid);
 
@@ -210,6 +221,27 @@ CREATE TABLE IF NOT EXISTS clips (
     created_at_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_clips_owner ON clips(owner_type, owner_id);
+
+/* Local VOD files recorded by Ascent (see server/recordings.py). Keyed by
+   Ascent's own recording uuid so re-syncing is idempotent; `match_id` is the
+   match-v5 id Ascent records alongside each video, which is what lets a
+   recording line up with a crawled game. The video itself is never copied or
+   moved — only its path is stored, and Ascent's database is only ever read. */
+CREATE TABLE IF NOT EXISTS recordings (
+    uuid TEXT PRIMARY KEY NOT NULL,
+    match_id TEXT NOT NULL,
+    video_path TEXT NOT NULL,
+    started_at_ms INTEGER NOT NULL,
+    duration_s REAL,
+    -- video position (ms) that corresponds to game time 0; recordings start a
+    -- touch before/after the game does, so this is user-nudgeable per video
+    offset_ms INTEGER NOT NULL DEFAULT 0,
+    youtube_video_id TEXT,
+    youtube_uploaded_at_ms INTEGER,
+    youtube_privacy TEXT,
+    imported_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_recordings_match ON recordings(match_id);
 
 CREATE TABLE IF NOT EXISTS research_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -329,6 +361,42 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
         if "series_id" not in block_columns:  # block series added in v1.40.0
             conn.execute("ALTER TABLE blocks ADD COLUMN series_id INTEGER")
+    # player_map_events started life deaths-only, with a CHECK constraint that
+    # SQLite cannot ALTER — so widening it to carry kills/towers/objectives
+    # means rebuilding the table. Same rename/create/copy/drop template as the
+    # matchup_notes PK migration; every existing death row is carried forward,
+    # and the richer events fill in on the next map-events backfill.
+    pme_columns = {r["name"] for r in conn.execute("PRAGMA table_info(player_map_events)")}
+    if pme_columns and "source" not in pme_columns:
+        # "detail" only exists if this db already went through the first
+        # widening; older ones stop at timestamp_ms
+        detail_col = "detail" if "detail" in pme_columns else "'' AS detail"
+        old_events = conn.execute(
+            f"SELECT match_id, puuid, event_type, x, y, timestamp_ms, {detail_col} "
+            "FROM player_map_events").fetchall()
+        conn.execute("ALTER TABLE player_map_events RENAME TO player_map_events_old")
+        conn.execute("""
+            CREATE TABLE player_map_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_id TEXT NOT NULL,
+                puuid TEXT NOT NULL,
+                event_type TEXT NOT NULL CHECK (event_type IN
+                    ('death','kill','assist','tower','inhibitor','objective')),
+                x INTEGER,
+                y INTEGER,
+                timestamp_ms INTEGER NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'timeline'
+            )""")
+        conn.executemany(
+            "INSERT INTO player_map_events "
+            "(match_id, puuid, event_type, x, y, timestamp_ms, detail) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(r["match_id"], r["puuid"], r["event_type"], r["x"], r["y"],
+              r["timestamp_ms"], r["detail"]) for r in old_events])
+        conn.execute("DROP TABLE player_map_events_old")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_map_events_match_puuid "
+                     "ON player_map_events(match_id, puuid)")
     bg_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_games)")}
     if bg_columns:
         if "weakside" not in bg_columns:  # manual strongside/weakside flag
@@ -938,30 +1006,10 @@ def insert_participant_runes(conn, match_id, puuid, runes):
             (match_id, puuid, json.dumps(runes) if runes else ""))
 
 
-def replace_map_events(conn, match_id, puuid, events):
-    """Replace all stored map events (deaths) for one (match, puuid) with
-    `events` (list of {event_type, x, y, timestamp_ms} dicts, from
-    metrics.parse_death_events) and mark has_map_events=1 on the participant's
-    metrics row. Delete-then-insert keeps this idempotent for re-runs; an
-    empty list is a valid outcome (a deathless game) and still marks the row
-    done so the backfill doesn't retry it forever. The participant_metrics
-    row is expected to already exist (map events are only stored for
-    puuids that get a metrics row in the same crawl/backfill step)."""
-    with conn:
-        conn.execute("DELETE FROM player_map_events WHERE match_id=? AND puuid=?",
-                     (match_id, puuid))
-        conn.executemany(
-            "INSERT INTO player_map_events (match_id, puuid, event_type, x, y, timestamp_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [(match_id, puuid, e["event_type"], e["x"], e["y"], e["timestamp_ms"])
-             for e in events])
-        conn.execute(
-            "UPDATE participant_metrics SET has_map_events=1 WHERE match_id=? AND puuid=?",
-            (match_id, puuid))
 def insert_frame_series(conn, rows):
     """Bulk-insert per-minute gold/CS/XP/level series rows into
     participant_frame_series. rows: iterable of {match_id, puuid, minute, cs,
-    xp, gold, level}. INSERT OR IGNORE (matching insert_match's convention) —
+    xp, gold, level}. INSERT OR IGNORE (matching insert_match's convention) â€”
     reprocessing an already-stored match (e.g. a repeat backfill run) is
     always safe and never overwrites."""
     rows = list(rows)
@@ -973,6 +1021,51 @@ def insert_frame_series(conn, rows):
                (match_id, puuid, minute, cs, xp, gold, level)
                VALUES (:match_id, :puuid, :minute, :cs, :xp, :gold, :level)""",
             rows)
+
+
+def replace_map_events(conn, match_id, puuid, events, source="timeline"):
+    """Replace this source's stored map events for one (match, puuid) with
+    `events` (list of {event_type, x, y, timestamp_ms, detail} dicts).
+
+    Two sources feed this table and they must not fight:
+      * 'timeline' â€” Riot's match timeline, has positions, needs an API key.
+      * 'ascent_log' â€” League's Live Client Data as captured in Ascent's logs;
+        timings only, no positions, but available offline.
+    Only rows of the SAME source are cleared, so re-running one never destroys
+    the other's work. A timeline import additionally drops any log-derived rows
+    for that game, because it strictly supersedes them (same events, plus
+    positions). `has_map_events` is only claimed by the timeline source â€” it is
+    the flag the timeline backfill uses to decide what still needs fetching.
+
+    Delete-then-insert keeps this idempotent; an empty list is a valid outcome
+    (a deathless game) and still marks the row done so the backfill doesn't
+    retry it forever."""
+    with conn:
+        conn.execute(
+            "DELETE FROM player_map_events WHERE match_id=? AND puuid=? AND source=?",
+            (match_id, puuid, source))
+        if source == "timeline":
+            # the timeline knows everything the log did, and where it happened
+            conn.execute(
+                "DELETE FROM player_map_events "
+                "WHERE match_id=? AND puuid=? AND source='ascent_log'",
+                (match_id, puuid))
+        conn.executemany(
+            "INSERT INTO player_map_events "
+            "(match_id, puuid, event_type, x, y, timestamp_ms, detail, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(match_id, puuid, e["event_type"], e.get("x"), e.get("y"),
+              e["timestamp_ms"], e.get("detail", ""), source) for e in events])
+        if source == "timeline":
+            conn.execute(
+                "UPDATE participant_metrics SET has_map_events=1 "
+                "WHERE match_id=? AND puuid=?", (match_id, puuid))
+
+
+def has_log_events(conn, match_id, puuid):
+    return bool(conn.execute(
+        "SELECT 1 FROM player_map_events WHERE match_id=? AND puuid=? "
+        "AND source='ascent_log' LIMIT 1", (match_id, puuid)).fetchone())
 
 
 def tracked_ranks(conn):
@@ -1392,6 +1485,63 @@ def list_clips(conn, owner_type, owner_id):
     return conn.execute(
         "SELECT * FROM clips WHERE owner_type=? AND owner_id=? ORDER BY created_at_ms",
         (owner_type, owner_id)).fetchall()
+
+
+# ---------- recordings (local Ascent VODs) ----------
+
+def upsert_recording(conn, row):
+    """Idempotent by Ascent's recording uuid. Re-syncing refreshes the path and
+    timings but never clears our own columns (offset, YouTube upload state) —
+    those are ours, not Ascent's."""
+    with conn:
+        conn.execute(
+            f"""INSERT INTO recordings (uuid, match_id, video_path, started_at_ms,
+                    duration_s, imported_at_ms)
+                VALUES (?, ?, ?, ?, ?, {_now_expr()})
+                ON CONFLICT(uuid) DO UPDATE SET
+                    match_id=excluded.match_id,
+                    video_path=excluded.video_path,
+                    started_at_ms=excluded.started_at_ms,
+                    duration_s=excluded.duration_s""",
+            (row["uuid"], row["match_id"], row["video_path"],
+             row["started_at_ms"], row.get("duration_s")))
+
+
+def recordings_for_match(conn, match_id):
+    return conn.execute(
+        "SELECT * FROM recordings WHERE match_id=? ORDER BY started_at_ms",
+        (match_id,)).fetchall()
+
+
+def get_recording(conn, uuid):
+    return conn.execute("SELECT * FROM recordings WHERE uuid=?", (uuid,)).fetchone()
+
+
+def recorded_match_ids(conn):
+    return {r["match_id"] for r in conn.execute("SELECT DISTINCT match_id FROM recordings")}
+
+
+def set_recording_offset(conn, uuid, offset_ms):
+    with conn:
+        cursor = conn.execute(
+            "UPDATE recordings SET offset_ms=? WHERE uuid=?", (int(offset_ms), uuid))
+    return cursor.rowcount > 0
+
+
+def set_recording_youtube(conn, uuid, video_id, privacy):
+    with conn:
+        cursor = conn.execute(
+            f"""UPDATE recordings SET youtube_video_id=?, youtube_privacy=?,
+                    youtube_uploaded_at_ms={_now_expr()} WHERE uuid=?""",
+            (video_id, privacy, uuid))
+    return cursor.rowcount > 0
+
+
+def delete_recording(conn, uuid):
+    """Forgets the link only — the video file on disk is never touched."""
+    with conn:
+        cursor = conn.execute("DELETE FROM recordings WHERE uuid=?", (uuid,))
+    return cursor.rowcount > 0
 
 
 def get_clip(conn, clip_id):

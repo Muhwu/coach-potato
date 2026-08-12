@@ -249,10 +249,6 @@ function renderHeatmap() {
     return;
   }
   const S = HEATMAP_SIZE;
-  const [blueX, blueY] = heatmapPoint(0, 0);               // blue base, bottom-left
-  const [redX, redY] = heatmapPoint(MAP_X_MAX, MAP_Y_MAX); // red base, top-right
-  const [topX, topY] = heatmapPoint(0, MAP_Y_MAX);         // top-left corner (top lane bend)
-  const [botX, botY] = heatmapPoint(MAP_X_MAX, 0);         // bottom-right corner (bot lane bend)
   const dots = deaths.map((e) => {
     const [x, y] = heatmapPoint(e.x, e.y);
     const label = `Death @ ${fmtDuration((e.timestamp_ms || 0) / 1000)}`;
@@ -261,13 +257,7 @@ function renderHeatmap() {
   target.innerHTML = `
     <div class="muted heatmap-legend">${deaths.length} death${deaths.length === 1 ? "" : "s"} plotted</div>
     <svg class="heatmap-svg" viewBox="0 0 ${S} ${S}" role="img" aria-label="Death locations on a schematic Summoner's Rift">
-      <rect class="heatmap-border" x="${HEATMAP_PAD}" y="${HEATMAP_PAD}"
-        width="${S - HEATMAP_PAD * 2}" height="${S - HEATMAP_PAD * 2}"/>
-      <line class="heatmap-river" x1="${blueX}" y1="${blueY}" x2="${redX}" y2="${redY}"/>
-      <polyline class="heatmap-lane" points="${blueX},${blueY} ${topX},${topY} ${redX},${redY}"/>
-      <polyline class="heatmap-lane" points="${blueX},${blueY} ${botX},${botY} ${redX},${redY}"/>
-      <circle class="heatmap-base heatmap-base-blue" cx="${blueX}" cy="${blueY}" r="7"/>
-      <circle class="heatmap-base heatmap-base-red" cx="${redX}" cy="${redY}" r="7"/>
+      ${riftBackdrop()}
       ${dots}
     </svg>
   `;

@@ -610,6 +610,78 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
     return [_decode_game_runes(r) for r in conn.execute(sql, params)]
 
 
+def session_games_detailed(conn, session_id):
+    """Games explicitly attached to a coaching session (session_games) — the
+    Live coaching / VOD review 'Add game' picker — newest first."""
+    sql = """
+        SELECT sg.id AS session_game_id, sg.match_id, sg.puuid, sg.added_at_ms,
+               m.game_creation_ms, m.game_duration_s, m.queue_id,
+               me.champion_name AS my_champion, me.win,
+               me.kills, me.deaths, me.assists, me.cs,
+               opp.champion_name AS opp_champion,
+               pl.game_name AS account,
+               myr.runes AS my_runes_json,
+               oppr.runes AS opp_runes_json
+        FROM session_games sg
+        JOIN participants me ON me.match_id = sg.match_id AND me.puuid = sg.puuid
+        JOIN matches m ON m.match_id = sg.match_id
+        LEFT JOIN participants opp ON opp.match_id = sg.match_id
+            AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+            AND me.team_position != ''
+        LEFT JOIN players pl ON pl.puuid = sg.puuid
+        LEFT JOIN participant_runes myr ON myr.match_id = sg.match_id AND myr.puuid = sg.puuid
+        LEFT JOIN participant_runes oppr ON oppr.match_id = sg.match_id AND oppr.puuid = opp.puuid
+        WHERE sg.session_id = ?
+        ORDER BY m.game_creation_ms DESC
+    """
+    return [_decode_game_runes(r) for r in conn.execute(sql, (session_id,))]
+
+
+def review_queue(conn, puuid, limit=8):
+    """Individual block games with no per-game notes yet — a lightweight
+    "you played this, you haven't written anything down" nudge, across
+    EVERY block (not just the current one).
+
+    Scoped to games you added to a block (block_games) — the games you're
+    actively practising — rather than every game ever played. One row per
+    game where block_games.notes is still blank. Newest first."""
+    base, params = _filtered_base(puuid)
+    sql = f"""
+        SELECT bg.id AS entry_id, bg.block_id, blk.title AS block_title,
+               b.match_id, b.my_puuid AS puuid, b.my_champion, b.opp_champion,
+               b.win, b.game_creation_ms
+        FROM ({base}) b
+        JOIN block_games bg ON bg.match_id = b.match_id AND bg.puuid = b.my_puuid
+        JOIN blocks blk ON blk.id = bg.block_id
+        WHERE bg.notes = ''
+        ORDER BY b.game_creation_ms DESC
+    """
+    rows = [dict(r) for r in conn.execute(sql, params)]
+    return rows[:limit]
+
+
+def map_events(conn, puuids, from_ms=None, to_ms=None, champion=None, roles=None):
+    """Death-location map events (see player_map_events) for the tracked
+    puuids, filtered the same way as the other Trends-style queries (period/
+    champion/role via _filtered_base). Explicitly deaths-only: the table also
+    holds kills/towers/objectives for VOD chapters, and the heatmap must not
+    plot those. match-v5's WARD_PLACED events carry no position (see
+    CLAUDE.md), so there is still no ward counterpart."""
+    base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,
+                                  champion=champion, require_opponent=False, roles=roles)
+    sql = f"""
+        SELECT pme.event_type, pme.x, pme.y, pme.timestamp_ms
+        FROM player_map_events pme
+        JOIN ({base}) b ON b.match_id = pme.match_id AND b.my_puuid = pme.puuid
+        -- deaths only (the table also carries kills/towers for VOD chapters),
+        -- and only rows that actually have a position: log-derived events
+        -- carry timings but no coordinates
+        WHERE pme.event_type = 'death' AND pme.x IS NOT NULL AND pme.y IS NOT NULL
+        ORDER BY pme.timestamp_ms
+    """
+    return [dict(r) for r in conn.execute(sql, params)]
+
+
 def champion_roles(conn, secondary_share=0.2):
     """Each champion's lane(s), computed empirically from EVERY participant in
     every stored match (not just tracked games) — {champion_id: [team_position,
@@ -633,23 +705,6 @@ def champion_roles(conn, secondary_share=0.2):
         order = {"TOP": 0, "JUNGLE": 1, "MIDDLE": 2, "BOTTOM": 3, "UTILITY": 4}
         out[champ] = sorted(roles, key=lambda p: order.get(p, 9))
     return out
-def map_events(conn, puuids, from_ms=None, to_ms=None, champion=None, roles=None):
-    """Death-location map events (see player_map_events) for the tracked
-    puuids, filtered the same way as the other Trends-style queries (period/
-    champion/role via _filtered_base). Deaths-only for now — match-v5's
-    WARD_PLACED events don't carry a position (see CLAUDE.md), so there's no
-    ward counterpart to join in here yet."""
-    base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,
-                                  champion=champion, require_opponent=False, roles=roles)
-    sql = f"""
-        SELECT pme.event_type, pme.x, pme.y, pme.timestamp_ms
-        FROM player_map_events pme
-        JOIN ({base}) b ON b.match_id = pme.match_id AND b.my_puuid = pme.puuid
-        ORDER BY pme.timestamp_ms
-    """
-    return [dict(r) for r in conn.execute(sql, params)]
-
-
 def filter_options(conn, puuid):
     base, params = _filtered_base(puuid, require_opponent=False)
     champions = [r[0] for r in conn.execute(

@@ -7,7 +7,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "match_sample.json"
 
 
 def load_fixture():
-    return json.loads(FIXTURE.read_text())
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
 def test_parse_match_maps_match_fields():

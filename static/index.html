@@ -36,6 +36,10 @@
       <button id="rate-warn" class="rate-warn hidden" aria-label="Why is this slow?">!</button>
     </span>
     <button id="crawl-btn" title="Update data now" aria-label="Update data now">⟳</button>
+    <span id="recordings-status" class="muted"></span>
+    <button id="recordings-btn" class="preset icon-btn"
+      title="Re-scan Ascent for recordings and game events"
+      aria-label="Re-scan Ascent for recordings and game events">🎬</button>
     <button id="nav-changelog" class="preset icon-btn" title="What's new" aria-label="What's new">📋</button>
     <button id="nav-settings" class="preset icon-btn" title="Settings" aria-label="Settings">⚙</button>
   </div>
@@ -308,6 +312,83 @@
       <div class="import-all-row">
         <input type="file" id="import-all-file" accept=".zip,application/zip">
         <button id="import-all-btn" class="preset" type="button">Import</button>
+
+    <div class="settings-group">
+      <h3 class="settings-group-head">Recordings &amp; YouTube</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-ascent-db">Ascent recordings database</label>
+        <input type="text" id="setting-ascent-db" placeholder="auto-detected" style="max-width:34em">
+        <p class="muted">Ascent records your games and stores each one's match id, which is how a
+          VOD gets matched to a crawled game. The database is only ever <strong>read</strong> (on a
+          snapshot, so Ascent is never disturbed) and your video files are never moved or deleted.
+          Leave blank to use the detected path: <code id="ascent-detected" class="muted">–</code></p>
+        <div class="settings-actions">
+          <button type="button" class="preset" id="sync-recordings">Sync recordings now</button>
+          <span class="muted" id="sync-recordings-status"></span>
+        </div>
+        <p class="muted">Recordings also sync automatically after each data update.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label">Uploading to YouTube</label>
+        <p class="muted">Every recording has a <strong>📁 Upload to YouTube</strong> button that
+          needs no setup at all: it opens the file in Explorer, copies its path, and opens YouTube's
+          upload page — you drag it in, or paste the path into YouTube's file picker. No sign-in, no
+          quota, and no restriction on whether the video can be public.</p>
+        <p class="muted">The optional one-click upload below is only worth setting up if you upload
+          often enough that the drag becomes annoying.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-youtube-secrets">One-click upload: client secrets (JSON)</label>
+        <input type="text" id="setting-youtube-secrets" placeholder="not configured — manual upload works without this" style="max-width:34em">
+        <p class="muted"><strong>Optional.</strong> For true one-click upload you need your own
+          Google OAuth client: create a project at console.cloud.google.com, enable <em>YouTube Data
+          API v3</em>, create an OAuth client ID of type <em>Desktop app</em>, download the JSON and
+          put its path here. The first upload opens a Google sign-in in your browser; the token is
+          then cached locally.</p>
+        <p class="muted">Two limits are Google's, not ours, and apply to any unaudited project:
+          uploads stay <strong>private</strong> whatever you pick below, and the daily quota allows
+          roughly six uploads. The manual button above has neither limit.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-youtube-privacy">Upload privacy</label>
+        <select id="setting-youtube-privacy" style="max-width:22em">
+          <option value="private">Private (default)</option>
+          <option value="unlisted">Unlisted — anyone with the link</option>
+          <option value="public">Public</option>
+        </select>
+        <p class="muted">Applied to new uploads. Uploading always asks for confirmation first.</p>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3 class="settings-group-head">Backup &amp; restore</h3>
+      <div class="settings-field">
+        <a class="preset" href="/api/export-all" download>Export everything (.zip)</a>
+        <p class="muted">Every session, block learning, matchup guide, note, item build and Research
+          entry — plus uploaded clips and screenshots — as one .zip. Excludes your API key/accounts
+          and crawled match history (Riot can re-supply that).</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="import-all-file">Import from a backup</label>
+        <div class="import-all-row">
+          <input type="file" id="import-all-file" accept=".zip,application/zip">
+          <button id="import-all-btn" class="preset" type="button">Import</button>
+        </div>
+        <span id="import-all-status" class="muted"></span>
+        <p class="muted">Restore an "Export everything" .zip — only for a fresh/empty setup.
+          Refuses (nothing written) if anything would collide with existing data.</p>
+      </div>
+      <div id="legacy-notes-section" class="hidden">
+        <div class="settings-subhead" style="margin-top:14px">Older matchup notes</div>
+        <div class="settings-field">
+          <p class="muted" id="legacy-notes-summary"></p>
+          <div class="legacy-notes-row">
+            <select id="legacy-migrate-champion" style="max-width:16em"></select>
+            <button id="legacy-migrate-btn" class="preset" type="button">Migrate</button>
+            <button id="legacy-delete-btn" class="preset" type="button">Delete</button>
+          </div>
+          <span id="legacy-notes-status" class="muted"></span>
+        </div>
       </div>
       <span id="import-all-status" class="muted"></span>
       <p class="muted">Restore an "Export everything" .zip — only meant for a fresh/empty

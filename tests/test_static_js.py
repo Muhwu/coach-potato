@@ -18,7 +18,7 @@ def test_no_duplicate_toplevel_declarations_across_scripts():
     seen = {}
     duplicates = []
     for js_file in JS_FILES:
-        for match in DECL_RE.finditer((STATIC / js_file).read_text()):
+        for match in DECL_RE.finditer((STATIC / js_file).read_text(encoding="utf-8")):
             name = match.group(1) or match.group(2)
             if name in seen:
                 duplicates.append(f"{name} ({seen[name]} vs {js_file})")
@@ -30,7 +30,7 @@ def test_no_duplicate_toplevel_declarations_across_scripts():
 def test_script_list_matches_index_html():
     """If a script is added to index.html, add it to JS_FILES above so the
     duplicate-name check covers it."""
-    html = (STATIC / "index.html").read_text()
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
     referenced = re.findall(r'<script src="([^"]+\.js)"></script>', html)
     local = [s for s in referenced if not s.startswith("vendor/")]
     assert local == JS_FILES

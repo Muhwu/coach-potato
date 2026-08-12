@@ -395,6 +395,83 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   opponent, one Markdown notes field (covers general + VOD notes together),
   and multiple screenshots — deliberately no timestamp log or video/clip
   attachments here) in `research.js`.
+  attachments here) in `research.js`; Macros view (own nav tab: a flat list
+  of collapsible (collapsed by default) freeform title + Markdown-notes
+  sections for game-macro notes — not tied to any champion, matchup, or
+  session; sections append at the bottom in creation order, no drag-reorder;
+  editing a section force-expands it and keeps it expanded after save) in
+  `macros.js`.
+- **Ascent VOD integration** — `server/recordings.py` imports local recordings
+  from Ascent's own sqlite db (`%LOCALAPPDATA%\Ascent\recordings.db`, path
+  overridable via the `ascent_db_path` setting). Ascent stores `game_match_id`
+  per recording — the SAME match-v5 id we key `matches` on — which is the whole
+  reason this can work without guesswork. **Two invariants the module exists to
+  hold:** Ascent's db is only ever READ, and always via a snapshot (db + `-wal`
+  + `-shm` copied to a temp dir) because it is a live database owned by another
+  running process with a large WAL; and video files are never copied, moved or
+  deleted — only paths are stored, and "forget" drops the row, not the file.
+  Only recordings whose match is already crawled are imported. `sync()` runs at
+  the end of `_run_crawl` (best-effort — Ascent missing must never fail a crawl)
+  and behind `POST /api/recordings/sync`. `recordings` table is keyed by
+  Ascent's uuid so re-syncing is idempotent; re-sync refreshes path/timings but
+  never clobbers OUR columns (`offset_ms`, YouTube state).
+  `GET /api/recordings/{uuid}/file` streams the local mp4 through
+  `FileResponse` (Range requests work, which is what makes seeking possible) and
+  only serves paths already in the table — the id is looked up, never taken from
+  the request. `player_map_events` was widened from deaths-only to also carry
+  kills/assists/towers/inhibitors/objectives (`metrics.parse_map_events`), with
+  a `detail` label whose leading `-` marks an event that went AGAINST the
+  player's team. SQLite can't ALTER that CHECK constraint, so `_migrate`
+  rebuilds the table (rename/create/copy/drop), carrying every existing death
+  forward. **Anything reading that table for the heatmap must filter
+  `event_type='death'`** — `stats.map_events` now does, or the Trends death map
+  would start plotting kills and towers. Existing rows look complete
+  (`has_map_events=1`) but hold only deaths, so
+  `backfill_map_events(recompute=True)` / `./crawl.sh --recompute-map-events`
+  re-derives them; it re-fetches every timeline (real Riot calls) and, like the
+  lane-delta recompute, skips rather than clobbers when a fetch fails.
+  **A second, offline event source** lives in `server/ascent_log.py`: Ascent
+  records via Overwolf's GEP, which reads League's Live Client Data feed, and
+  those events are written into `%LOCALAPPDATA%\Ascent\logs\*.log` inside
+  periodic game snapshots (`match_id="..."` GEP lines bracket each game;
+  `"allPlayers":[...]` gives team membership, `"events":[...]` the feed). Parsed
+  into the same rows with `source='ascent_log'` and **NULL x/y** — Live Client
+  Data has no coordinates, so `stats.map_events` filters `x IS NOT NULL` as well
+  as `event_type='death'`. Needs no API key, but only reaches as far back as the
+  logs roll (days). Team membership decides ours-vs-theirs; without it every
+  objective a teammate took would read as lost. **The two sources must never be
+  mixed for one game** — both describe it, so reading both doubles every death.
+  `recordings.preferred_source()` picks whichever has MORE events per
+  (match, puuid): a pre-widening timeline holds deaths only and loses to the
+  log, a recomputed timeline wins. Self-correcting, no flag to maintain.
+  `recordings.timeline_markers()` reads them all back for the VOD chapter list
+  and for the mini-map beside the player (`recordingMap` in app.js; each dot
+  seeks the video to that moment). The Rift itself is `riftBackdrop()` in
+  app.js, shared by that map AND the Trends death map so there is only one:
+  Riot's official minimap (`ddragon .../img/map/map11.png`, hotlinked exactly
+  like the champion/rune/item icons the app already uses) laid over a
+  hand-drawn schematic fallback (`riftSchematic()` — lanes, river, turret line,
+  Baron/Dragon pits) that shows through if the image can't load. Both are drawn
+  in Riot's map coordinates and projected with `heatmapPoint`, so no offset
+  correction is needed — verified by plotting known landmarks (Baron pit, both
+  nexuses) over the image.
+  `death_markers()` turns `player_map_events` timestamps into video
+  positions: measured across a real library, Ascent starts recording within a
+  few seconds of the game (durations match to ~2-6s), so timeline time maps
+  essentially 1:1 onto video time; `offset_ms` is the per-recording nudge.
+  Frontend: `recordingSection`/`wireRecordingSection` in app.js, the same
+  shared-component pattern as `clipsSection`/`reflectionSection`, used by
+  Overview's Recent games and blocks.js's per-game panel.
+- **YouTube upload** — `server/youtube.py`, behind
+  `POST /api/recordings/{uuid}/youtube` (background thread + `UPLOAD_STATE`,
+  polled via `/api/recordings/upload-status`, mirroring `CRAWL_STATE`). Needs
+  the user's OWN Google OAuth desktop client (`youtube_client_secrets` setting)
+  — that cannot be automated, it is tied to their Google account. Google
+  libraries are imported lazily so everything else runs without them. Token
+  caches as `youtube_token.json` beside the db. Defaults to **private** because
+  an unaudited OAuth project cannot produce anything else regardless of the
+  setting, and the default quota allows only ~6 uploads/day. The UI always
+  `confirm()`s before uploading — it publishes to the user's channel.
 
 ## Schema (data/lol.sqlite)
 
@@ -587,9 +664,8 @@ Trends-style query uses, behind `GET /api/stats/map-events?champion=&role=&
 from_ms=&to_ms=` (or `range=`/`from=`/`to=` like `/api/stats/games`).
 Frontend: an expandable "Death map" section at the bottom of the Trends view
 (`trends.js`, collapsed by default, `.seg-toggle`, data fetched lazily on
-first expand and invalidated whenever a filter changes) draws an abstract
-schematic Rift as inline SVG (border square + two lane polylines + a
-diagonal river band, all `--grid`-tinted — no licensed map image) and plots
+first expand and invalidated whenever a filter changes) draws the Rift via the
+shared `riftBackdrop()` (app.js) and plots
 each death as a semi-transparent `--critical`-tinted dot (overlapping dots
 naturally read as density). Riot's timeline coordinate space is ~0–14820 (x)
 / ~0–14881 (y), origin bottom-left; `heatmapPoint()` flips the y-axis into

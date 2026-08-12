@@ -5,3 +5,7 @@ pytest>=8
 cryptography>=42
 python-multipart>=0.0.9
 reportlab>=4.0
+# YouTube upload for recorded VODs (server/youtube.py). Pure-Python wheels;
+# imported lazily so everything else still runs if they aren't installed.
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2

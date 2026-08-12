@@ -1590,3 +1590,154 @@ footer {
 .tier-compare-cell .tier-chip img { width: 30px; height: 30px; }
 .tier-compare-cell .tier-drop { min-height: 40px; gap: 3px; padding: 4px; }
 @media (max-width: 900px) { .tier-compare-grid { grid-template-columns: 1fr; } }
+
+/* ---------- recordings (local Ascent VODs) ---------- */
+.recording-section { margin-top: 12px; }
+.recording-section h5 {
+  margin: 0 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-secondary);
+}
+.recording-card {
+  border: 1px solid var(--grid); border-radius: 8px;
+  padding: 9px 11px; background: var(--surface-1);
+  /* wide enough for a 16:9 video plus a square map of the same height:
+     1.78 x 290 + 290 + gap ~= 820 */
+  max-width: 900px;
+}
+.recording-video {
+  width: 100%; max-height: 380px; border-radius: 6px;
+  background: #000; display: block;
+}
+.recording-marks { margin-top: 8px; }
+.recording-seek { font-size: 12px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
+.recording-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
+}
+.recording-offset-label { font-size: 12px; color: var(--text-secondary); }
+.recording-offset { width: 6.5em; }
+.recording-yt-link { text-decoration: none; }
+.recording-progress {
+  height: 6px; border-radius: 999px; margin-top: 8px;
+  background: var(--grid); overflow: hidden;
+}
+.recording-progress-fill {
+  height: 100%; background: var(--series-1); border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.recording-desc { margin-top: 8px; }
+.recording-desc-text {
+  width: 100%; margin-top: 6px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px; background: var(--page); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 9px; resize: vertical; color: var(--text-primary);
+}
+
+/* video + mini-map side by side; stacks on narrow screens */
+.recording-main {
+  display: grid; gap: 12px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.recording-map { min-width: 0; }
+.rec-map-svg { width: 100%; height: auto; display: block; }
+/* a dark halo so markers read against the map artwork underneath */
+.rec-map-dot {
+  cursor: pointer;
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.95));
+}
+.rec-map-dot:hover { stroke: var(--text-primary); stroke-width: 1.5; }
+.rec-map-dot:focus-visible { outline: 2px solid var(--series-1); }
+.rec-map-death { fill: var(--critical); stroke: var(--critical); }
+.rec-map-kill { fill: var(--good-text); stroke: var(--good-text); }
+.rec-map-assist { fill: var(--good-text); stroke: var(--good-text); opacity: 0.45; }
+.rec-map-tower { fill: var(--series-1); stroke: var(--series-1); }
+.rec-map-objective { fill: var(--series-2); stroke: var(--series-2); }
+/* filled = we did it, hollow = it happened to us. MUST stay after the colour
+   rules above — same specificity, so the later declaration is the one that
+   wins and clears the fill. */
+.rec-map-dot.rec-map-against { fill: none; stroke-width: 2; }
+.rec-map-legend {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; margin-top: 5px;
+}
+.rec-map-key { display: inline-flex; align-items: center; gap: 4px; }
+.rec-map-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+@media (max-width: 780px) { .recording-main { grid-template-columns: 1fr; } }
+
+/* ---------- schematic Summoner's Rift (VOD map + Trends death map) ---------- */
+.rift-field { fill: color-mix(in srgb, var(--series-1) 5%, transparent); stroke: var(--border); stroke-width: 1; }
+.rift-lane {
+  fill: none; stroke: color-mix(in srgb, var(--text-secondary) 34%, transparent);
+  stroke-width: 9; stroke-linecap: round; stroke-linejoin: round;
+}
+.rift-river {
+  fill: none; stroke: color-mix(in srgb, var(--series-1) 20%, transparent);
+  stroke-width: 16; stroke-linecap: round; stroke-linejoin: round;
+}
+.rift-turret { fill: var(--muted); opacity: 0.75; }
+.rift-turret-blue { fill: color-mix(in srgb, var(--series-1) 75%, var(--muted)); }
+.rift-turret-red { fill: color-mix(in srgb, var(--critical) 70%, var(--muted)); }
+.rift-pit { fill: none; stroke: var(--text-secondary); stroke-width: 1.5; opacity: 0.8; }
+.rift-pit-label {
+  font-size: 8px; font-weight: 700; text-anchor: middle;
+  fill: var(--text-secondary); pointer-events: none;
+}
+.rift-base { stroke-width: 2; fill: none; }
+.rift-base-blue { stroke: var(--series-1); }
+.rift-base-red { stroke: var(--critical); }
+/* the real minimap sits on top of the hand-drawn fallback */
+.rift-image { opacity: 0.92; }
+/* the map deserves more room than a sidebar strip */
+.recording-main { grid-template-columns: minmax(0, 1fr) 340px; }
+/* the seek chips carry the same colour coding as the map markers */
+.recording-seek.rec-map-death { border-color: var(--critical); color: var(--critical); }
+.recording-seek.rec-map-kill { border-color: var(--good-text); color: var(--good-text); }
+.recording-seek.rec-map-assist { border-color: var(--border); color: var(--text-secondary); }
+.recording-seek.rec-map-tower { border-color: var(--series-1); color: var(--series-1); }
+.recording-seek.rec-map-objective { border-color: var(--series-2); color: var(--series-2); }
+/* events that went against us read as outlines rather than solid accents */
+.recording-seek.recording-seek-against { opacity: 0.6; border-style: dashed; }
+
+/* video and map share one height so they read as a pair; the map is square at
+   that height, the video keeps its 16:9 */
+.recording-main {
+  --rec-media-h: 290px;
+  grid-template-columns: auto auto;
+  justify-content: start;
+}
+.recording-video { height: var(--rec-media-h); width: auto; max-height: none; }
+/* the map box is exactly as tall as the video, legend included — the square
+   shrinks to make room rather than pushing the box taller */
+.recording-map {
+  height: var(--rec-media-h); display: flex; flex-direction: column; min-width: 0;
+}
+.recording-map .rec-map-svg {
+  flex: 1 1 auto; min-height: 0; height: 100%; width: auto;
+  aspect-ratio: 1; align-self: center;  /* stay square, don't letterbox */
+}
+.recording-map .rec-map-legend { flex: none; }
+.recording-mark-tabs { margin: 10px 0 6px; flex-wrap: wrap; }
+.recording-mark-tab {
+  font-size: 12px; padding: 2px 9px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--surface-1); cursor: pointer;
+  color: var(--text-primary);
+}
+.recording-mark-tab.active {
+  background: var(--accent-wash); border-color: var(--series-1); font-weight: 600;
+}
+.recording-mark-list {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 220px; overflow-y: auto;
+}
+.recording-mark-list li { margin: 0; }
+.recording-mark-list .recording-seek {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  text-align: left; background: none; border: 0; border-radius: 5px;
+  padding: 3px 7px; font-size: 13px; cursor: pointer;
+}
+.recording-mark-list .recording-seek:hover { background: var(--accent-wash); }
+.recording-seek-glyph { width: 1.2em; flex: none; }
+.recording-seek-time {
+  font-variant-numeric: tabular-nums; min-width: 3.6em; color: var(--text-secondary);
+}
+.recording-seek-label { color: var(--text-primary); }
+.recording-mark-list .recording-seek-against .recording-seek-label { opacity: 0.65; }
+@media (max-width: 900px) { .recording-main { grid-template-columns: 1fr; } }
+#recordings-status:not(:empty) { font-size: 12px; margin-right: 4px; }

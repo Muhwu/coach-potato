@@ -522,13 +522,13 @@ def test_refresh_tracked_ranks_appends_rank_history(conn):
         ("DIAMOND", 12, 1_800_000_000_000), ("DIAMOND", 30, 1_800_000_100_000)]
 
 
-def test_crawl_stores_death_map_events_inline_from_timeline(conn):
+def test_crawl_stores_map_events_inline_from_timeline(conn):
     match = match_json("EUW1_1", 1_700_000_000_000)
     deaths = [
         {"type": "CHAMPION_KILL", "timestamp": 840_000, "victimId": 1, "killerId": 2,
          "position": {"x": 5000, "y": 8000}},
         {"type": "CHAMPION_KILL", "timestamp": 900_000, "victimId": 2, "killerId": 1,
-         "position": {"x": 1000, "y": 1000}},  # my kill, not my death — must be skipped
+         "position": {"x": 1000, "y": 1000}},  # my kill — stored as a "kill" event
         {"type": "WARD_PLACED", "timestamp": 850_000, "creatorId": 1, "wardType": "YELLOW_TRINKET"},
     ]
     client = FakeClient([match], timelines=[timeline_json("EUW1_1", death_events=deaths)])
@@ -536,9 +536,12 @@ def test_crawl_stores_death_map_events_inline_from_timeline(conn):
     rows = conn.execute(
         "SELECT event_type, x, y, timestamp_ms FROM player_map_events WHERE match_id='EUW1_1' "
         "AND puuid=?", (TRACKED_PUUID,)).fetchall()
-    assert len(rows) == 1
+    # deaths AND kills are stored now (the event set widened for VOD chapters);
+    # WARD_PLACED still isn't, because match-v5 gives it no position
+    assert len(rows) == 2
     assert (rows[0]["event_type"], rows[0]["x"], rows[0]["y"], rows[0]["timestamp_ms"]) == (
         "death", 5000, 8000, 840_000)
+    assert (rows[1]["event_type"], rows[1]["timestamp_ms"]) == ("kill", 900_000)
     has_map_events = conn.execute(
         "SELECT has_map_events FROM participant_metrics WHERE match_id='EUW1_1' AND puuid=?",
         (TRACKED_PUUID,)).fetchone()["has_map_events"]
