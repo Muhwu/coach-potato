@@ -280,6 +280,11 @@ select, input[type="date"], input[type="number"] {
 table { border-collapse: collapse; width: 100%; }
 th, td {
   text-align: center;
+  /* One size for everything in a row: cells keep the 15px body text and the
+     buttons sitting inside them match it, rather than the old mix of 15px
+     cells against 11-13px buttons. Folding Reflection and the curve into the
+     VOD panel freed two columns, which is what made the full size fit again. */
+  font-size: 15px;
   padding: 8px 10px;
   border-top: 1px solid var(--grid);
   font-variant-numeric: tabular-nums;
@@ -321,13 +326,13 @@ th.wr-col, td.wr-col { text-align: center; }
 td.period-cell { white-space: normal; min-width: 220px; max-width: 360px; }
 .period-wrap { display: flex; align-items: flex-start; gap: 8px; }
 .period-text { min-width: 0; }
-.seg-toggle { flex: none; font-size: 12px; padding: 1px 5px; margin-top: 2px; }
+.seg-toggle { flex: none; font-size: 15px; padding: 1px 7px; margin-top: 2px; }
 /* Action cells (Runes / Curve / VOD / Reflect / + Block) hold a button that
    already carries its own padding, so the cell's 10px each side is doubled-up
    whitespace — ~20px per cell, which across five columns is what pushed the
    Recent-games table into horizontal scrolling. Reclaim it here rather than
    shrinking the global table padding, which every other table relies on. */
-td:has(> .seg-toggle), td:has(> .promote-btn) { padding-left: 2px; padding-right: 2px; }
+td:has(> .seg-toggle), td:has(> .promote-btn) { padding-left: 5px; padding-right: 5px; }
 
 tr.games-row td {
   background: var(--page);
@@ -551,7 +556,7 @@ td.notes-cell { text-align: left; white-space: normal; }
   display: block;
 }
 .game-notes:hover, .game-notes:focus { border-color: var(--border); background: var(--page); }
-.promote-btn { font-size: 12px; padding: 1px 5px; }
+.promote-btn { font-size: 15px; padding: 1px 7px; }
 .icon-btn { font-size: 17px; padding: 4px 11px; line-height: 1.25; }
 .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .col-menu a, .col-menu button {
@@ -1599,9 +1604,21 @@ footer {
 
 /* ---------- recordings (local Ascent VODs) ---------- */
 .recording-section { margin-top: 12px; }
-.recording-section h5 {
+.recording-section h5, .vod-curve h5 {
   margin: 0 0 6px; font-size: 12px; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--text-secondary);
+}
+/* the curve closes the VOD panel — same heading treatment as "Recording"
+   above it, with a rule to separate the two */
+.vod-curve {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--grid);
+}
+.vod-reflect { margin-bottom: 14px; }
+/* carries what the old Reflect button's "(3)" said: this game has notes on it */
+.vod-tagcount {
+  display: inline-block; min-width: 1.35em; padding: 0 4px; margin-left: 3px;
+  border-radius: 999px; background: var(--accent-wash); border: 1px solid var(--series-1);
+  font-size: 10px; line-height: 1.4;
 }
 .recording-card {
   border: 1px solid var(--grid); border-radius: 8px;

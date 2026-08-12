@@ -545,12 +545,12 @@ function renderChampionTable(byChampion) {
   wireSortable(target, champSort, CHAMP_SORT_COLS, () => renderChampionTable(state.byChampion));
 }
 
-const recentUi = { runesOpen: new Set(), reflectOpen: new Set(), vodOpen: new Set(),
-                   sort: { key: "date", dir: -1 } };
-// Full-game curve: separate from recentUi.runesOpen since curve data needs an
-// async fetch (runes are already inline on the game row) — cache is per
-// gkey, cleared never (recent games don't change once loaded for this view).
-const curveUi = { open: new Set(), cache: new Map() };
+const recentUi = { runesOpen: new Set(), vodOpen: new Set(), sort: { key: "date", dir: -1 } };
+// Full-game curve: no open-set of its own — it renders at the bottom of the
+// VOD panel, so recentUi.vodOpen decides when it shows. Only the fetched data
+// is held here, keyed per gkey and never cleared (recent games don't change
+// once loaded for this view).
+const curveUi = { cache: new Map() };
 
 function kdaRatio(g) { return (g.kills + g.assists) / Math.max(1, g.deaths); }
 
@@ -620,23 +620,17 @@ function gameCurveSection(gkey) {
   </div>`;
 }
 
-async function toggleGameCurve(gkey, matchId, myPuuid, oppPuuid, recent) {
-  if (curveUi.open.has(gkey)) {
-    curveUi.open.delete(gkey);
-  } else {
-    curveUi.open.add(gkey);
-    if (!curveUi.cache.has(gkey)) {
-      const params = new URLSearchParams({ match_id: matchId, puuid: myPuuid });
-      if (oppPuuid) params.set("opp_puuid", oppPuuid);
-      try {
-        curveUi.cache.set(gkey, await getJSON(`/api/stats/game-curve?${params}`));
-      } catch {
-        curveUi.cache.set(gkey, null);
-      }
-      renderRecent(recent);  // reflect the "Loading…" -> fetched state
-    }
+// fetched when the VOD panel opens — the curve lives at the bottom of it, so
+// it has no toggle of its own
+async function ensureGameCurve(gkey, matchId, myPuuid, oppPuuid) {
+  if (curveUi.cache.has(gkey)) return;
+  const params = new URLSearchParams({ match_id: matchId, puuid: myPuuid });
+  if (oppPuuid) params.set("opp_puuid", oppPuuid);
+  try {
+    curveUi.cache.set(gkey, await getJSON(`/api/stats/game-curve?${params}`));
+  } catch {
+    curveUi.cache.set(gkey, null);
   }
-  renderRecent(recent);
 }
 
 function runesCompareCol(champ, runes, whose) {
@@ -658,7 +652,7 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
-  const colCount = 13 + (multi ? 1 : 0);
+  const colCount = 11 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
   const cols = [
     { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
@@ -674,18 +668,14 @@ function renderRecent(recent) {
     { key: "kda", label: "K/D/A", type: "num", get: kdaRatio },
     { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
     { key: "runes", label: "Runes", sortable: false },
-    { key: "curve", label: "Curve", sortable: false },
     { key: "vod", label: "VOD", sortable: false },
-    { key: "reflect", label: "Reflection", sortable: false },
     { key: "block", label: "", sortable: false },
   ];
   const body = sortRows(recent, recentUi.sort, cols).map((g) => {
     const gkey = `${g.match_id}:${g.my_puuid}`;
     const runesOpen = recentUi.runesOpen.has(gkey);
-    const reflectOpen = recentUi.reflectOpen.has(gkey);
     const vodOpen = recentUi.vodOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
-    const curveOpen = curveUi.open.has(gkey);
     const tagCount = reflectionTagCount(g.match_id, g.my_puuid);
     let html = `<tr>
       <td>${fmtDateTime(g.game_creation_ms)}</td>
@@ -701,41 +691,39 @@ function renderRecent(recent) {
         ? `<button class="preset seg-toggle runes-toggle" data-gkey="${gkey}"
              aria-expanded="${runesOpen}" title="Runes">${runesOpen ? "▾" : "▸"} Runes</button>`
         : `<span class="muted">–</span>`}</td>
-      <td><button class="preset seg-toggle curve-toggle" data-gkey="${gkey}"
-             data-match="${g.match_id}" data-puuid="${g.my_puuid}" data-opp="${g.opp_puuid ?? ""}"
-             aria-expanded="${curveOpen}" title="Full-game gold/CS curve">${curveOpen ? "▾" : "▸"} Curve</button></td>
       <td><button class="preset seg-toggle vod-toggle" data-gkey="${gkey}"
-        data-match="${g.match_id}" data-puuid="${g.my_puuid}" aria-expanded="${vodOpen}"
-        title="Recorded VOD, with a map and chapter list of what happened"
-        >${vodOpen ? "▾" : "▸"} 🎬 VOD</button></td>
-      <td><button class="preset seg-toggle reflect-toggle" data-gkey="${gkey}"
-        data-match="${g.match_id}" data-puuid="${g.my_puuid}" aria-expanded="${reflectOpen}"
-        title="Reflection">${reflectOpen ? "▾" : "▸"} Reflect${tagCount ? ` (${tagCount})` : ""}</button></td>
+        data-match="${g.match_id}" data-puuid="${g.my_puuid}" data-opp="${g.opp_puuid ?? ""}"
+        aria-expanded="${vodOpen}"
+        title="Reflection, the recorded VOD with its map and chapters, and the full-game curve${
+          tagCount ? ` — ${tagCount} reflection tag${tagCount === 1 ? "" : "s"}` : ""}"
+        >${vodOpen ? "▾" : "▸"} 🎬 VOD${tagCount ? ` <span class="vod-tagcount">${tagCount}</span>` : ""}</button></td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`;
-    if (runesOpen || reflectOpen) {
+    if (runesOpen) {
       html += `<tr class="games-row"><td colspan="${colCount}">
-        ${runesOpen ? `<div class="runes-compare">${
+        <div class="runes-compare">${
           runesCompareCol(g.my_champion, g.runes, "you")}${
           g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
-        }</div>` : ""}
-        ${reflectOpen ? reflectionSection(g.match_id, g.my_puuid) : ""}
+        }</div>
       </td></tr>`;
     }
-    // the VOD gets its own row: it used to ride along with Reflect, where a
-    // video player and event map sat behind a button about tags and notes.
+    // One panel per game, in the order you'd work through it: what you took
+    // away from it, then the footage, then the shape of the whole game.
+    // Reflection and the curve each used to be their own column; both are
+    // about this single game, so a row of three toggles that open three
+    // stacked panels was just three ways of saying "expand this game".
     // recordingSection() renders nothing when there is no recording, which is
     // right when it's tucked inside another panel but reads as a broken toggle
     // when it IS the panel — so say so explicitly here.
     if (vodOpen) {
       const rec = recordingSection(g.match_id, g.my_puuid);
-      html += `<tr class="games-row"><td colspan="${colCount}">${rec
-        || `<p class="muted">No recording found for this game. Ascent recordings are
-            matched by game id — press 🎬 in the header to re-scan.</p>`}</td></tr>`;
-    }
-    if (curveOpen) {
-      html += `<tr class="games-row"><td colspan="${colCount}">${gameCurveSection(gkey)}</td></tr>`;
+      html += `<tr class="games-row"><td colspan="${colCount}">
+        <div class="vod-reflect">${reflectionSection(g.match_id, g.my_puuid)}</div>
+        ${rec || `<p class="muted">No recording found for this game. Ascent recordings are
+            matched by game id — press 🎬 in the header to re-scan.</p>`}
+        <div class="vod-curve"><h5>Full-game curve</h5>${gameCurveSection(gkey)}</div>
+      </td></tr>`;
     }
     return html;
   }).join("");
@@ -744,27 +732,10 @@ function renderRecent(recent) {
     <tbody>${body}</tbody></table></div>`;
   wireSortable(target, recentUi.sort, cols, () => renderRecent(recent));
   wirePromoteButtons(target);
-  target.querySelectorAll(".curve-toggle").forEach((btn) =>
-    btn.addEventListener("click", () =>
-      toggleGameCurve(btn.dataset.gkey, btn.dataset.match, btn.dataset.puuid,
-        btn.dataset.opp || null, recent)));
   target.querySelectorAll(".runes-toggle").forEach((btn) =>
     btn.addEventListener("click", () => {
       const gkey = btn.dataset.gkey;
       recentUi.runesOpen.has(gkey) ? recentUi.runesOpen.delete(gkey) : recentUi.runesOpen.add(gkey);
-      renderRecent(recent);
-    }));
-  target.querySelectorAll(".reflect-toggle").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const gkey = btn.dataset.gkey;
-      if (recentUi.reflectOpen.has(gkey)) {
-        recentUi.reflectOpen.delete(gkey);
-        renderRecent(recent);
-        return;
-      }
-      recentUi.reflectOpen.add(gkey);
-      renderRecent(recent); // show "Loading…" immediately
-      await ensureReflection(btn.dataset.match, btn.dataset.puuid);
       renderRecent(recent);
     }));
   target.querySelectorAll(".vod-toggle").forEach((btn) =>
@@ -777,7 +748,11 @@ function renderRecent(recent) {
       }
       recentUi.vodOpen.add(gkey);
       renderRecent(recent); // show "Loading…" immediately
-      await ensureRecentRecording(btn.dataset.match, btn.dataset.puuid);
+      await Promise.all([
+        ensureReflection(btn.dataset.match, btn.dataset.puuid),
+        ensureRecentRecording(btn.dataset.match, btn.dataset.puuid),
+        ensureGameCurve(gkey, btn.dataset.match, btn.dataset.puuid, btn.dataset.opp),
+      ]);
       renderRecent(recent);
     }));
   wireReflectionSection(target, async (matchId, puuid) => {
