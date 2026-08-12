@@ -321,7 +321,13 @@ th.wr-col, td.wr-col { text-align: center; }
 td.period-cell { white-space: normal; min-width: 220px; max-width: 360px; }
 .period-wrap { display: flex; align-items: flex-start; gap: 8px; }
 .period-text { min-width: 0; }
-.seg-toggle { flex: none; padding: 1px 7px; margin-top: 2px; }
+.seg-toggle { flex: none; font-size: 12px; padding: 1px 5px; margin-top: 2px; }
+/* Action cells (Runes / Curve / VOD / Reflect / + Block) hold a button that
+   already carries its own padding, so the cell's 10px each side is doubled-up
+   whitespace — ~20px per cell, which across five columns is what pushed the
+   Recent-games table into horizontal scrolling. Reclaim it here rather than
+   shrinking the global table padding, which every other table relies on. */
+td:has(> .seg-toggle), td:has(> .promote-btn) { padding-left: 2px; padding-right: 2px; }
 
 tr.games-row td {
   background: var(--page);
@@ -545,7 +551,7 @@ td.notes-cell { text-align: left; white-space: normal; }
   display: block;
 }
 .game-notes:hover, .game-notes:focus { border-color: var(--border); background: var(--page); }
-.promote-btn { font-size: 12px; padding: 1px 7px; }
+.promote-btn { font-size: 12px; padding: 1px 5px; }
 .icon-btn { font-size: 17px; padding: 4px 11px; line-height: 1.25; }
 .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .col-menu a, .col-menu button {

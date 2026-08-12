@@ -1273,6 +1273,12 @@ const reflectionUi = {
    point: each death from the match timeline becomes a clickable marker that
    jumps the video to that moment. */
 
+// How far BEFORE a marker to drop the playhead. Every marker is the moment a
+// thing already happened, so landing on it shows the aftermath and hides the
+// cause; five seconds covers the approach without overshooting the previous
+// event in a busy fight.
+const SEEK_LEAD_MS = 5000;
+
 const recordingUi = {
   cache: new Map(),          // "matchId:puuid" -> [recording, ...] once fetched
   recordedMatches: null,     // Set of match ids that have a recording, or null
@@ -1650,7 +1656,8 @@ function recordingMap(r) {
     // "-" on a detail marks an event that went against us — draw it hollow
     const against = (e.detail || "").startsWith("-");
     const label = `${e.detail ? (against ? `Lost ${e.detail.slice(1).toLowerCase()}` : e.detail)
-      : e.event_type} @ ${fmtVideoTime(e.video_ms)} — click to jump`;
+      : e.event_type} @ ${fmtVideoTime(e.video_ms)} — click to play from ${
+      SEEK_LEAD_MS / 1000}s before`;
     return `<circle class="rec-map-dot ${cls} ${against ? "rec-map-against" : ""}"
       cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius}"
       data-ms="${e.video_ms}" tabindex="0" role="button"
@@ -1748,7 +1755,10 @@ function wireRecordingSection(container, reload) {
     const card = el.closest(".recording-card");
     const video = card && card.querySelector("video");
     if (!video) return;
-    video.currentTime = (+el.dataset.ms) / 1000;
+    // land SEEK_LEAD_MS before the event: a death or objective only makes
+    // sense with the run-up to it, and dropping the user exactly on the
+    // timestamp meant scrubbing backwards every single time
+    video.currentTime = Math.max(0, (+el.dataset.ms) - SEEK_LEAD_MS) / 1000;
     video.play().catch(() => { /* autoplay blocked — the seek still landed */ });
   };
   container.querySelectorAll(".recording-seek").forEach((btn) =>
