@@ -546,8 +546,97 @@ function renderChampionTable(byChampion) {
 }
 
 const recentUi = { runesOpen: new Set(), sort: { key: "date", dir: -1 } };
+// Full-game curve: separate from recentUi.runesOpen since curve data needs an
+// async fetch (runes are already inline on the game row) — cache is per
+// gkey, cleared never (recent games don't change once loaded for this view).
+const curveUi = { open: new Set(), cache: new Map() };
 
 function kdaRatio(g) { return (g.kills + g.assists) / Math.max(1, g.deaths); }
+
+// ---------- full-game gold/CS/XP/level curve chart ----------
+// Gold and CS are the two most immediately useful reads for lane/game
+// review; XP and level are available from the same endpoint if a future
+// pass wants to add a metric switcher.
+const GC_METRICS = [
+  { key: "gold", label: "Gold", decimals: 0 },
+  { key: "cs", label: "CS", decimals: 0 },
+];
+const GC_CHART_W = 260, GC_CHART_H = 100;
+const GC_PAD = { l: 34, r: 8, t: 8, b: 18 };
+
+function gcChartSVG(def, minutes, meValues, oppValues) {
+  const mePts = minutes.map((m, i) => ({ x: m, v: meValues[i] })).filter((p) => p.v != null);
+  const oppPts = oppValues
+    ? minutes.map((m, i) => ({ x: m, v: oppValues[i] })).filter((p) => p.v != null)
+    : [];
+  const allVals = [...mePts.map((p) => p.v), ...oppPts.map((p) => p.v)];
+  if (!allVals.length) return "";
+  let lo = Math.min(...allVals), hi = Math.max(...allVals);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const span = hi - lo;
+  lo -= span * 0.08; hi += span * 0.08;
+  const maxX = Math.max(...minutes, 1);
+  const iw = GC_CHART_W - GC_PAD.l - GC_PAD.r, ih = GC_CHART_H - GC_PAD.t - GC_PAD.b;
+  const x = (m) => GC_PAD.l + (m / maxX) * iw;
+  const y = (v) => GC_PAD.t + ih - ((v - lo) / (hi - lo)) * ih;
+  const fmt = (v) => v.toFixed(def.decimals) + (def.suffix || "");
+  const line = (pts, cls) => pts.length > 1
+    ? `<polyline class="${cls}" points="${
+        pts.map((p) => `${x(p.x).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ")}"/>`
+    : "";
+  const maxV = Math.max(...allVals), minV = Math.min(...allVals);
+  return `<figure class="trend-chart game-curve-chart">
+    <figcaption>${def.label}</figcaption>
+    <svg viewBox="0 0 ${GC_CHART_W} ${GC_CHART_H}" role="img"
+         aria-label="${def.label} over the game">
+      <line class="tl-axis" x1="${GC_PAD.l}" x2="${GC_CHART_W - GC_PAD.r}"
+            y1="${GC_CHART_H - GC_PAD.b}" y2="${GC_CHART_H - GC_PAD.b}"/>
+      <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(maxV) + 3}" text-anchor="end">${fmt(maxV)}</text>
+      <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(minV) + 3}" text-anchor="end">${fmt(minV)}</text>
+      ${line(mePts, "gc-line-me")}${line(oppPts, "gc-line-opp")}
+      <text class="tl-xlab" x="${GC_PAD.l}" y="${GC_CHART_H - 4}">0m</text>
+      <text class="tl-xlab" x="${GC_CHART_W - GC_PAD.r}" y="${GC_CHART_H - 4}" text-anchor="end">${maxX}m</text>
+    </svg>
+  </figure>`;
+}
+
+function gameCurveSection(gkey) {
+  if (!curveUi.cache.has(gkey)) return `<p class="muted">Loading…</p>`;
+  const curve = curveUi.cache.get(gkey);
+  if (!curve) {
+    return `<p class="muted">No full-game curve recorded — crawl again or run
+      <code>./crawl.sh --backfill-frame-series</code>.</p>`;
+  }
+  const charts = GC_METRICS.map((def) =>
+    gcChartSVG(def, curve.minutes, curve.me[def.key], curve.opp ? curve.opp[def.key] : null)
+  ).join("");
+  return `<div class="game-curve">
+    <div class="game-curve-legend">
+      <span class="gc-legend-me">● You</span>
+      ${curve.opp ? `<span class="gc-legend-opp">● Opponent</span>` : ""}
+    </div>
+    <div class="chart-grid">${charts}</div>
+  </div>`;
+}
+
+async function toggleGameCurve(gkey, matchId, myPuuid, oppPuuid, recent) {
+  if (curveUi.open.has(gkey)) {
+    curveUi.open.delete(gkey);
+  } else {
+    curveUi.open.add(gkey);
+    if (!curveUi.cache.has(gkey)) {
+      const params = new URLSearchParams({ match_id: matchId, puuid: myPuuid });
+      if (oppPuuid) params.set("opp_puuid", oppPuuid);
+      try {
+        curveUi.cache.set(gkey, await getJSON(`/api/stats/game-curve?${params}`));
+      } catch {
+        curveUi.cache.set(gkey, null);
+      }
+      renderRecent(recent);  // reflect the "Loading…" -> fetched state
+    }
+  }
+  renderRecent(recent);
+}
 
 function runesCompareCol(champ, runes, whose) {
   const body = runes
@@ -568,7 +657,7 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
-  const colCount = 10 + (multi ? 1 : 0);
+  const colCount = 11 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
   const cols = [
     { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
@@ -584,12 +673,14 @@ function renderRecent(recent) {
     { key: "kda", label: "K/D/A", type: "num", get: kdaRatio },
     { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
     { key: "runes", label: "Runes", sortable: false },
+    { key: "curve", label: "Curve", sortable: false },
     { key: "block", label: "", sortable: false },
   ];
   const body = sortRows(recent, recentUi.sort, cols).map((g) => {
     const gkey = `${g.match_id}:${g.my_puuid}`;
     const open = recentUi.runesOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
+    const curveOpen = curveUi.open.has(gkey);
     let html = `<tr>
       <td>${fmtDateTime(g.game_creation_ms)}</td>
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
@@ -604,6 +695,9 @@ function renderRecent(recent) {
         ? `<button class="preset seg-toggle runes-toggle" data-gkey="${gkey}"
              aria-expanded="${open}" title="Runes">${open ? "▾" : "▸"} Runes</button>`
         : `<span class="muted">–</span>`}</td>
+      <td><button class="preset seg-toggle curve-toggle" data-gkey="${gkey}"
+             data-match="${g.match_id}" data-puuid="${g.my_puuid}" data-opp="${g.opp_puuid ?? ""}"
+             aria-expanded="${curveOpen}" title="Full-game gold/CS curve">${curveOpen ? "▾" : "▸"} Curve</button></td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`;
@@ -613,6 +707,9 @@ function renderRecent(recent) {
         g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
       }</div></td></tr>`;
     }
+    if (curveOpen) {
+      html += `<tr class="games-row"><td colspan="${colCount}">${gameCurveSection(gkey)}</td></tr>`;
+    }
     return html;
   }).join("");
   target.innerHTML = `<div class="table-wrap"><table>
@@ -620,6 +717,10 @@ function renderRecent(recent) {
     <tbody>${body}</tbody></table></div>`;
   wireSortable(target, recentUi.sort, cols, () => renderRecent(recent));
   wirePromoteButtons(target);
+  target.querySelectorAll(".curve-toggle").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      toggleGameCurve(btn.dataset.gkey, btn.dataset.match, btn.dataset.puuid,
+        btn.dataset.opp || null, recent)));
   target.querySelectorAll(".runes-toggle").forEach((btn) =>
     btn.addEventListener("click", () => {
       const gkey = btn.dataset.gkey;

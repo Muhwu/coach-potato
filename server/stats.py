@@ -277,7 +277,7 @@ def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
     ]
     recent = [_decode_game_runes(r) for r in conn.execute(
         f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
-                   my_puuid, my_champion, opp_champion, rank_tier, win,
+                   my_puuid, my_champion, opp_champion, opp_puuid, rank_tier, win,
                    kills, deaths, assists, cs, my_runes_json, opp_runes_json
             FROM ({base}) ORDER BY game_creation_ms DESC LIMIT 20""",
         params)]
@@ -482,6 +482,38 @@ def single_game_metrics(conn, match_id, puuid):
         else:
             values[m["key"]] = raw
     return values
+
+
+_FRAME_SERIES_COLS = ("cs", "xp", "gold", "level")
+
+
+def _frame_series_side(conn, match_id, puuid):
+    rows = conn.execute(
+        """SELECT minute, cs, xp, gold, level FROM participant_frame_series
+           WHERE match_id=? AND puuid=? ORDER BY minute""",
+        (match_id, puuid)).fetchall()
+    if not rows:
+        return None
+    return rows, {k: [r[k] for r in rows] for k in _FRAME_SERIES_COLS}
+
+
+def game_curve(conn, match_id, puuid, opp_puuid=None):
+    """Full-game per-minute gold/CS/XP/level series for one participant (and
+    optionally their lane opponent) in a match — the full-game curve chart.
+    None if `puuid` has no recorded series for that match (crawled before the
+    feature existed, or the match's timeline was unavailable — run
+    ./crawl.sh --backfill-frame-series). `opp` is None when opp_puuid isn't
+    given or has no recorded series of its own."""
+    mine = _frame_series_side(conn, match_id, puuid)
+    if mine is None:
+        return None
+    rows, me = mine
+    opp = None
+    if opp_puuid:
+        theirs = _frame_series_side(conn, match_id, opp_puuid)
+        if theirs is not None:
+            opp = theirs[1]
+    return {"minutes": [r["minute"] for r in rows], "me": me, "opp": opp}
 
 
 def block_games_detailed(conn):

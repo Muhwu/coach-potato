@@ -221,6 +221,36 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   fetched and polls `/api/blocks/timeline-status`.
 - Block series: `block_series(id, title, goals, created_at_ms)`; every `blocks`
   row has a `series_id` (added in `_migrate`; `seed_block_series` on connect
+- Full-game curve: `participant_frame_series(match_id+puuid+minute, cs, xp,
+  gold, level)` — the WHOLE per-minute timeline series (not just the two
+  ~7/14 min marks lane deltas sample), stored for ALL 10 participants per
+  match (like `participants` itself), so any pair's curve can be charted
+  without resolving "who is the lane opponent" at storage time.
+  `metrics.parse_frame_series(timeline_json)` is the pure extraction
+  function (buckets each frame's `timestamp` into `minute = round(ts_ms /
+  60000)`, one entry per participant per frame); `Crawler._store_frame_series`
+  writes it via `db.insert_frame_series` (INSERT OR IGNORE, idempotent).
+  Populated once per match — not once per tracked puuid — from the SAME
+  timeline fetch `crawl_player` already makes for lane deltas (no extra API
+  call). `crawler.backfill_frame_series()` / `./crawl.sh
+  --backfill-frame-series` fills existing matches that already had a
+  timeline processed (`participant_metrics.has_timeline=1`) but predate this
+  feature; it re-fetches the timeline (the raw JSON isn't cached anywhere)
+  so a permanently-missing timeline can resurface on repeat runs — accepted
+  since this is a manual, on-demand backfill, not part of the crawl loop.
+  `stats.game_curve(conn, match_id, puuid, opp_puuid=None)` reads it back as
+  `{minutes: [...], me: {cs, xp, gold, level}, opp: {...} | null}`, behind
+  `GET /api/stats/game-curve?match_id=&puuid=&opp_puuid=` (404 when nothing
+  recorded for that puuid). UI: the Overview "Recent games" table's ▸/▾
+  "Curve" toggle (`curveUi`/`toggleGameCurve`/`gameCurveSection` in app.js,
+  a sibling to the existing `.runes-toggle`, since curve data needs an async
+  fetch on first expand while runes are already inline on the row) renders
+  gold + CS as two small SVG line charts (`gcChartSVG`) — the two most
+  immediately useful for a lane/game read; XP/level are in the payload for a
+  future metric switcher. A second `--series-2` theme color (in
+  `style.css`, alongside `--series-1`) distinguishes the opponent's line.
+- Block series: `block_series(id, title, created_at_ms)`; every `blocks` row
+  has a `series_id` (added in `_migrate`; `seed_block_series` on connect
   ensures ≥1 series exists and assigns orphan/legacy blocks to it).
   `create_block` attaches the current (newest) series; `start_new_series`
   (POST `/api/blocks/series`) opens a fresh one, finalizing an in-progress
@@ -570,6 +600,13 @@ Matchups') and a Role select (`#trend-role`, wired into the same shared
 purely to drive this — `stats.trend_buckets` also gained optional
 `from_ms`/`to_ms` (additive; `None` = full history as before) so the
 existing bucket charts/breakdown table honor the new Period filter too.
+`participant_frame_series(match_id+puuid+minute PK, cs, xp, gold, level)` —
+full-game per-minute gold/CS/XP/level series from the match-v5 timeline, for
+ALL 10 participants (not just tracked/lane-opponent puuids, unlike
+`participant_runes`/lane deltas) — see the crawler bullet above for the
+extraction/backfill/endpoint details. Feeds the Overview "Recent games"
+table's ▸/▾ "Curve" toggle (a two-line SVG chart per game: you vs the lane
+opponent, gold + CS).
 `clips(id PK, owner_type CHECK IN ('session','block_game'), owner_id, label,
 kind CHECK IN ('upload','link'), file_name, url, created_at_ms)` — 1-minute
 video clips attached to a coaching session or a specific block game (not

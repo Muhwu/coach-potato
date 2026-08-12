@@ -180,6 +180,25 @@ CREATE TABLE IF NOT EXISTS participant_runes (
     PRIMARY KEY (match_id, puuid)
 );
 
+-- Full-game per-minute gold/CS/XP/level series, from the match-v5 TIMELINE's
+-- per-frame participantFrames — one row per (match, participant, minute).
+-- Stored for ALL 10 participants (like `participants` itself), not just
+-- tracked/stored puuids, so any pair's curve can be charted later without
+-- needing to resolve "who is the lane opponent" at storage time. Feeds the
+-- full-game gold/CS/XP/level curve chart (`GET /api/stats/game-curve`) —
+-- distinct from participant_metrics' cs_diff_7/14 etc., which sample only
+-- two fixed marks.
+CREATE TABLE IF NOT EXISTS participant_frame_series (
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    minute INTEGER NOT NULL,
+    cs INTEGER,
+    xp INTEGER,
+    gold INTEGER,
+    level INTEGER,
+    PRIMARY KEY (match_id, puuid, minute)
+);
+
 CREATE TABLE IF NOT EXISTS clips (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_type TEXT NOT NULL CHECK (owner_type IN ('session', 'block_game')),
@@ -887,6 +906,21 @@ def replace_map_events(conn, match_id, puuid, events):
         conn.execute(
             "UPDATE participant_metrics SET has_map_events=1 WHERE match_id=? AND puuid=?",
             (match_id, puuid))
+def insert_frame_series(conn, rows):
+    """Bulk-insert per-minute gold/CS/XP/level series rows into
+    participant_frame_series. rows: iterable of {match_id, puuid, minute, cs,
+    xp, gold, level}. INSERT OR IGNORE (matching insert_match's convention) —
+    reprocessing an already-stored match (e.g. a repeat backfill run) is
+    always safe and never overwrites."""
+    rows = list(rows)
+    if not rows:
+        return
+    with conn:
+        conn.executemany(
+            """INSERT OR IGNORE INTO participant_frame_series
+               (match_id, puuid, minute, cs, xp, gold, level)
+               VALUES (:match_id, :puuid, :minute, :cs, :xp, :gold, :level)""",
+            rows)
 
 
 def tracked_ranks(conn):

@@ -242,6 +242,39 @@ def test_replace_map_events_round_trip(conn):
     assert count == 0
 
 
+def test_insert_frame_series_round_trip(conn):
+    db.insert_frame_series(conn, [
+        {"match_id": "EUW1_1", "puuid": "p1", "minute": 0,
+         "cs": 0, "xp": 0, "gold": 500, "level": 1},
+        {"match_id": "EUW1_1", "puuid": "p1", "minute": 7,
+         "cs": 55, "xp": 3200, "gold": 2600, "level": 6},
+        {"match_id": "EUW1_1", "puuid": "p2", "minute": 7,
+         "cs": 40, "xp": 2800, "gold": 2100, "level": 5},
+    ])
+    rows = conn.execute(
+        """SELECT minute, cs, xp, gold, level FROM participant_frame_series
+           WHERE match_id='EUW1_1' AND puuid='p1' ORDER BY minute"""
+    ).fetchall()
+    assert [dict(r) for r in rows] == [
+        {"minute": 0, "cs": 0, "xp": 0, "gold": 500, "level": 1},
+        {"minute": 7, "cs": 55, "xp": 3200, "gold": 2600, "level": 6},
+    ]
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid='p2'"
+    ).fetchone()["c"] == 1
+    # re-inserting the same rows is a no-op (INSERT OR IGNORE) — idempotent
+    db.insert_frame_series(conn, [
+        {"match_id": "EUW1_1", "puuid": "p1", "minute": 0,
+         "cs": 999, "xp": 999, "gold": 999, "level": 99},
+    ])
+    row = conn.execute(
+        "SELECT cs FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid='p1' AND minute=0"
+    ).fetchone()
+    assert row["cs"] == 0  # untouched, not overwritten
+    # empty input is a no-op, not an error
+    db.insert_frame_series(conn, [])
+
+
 def test_player_map_events_table_added_to_existing_db(tmp_path):
     c1 = db.connect(tmp_path / "y.sqlite")
     c1.close()
@@ -250,6 +283,15 @@ def test_player_map_events_table_added_to_existing_db(tmp_path):
         "SELECT name FROM sqlite_master WHERE name='player_map_events'").fetchone()
     assert "has_map_events" in {
         r["name"] for r in c2.execute("PRAGMA table_info(participant_metrics)")}
+    c2.close()
+
+
+def test_frame_series_table_added_to_existing_db(tmp_path):
+    c1 = db.connect(tmp_path / "y.sqlite")
+    c1.close()
+    c2 = db.connect(tmp_path / "y.sqlite")
+    assert c2.execute(
+        "SELECT name FROM sqlite_master WHERE name='participant_frame_series'").fetchone()
     c2.close()
 
 

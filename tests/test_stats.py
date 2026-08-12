@@ -669,6 +669,41 @@ def test_single_game_metrics_missing_row_returns_none(conn):
     assert stats.single_game_metrics(conn, "EUW1_nope", ME) is None
 
 
+def add_frame_series(conn, match_id, puuid, entries):
+    """entries: [(minute, cs, xp, gold, level), ...]."""
+    db.insert_frame_series(conn, [
+        {"match_id": match_id, "puuid": puuid, "minute": minute,
+         "cs": cs, "xp": xp, "gold": gold, "level": level}
+        for minute, cs, xp, gold, level in entries
+    ])
+
+
+def test_game_curve_returns_me_and_opp_series(conn):
+    m1, opp = add_match(conn, when=1_000)
+    add_frame_series(conn, m1, ME, [(0, 0, 0, 500, 1), (7, 55, 3200, 2600, 6)])
+    add_frame_series(conn, m1, opp, [(0, 0, 0, 500, 1), (7, 40, 2800, 2100, 5)])
+    curve = stats.game_curve(conn, m1, ME, opp)
+    assert curve["minutes"] == [0, 7]
+    assert curve["me"]["cs"] == [0, 55]
+    assert curve["me"]["gold"] == [500, 2600]
+    assert curve["opp"]["cs"] == [0, 40]
+    assert curve["opp"]["level"] == [1, 5]
+
+
+def test_game_curve_opp_none_without_opp_puuid_or_data(conn):
+    m1, opp = add_match(conn, when=1_000)
+    add_frame_series(conn, m1, ME, [(0, 0, 0, 500, 1)])
+    assert stats.game_curve(conn, m1, ME)["opp"] is None
+    # opp_puuid given but has no recorded series of its own
+    assert stats.game_curve(conn, m1, ME, opp)["opp"] is None
+
+
+def test_game_curve_none_when_puuid_has_no_series(conn):
+    m1, _ = add_match(conn, when=1_000)
+    assert stats.game_curve(conn, m1, ME) is None
+    assert stats.game_curve(conn, "EUW1_nope", ME) is None
+
+
 def test_filter_options(conn):
     _, opp = add_match(conn, my_champ="Garen", queue=420)
     add_match(conn, my_champ="Kled", queue=440)

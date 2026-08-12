@@ -488,6 +488,33 @@ def test_single_game_metrics_endpoint(client):
         "/api/stats/games/metrics?match_id=EUW1_nope&puuid=x").status_code == 404
 
 
+def test_game_curve_endpoint(client):
+    import os
+    game = client.get("/api/stats/summary").json()["recent"][0]
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.insert_frame_series(conn, [
+        {"match_id": game["match_id"], "puuid": game["my_puuid"], "minute": 0,
+         "cs": 0, "xp": 0, "gold": 500, "level": 1},
+        {"match_id": game["match_id"], "puuid": game["my_puuid"], "minute": 7,
+         "cs": 55, "xp": 3200, "gold": 2600, "level": 6},
+        {"match_id": game["match_id"], "puuid": game["opp_puuid"], "minute": 7,
+         "cs": 40, "xp": 2800, "gold": 2100, "level": 5},
+    ])
+    conn.close()
+    data = client.get(
+        f"/api/stats/game-curve?match_id={game['match_id']}&puuid={game['my_puuid']}"
+        f"&opp_puuid={game['opp_puuid']}").json()
+    assert data["minutes"] == [0, 7]
+    assert data["me"]["cs"] == [0, 55]
+    assert data["opp"]["cs"] == [40]  # opp only has the 7-min frame recorded
+    # without opp_puuid, opp is simply absent
+    no_opp = client.get(
+        f"/api/stats/game-curve?match_id={game['match_id']}&puuid={game['my_puuid']}").json()
+    assert no_opp["opp"] is None
+    assert client.get(
+        "/api/stats/game-curve?match_id=EUW1_nope&puuid=x").status_code == 404
+
+
 def test_settings_auto_crawl_round_trip_and_default(client):
     data = client.get("/api/settings").json()
     assert data["auto_crawl_hours"] == 3      # default: every few hours

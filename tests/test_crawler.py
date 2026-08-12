@@ -412,6 +412,57 @@ def test_backfill_lane_deltas_block_games_only(conn):
     assert crawler.backfill_lane_deltas() == 1
 
 
+def test_crawl_stores_frame_series_inline_from_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)  # opp_pos TOP shares the lane
+    client = FakeClient([match], timelines=[timeline_json("EUW1_1")])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    rows = conn.execute(
+        """SELECT minute, cs, level, gold FROM participant_frame_series
+           WHERE match_id='EUW1_1' AND puuid=? ORDER BY minute""",
+        (TRACKED_PUUID,)).fetchall()
+    assert [r["minute"] for r in rows] == [0, 1, 7, 14]
+    assert (rows[2]["cs"], rows[2]["level"], rows[2]["gold"]) == (55, 6, 2600)
+    # the lane opponent's series is stored too (both participantIds in the
+    # fixture timeline), from the SAME timeline fetch — not a second one
+    opp_rows = conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid='opp-1'"
+    ).fetchone()["c"]
+    assert opp_rows == 4
+    assert client.timeline_calls == 1
+
+
+def test_crawl_tolerates_missing_timeline_for_frame_series(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([match])  # no timelines — get_match_timeline raises
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series").fetchone()["c"] == 0
+
+
+def test_backfill_frame_series_fills_missing_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    client = FakeClient([m1, m2])  # no timelines during crawl
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_metrics WHERE has_timeline=1").fetchone()["c"] == 2
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series").fetchone()["c"] == 0
+    client.timelines = {t["metadata"]["matchId"]: t
+                        for t in (timeline_json("EUW1_1"), timeline_json("EUW1_2"))}
+    client.timeline_calls = 0
+    assert crawler.backfill_frame_series() == 2
+    assert client.timeline_calls == 2
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()["c"] == 4
+    # nothing left to backfill
+    client.timeline_calls = 0
+    assert crawler.backfill_frame_series() == 0
+    assert client.timeline_calls == 0
+
+
 def test_backfill_metrics_fetches_missing_only(conn):
     m1 = match_json("EUW1_1", 1_700_000_000_000)
     m2 = match_json("EUW1_2", 1_700_000_100_000)

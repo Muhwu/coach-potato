@@ -938,6 +938,22 @@ def api_rune_analysis(champion: str, opp_champion: str = ""):
         conn.close()
 
 
+@app.get("/api/stats/game-curve")
+def api_game_curve(match_id: str, puuid: str, opp_puuid: str | None = None):
+    """Full-game per-minute gold/CS/XP/level series for one game (+ the lane
+    opponent's, when opp_puuid is given) — the game-curve chart. 404 when
+    nothing was recorded (crawled before the feature existed, or the
+    timeline was unavailable)."""
+    conn = get_conn()
+    try:
+        curve = stats.game_curve(conn, match_id, puuid, opp_puuid)
+        if curve is None:
+            raise HTTPException(404, "no frame series recorded for that game")
+        return curve
+    finally:
+        conn.close()
+
+
 @app.get("/api/stats/trends")
 def api_trends(request: Request, bucket: str = "month"):
     params = dict(request.query_params)

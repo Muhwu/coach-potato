@@ -19,6 +19,7 @@
   --baseline: #c3c2b7;
   --border: rgba(11, 11, 11, 0.10);
   --series-1: #2a78d6;      /* winrate bars; overridable via the accent_color setting */
+  --series-2: #8a5cd6;      /* 2nd chart series (e.g. the opponent's line on the game-curve chart) */
   --good: #0ca30c;
   --critical: #d03b3b;
   --good-text: #006300;
@@ -35,6 +36,7 @@
     --baseline: #383835;
     --border: rgba(255, 255, 255, 0.10);
     --series-1: #3987e5;
+    --series-2: #a98cf0;
     --good: #0ca30c;
     --critical: #d03b3b;
     --good-text: #0ca30c;
@@ -1220,6 +1222,13 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .tl-axis { stroke: var(--baseline); stroke-width: 1; }
 .tl-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
 .tl-ylab, .tl-xlab { font-size: 9px; fill: var(--muted); }
+
+/* Full-game gold/CS/XP/level curve chart (Overview recent-games "Curve" toggle) */
+.game-curve-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.gc-legend-me { color: var(--series-1); }
+.gc-legend-opp { color: var(--series-2); }
+.gc-line-me { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
+.gc-line-opp { fill: none; stroke: var(--series-2); stroke-width: 2; stroke-linejoin: round; }
 #chart-tip {
   position: absolute;
   z-index: 10;

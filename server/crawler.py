@@ -3,8 +3,8 @@ import json
 import time
 
 from . import db, rune_data
-from .metrics import (parse_build_order, parse_death_events, parse_jungle_starts,
-                      parse_metrics,
+from .metrics import (parse_build_order, parse_death_events, parse_frame_series,
+                      parse_jungle_starts, parse_metrics,
                       parse_skill_order, parse_starting_items, parse_timeline_deltas)
 from .parsing import parse_match
 
@@ -82,6 +82,10 @@ class Crawler:
                         self._store_metrics(match_json, timeline)
                         # same timeline, no extra API call
                         self._store_jungle_starts(match_id, timeline)
+                        # once per match (not per tracked puuid) — all 10
+                        # participants' frame series, from the same timeline
+                        # fetch already made for the lane-delta metrics above.
+                        self._store_frame_series(match_id, timeline)
                     else:  # skip the timeline fetch (halves API calls) — no lane Δ
                         self._store_metrics(match_json)
                     self._store_runes(match_json)
@@ -437,6 +441,47 @@ class Crawler:
             db.replace_map_events(self.conn, row["match_id"], row["puuid"], events)
             count += 1
             self.status_cb(f"map-event backfill: {count}/{len(rows)} matches")
+        return count
+
+    def _store_frame_series(self, match_id, timeline):
+        """Persist the full per-minute gold/CS/XP/level series (ALL 10
+        participants) for the full-game curve chart. A no-op without a
+        timeline. Idempotent (INSERT OR IGNORE), so calling this again for an
+        already-processed match is always safe."""
+        series = parse_frame_series(timeline)
+        rows = [{"match_id": match_id, "puuid": puuid, **entry}
+                for puuid, entries in series.items() for entry in entries]
+        db.insert_frame_series(self.conn, rows)
+
+    def backfill_frame_series(self, limit=None):
+        """Fetch the match timeline again for matches that already had one
+        processed (has_timeline=1 on a tracked/comparison participant's
+        metrics row, from the lane-delta backfill or an earlier crawl) but
+        have no participant_frame_series rows yet — i.e. matches crawled
+        before the full-game curve chart feature existed. Needs its own
+        re-fetch since the raw timeline JSON isn't cached anywhere (only the
+        two-mark deltas derived from it are). A timeline that's missing or
+        fails again is simply left for a later run — unlike has_timeline,
+        there's no per-row "attempted" marker here, so a permanently-gone
+        timeline would keep resurfacing on repeat calls; harmless in
+        practice since this is a manual, on-demand CLI action (not part of
+        the automatic crawl loop) and genuinely-missing timelines are rare.
+        Returns matches processed."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT pm.match_id FROM participant_metrics pm
+               JOIN players pl ON pl.puuid = pm.puuid
+                 AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
+               LEFT JOIN participant_frame_series pfs ON pfs.match_id = pm.match_id
+               WHERE pm.has_timeline = 1 AND pfs.match_id IS NULL"""
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            timeline = self._safe_timeline(row["match_id"])
+            self._store_frame_series(row["match_id"], timeline)
+            count += 1
+            self.status_cb(f"frame-series backfill: {count}/{len(rows)} matches")
         return count
 
     def _stale_before(self):
