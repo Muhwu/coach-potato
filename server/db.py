@@ -80,9 +80,29 @@ CREATE TABLE IF NOT EXISTS participant_metrics (
     puuid TEXT NOT NULL,
     has_challenges INTEGER NOT NULL DEFAULT 0,
     has_timeline INTEGER NOT NULL DEFAULT 0,
+    has_map_events INTEGER NOT NULL DEFAULT 0,
     {metric_columns},
     PRIMARY KEY (match_id, puuid)
 );
+
+-- Death (and, if Riot ever adds ward positions, ward) locations on the map,
+-- one row per event. Scoped to tracked + comparison puuids, same as the
+-- timeline-derived lane-delta metrics (see parse_death_events / crawler
+-- _store_map_events). x/y are raw match-v5 timeline coordinates
+-- (~0-14820 x, ~0-14881 y, origin bottom-left). Ward positions are NOT
+-- available in match-v5's WARD_PLACED events (confirmed — see CLAUDE.md), so
+-- event_type is deaths-only for now; the column stays generic for a future
+-- Riot API addition rather than being named death_events.
+CREATE TABLE IF NOT EXISTS player_map_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK (event_type IN ('death')),
+    x INTEGER NOT NULL,
+    y INTEGER NOT NULL,
+    timestamp_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_map_events_match_puuid ON player_map_events(match_id, puuid);
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -375,6 +395,9 @@ def _migrate(conn):
         if "has_timeline" not in pm_columns:
             conn.execute(
                 "ALTER TABLE participant_metrics ADD COLUMN has_timeline INTEGER NOT NULL DEFAULT 0")
+        if "has_map_events" not in pm_columns:  # death/ward heatmap backfill marker
+            conn.execute(
+                "ALTER TABLE participant_metrics ADD COLUMN has_map_events INTEGER NOT NULL DEFAULT 0")
         for key in metric_keys():
             if key not in pm_columns:
                 conn.execute(f"ALTER TABLE participant_metrics ADD COLUMN {key} REAL")
@@ -519,6 +542,20 @@ def bump_comparison_lookback(conn, puuid, extra_days=COMPARISON_LOOKBACK_DAYS):
         conn.execute("UPDATE comparison_players SET lookback_days=? WHERE puuid=?",
                      (new_days, puuid))
     return new_days
+
+
+def delete_account_data(conn, puuid):
+    """Purge a player's crawled data — participant rows, coaching metrics,
+    runes, map events, rank cache/history, crawl watermarks, and the players
+    row itself. Shared `matches` rows and user-authored content (blocks,
+    sessions, notes, comparison_players) are left untouched; block_games that
+    referenced this puuid simply stop hydrating. Re-adding + crawling the
+    account restores it, since Riot's API is the source of the crawled data."""
+    with conn:
+        for tbl in ("participant_metrics", "participant_runes", "participants",
+                    "player_map_events", "crawl_state", "player_ranks", "rank_history"):
+            conn.execute(f"DELETE FROM {tbl} WHERE puuid=?", (puuid,))
+        conn.execute("DELETE FROM players WHERE puuid=?", (puuid,))
 
 
 def set_player_rank(conn, puuid, tier, division, lp, fetched_at_ms):
@@ -828,6 +865,28 @@ def insert_participant_runes(conn, match_id, puuid, runes):
         conn.execute(
             "INSERT OR REPLACE INTO participant_runes (match_id, puuid, runes) VALUES (?, ?, ?)",
             (match_id, puuid, json.dumps(runes) if runes else ""))
+
+
+def replace_map_events(conn, match_id, puuid, events):
+    """Replace all stored map events (deaths) for one (match, puuid) with
+    `events` (list of {event_type, x, y, timestamp_ms} dicts, from
+    metrics.parse_death_events) and mark has_map_events=1 on the participant's
+    metrics row. Delete-then-insert keeps this idempotent for re-runs; an
+    empty list is a valid outcome (a deathless game) and still marks the row
+    done so the backfill doesn't retry it forever. The participant_metrics
+    row is expected to already exist (map events are only stored for
+    puuids that get a metrics row in the same crawl/backfill step)."""
+    with conn:
+        conn.execute("DELETE FROM player_map_events WHERE match_id=? AND puuid=?",
+                     (match_id, puuid))
+        conn.executemany(
+            "INSERT INTO player_map_events (match_id, puuid, event_type, x, y, timestamp_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [(match_id, puuid, e["event_type"], e["x"], e["y"], e["timestamp_ms"])
+             for e in events])
+        conn.execute(
+            "UPDATE participant_metrics SET has_map_events=1 WHERE match_id=? AND puuid=?",
+            (match_id, puuid))
 
 
 def tracked_ranks(conn):

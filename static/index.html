@@ -611,6 +611,17 @@
 
 <div id="trends-view" class="hidden">
   <section class="filter-row" aria-label="Trend filters">
+    <div class="filter-group" id="trend-range-presets">
+      <span class="filter-label">Period</span>
+      <button data-range="all" class="preset active">All</button>
+      <button data-range="3d" class="preset">3d</button>
+      <button data-range="7d" class="preset">7d</button>
+      <button data-range="14d" class="preset">14d</button>
+      <button data-range="30d" class="preset">30d</button>
+      <button data-range="90d" class="preset">90d</button>
+      <button data-range="180d" class="preset">180d</button>
+      <button data-range="365d" class="preset">1y</button>
+    </div>
     <div class="filter-group" id="bucket-toggle">
       <span class="filter-label">Bucket</span>
       <button data-bucket="day" class="preset">Day</button>
@@ -626,10 +637,13 @@
       <select id="trend-queue"><option value="">All</option></select>
     </div>
     <div class="filter-group">
+      <label class="filter-label" for="trend-role">Role</label>
+      <select id="trend-role" class="role-filter"></select>
+    </div>
+    <div class="filter-group">
       <label class="filter-label" for="trend-side">Side</label>
       <select id="trend-side"><option value="">All</option><option value="blue">Blue</option><option value="red">Red</option></select>
     </div>
-    <span class="muted">Selected accounts · all roles</span>
     <span id="trend-metric-cols" style="margin-left:auto"></span>
   </section>
 
@@ -638,6 +652,18 @@
   <section class="panel">
     <h2>Breakdown</h2>
     <div id="trend-table"></div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <button id="heatmap-toggle" class="preset seg-toggle" aria-expanded="false"
+        title="Expand death map" aria-label="Expand death map">▸</button>
+      <h2>Death map</h2>
+    </div>
+    <p class="muted">Where you died, plotted on a schematic Rift — filtered by the
+      Period/Champion/Role above. Wards aren't shown: match-v5 doesn't record a
+      ward's placement position.</p>
+    <div id="heatmap-body" class="hidden"></div>
   </section>
 </div>
 <div id="chart-tip" class="hidden"></div>

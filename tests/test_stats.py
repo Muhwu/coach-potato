@@ -127,6 +127,55 @@ def test_matchups_include_all_roles_vs_same_role_opponent(conn):
     assert sorted(r["opp_champion"] for r in rows) == ["Darius", "Zed"]
 
 
+def _add_map_death(conn, match_id, x, y, timestamp_ms, puuid=ME):
+    from server.metrics import metric_keys
+    values = {k: None for k in metric_keys()}
+    values["has_challenges"] = 0
+    db.insert_participant_metrics(conn, match_id, puuid, values)  # row must pre-exist
+    db.replace_map_events(conn, match_id, puuid,
+                          [{"event_type": "death", "x": x, "y": y, "timestamp_ms": timestamp_ms}])
+
+
+def test_map_events_filters_by_champion_role_and_period(conn):
+    m1, _ = add_match(conn, my_champ="Gwen", my_pos="TOP", when=1_700_000_000_000)
+    _add_map_death(conn, m1, 1000, 2000, 65_000)
+    m2, _ = add_match(conn, my_champ="Ahri", my_pos="MIDDLE", when=1_700_100_000_000)
+    _add_map_death(conn, m2, 9000, 9000, 120_000)
+
+    assert len(stats.map_events(conn, [ME])) == 2
+
+    gwen = stats.map_events(conn, [ME], champion="Gwen")
+    assert [e["x"] for e in gwen] == [1000]
+
+    top_only = stats.map_events(conn, [ME], roles=["TOP"])
+    assert [e["x"] for e in top_only] == [1000]
+
+    later = stats.map_events(conn, [ME], from_ms=1_700_050_000_000)
+    assert [e["x"] for e in later] == [9000]
+
+
+def test_map_events_ordered_by_timestamp_and_scoped_to_requested_puuids(conn):
+    from server.metrics import metric_keys
+    m1, _ = add_match(conn, when=1_700_000_000_000)
+    base = {k: None for k in metric_keys()}
+    base["has_challenges"] = 0
+    db.insert_participant_metrics(conn, m1, ME, base)
+    db.replace_map_events(conn, m1, ME, [
+        {"event_type": "death", "x": 5000, "y": 5000, "timestamp_ms": 900_000},
+        {"event_type": "death", "x": 1000, "y": 1000, "timestamp_ms": 60_000},
+    ])
+    # a death recorded for someone NOT in the requested puuid list must not leak in
+    other_puuid = "someone-else"
+    db.upsert_player(conn, other_puuid, "Other", "EUW", is_tracked=True)
+    m2, _ = add_match(conn, when=1_700_000_000_000, puuid=other_puuid)
+    db.insert_participant_metrics(conn, m2, other_puuid, base)
+    db.replace_map_events(conn, m2, other_puuid,
+                          [{"event_type": "death", "x": 7000, "y": 7000, "timestamp_ms": 30_000}])
+
+    events = stats.map_events(conn, [ME])
+    assert [e["timestamp_ms"] for e in events] == [60_000, 900_000]  # ordered, no leak
+
+
 def test_match_without_top_opponent_is_skipped(conn):
     add_match(conn, opp_pos="JUNGLE", opp_champ="Wukong")  # enemy has no TOP
     assert stats.matchups(conn, ME) == []

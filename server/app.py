@@ -941,19 +941,41 @@ def api_rune_analysis(champion: str, opp_champion: str = ""):
 @app.get("/api/stats/trends")
 def api_trends(request: Request, bucket: str = "month"):
     params = dict(request.query_params)
+    from_ms, to_ms = parse_time_range(params)  # range=30d / from= / to= also work
     queues = [int(q) for q in request.query_params.getlist("queue")] or None
     conn = get_conn()
     try:
         try:
             puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
             buckets = stats.trend_buckets(
-                conn, puuids, bucket=bucket,
+                conn, puuids, bucket=bucket, from_ms=from_ms, to_ms=to_ms,
                 champion=params.get("champion") or None, queues=queues,
                 side=params.get("side") or None,
             roles=request.query_params.getlist("role") or None)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return {"buckets": buckets, "meta": METRICS}
+    finally:
+        conn.close()
+
+
+@app.get("/api/stats/map-events")
+def api_map_events(request: Request, from_ms: int | None = None, to_ms: int | None = None):
+    """Death-location map events for the death heatmap (Trends view).
+    Filtered like the other Trends-style queries: champion/role/period.
+    Deaths-only — see stats.map_events / CLAUDE.md for why there's no ward
+    counterpart yet."""
+    params = dict(request.query_params)
+    if from_ms is None and to_ms is None:
+        from_ms, to_ms = parse_time_range(params)  # range=30d / from= / to= also work
+    conn = get_conn()
+    try:
+        puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
+        events = stats.map_events(
+            conn, puuids, from_ms=from_ms, to_ms=to_ms,
+            champion=params.get("champion") or None,
+            roles=request.query_params.getlist("role") or None)
+        return {"events": events}
     finally:
         conn.close()
 

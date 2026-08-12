@@ -249,16 +249,16 @@ function roleParamList() {
   return state.roleFilter ? [state.roleFilter] : [];
 }
 function addRoleParams(params) { roleParamList().forEach((r) => params.append("role", r)); }
-// keep both filter dropdowns showing the shared role filter
+// keep all filter dropdowns showing the shared role filter
 function syncRoleSelects() {
-  ["#role-select", "#mu-role"].forEach((id) => { const el = $(id); if (el) el.value = state.roleFilter; });
+  ["#role-select", "#mu-role", "#trend-role"].forEach((id) => { const el = $(id); if (el) el.value = state.roleFilter; });
 }
 // apply main/secondary role from settings, default the filter, fill the dropdowns
 function applyRoleSettings(settings) {
   state.mainRole = settings.main_role || "";
   state.secondaryRole = settings.secondary_role || "";
   state.roleFilter = state.mainRole ? "mine" : ""; // no main set -> show all roles
-  ["#role-select", "#mu-role"].forEach((id) => {
+  ["#role-select", "#mu-role", "#trend-role"].forEach((id) => {
     const el = $(id);
     if (el && !el.options.length) el.innerHTML = roleFilterOptions();
   });

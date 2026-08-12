@@ -38,6 +38,8 @@ def main():
     parser.add_argument("--backfill-jungle-sides", action="store_true",
                         help="only backfill jungle start halves / strong-weak side "
                              "(needs the match timeline), no crawl")
+    parser.add_argument("--backfill-map-events", action="store_true",
+                        help="only backfill death map events (needs the match timeline), no crawl")
     args = parser.parse_args()
 
     config = load_config()
@@ -77,6 +79,9 @@ def main():
         if args.backfill_jungle_sides:
             print("Backfilling jungle start sides (timeline) for stored matches ...")
             n = crawler.backfill_jungle_starts(limit=args.limit)
+        if args.backfill_map_events:
+            print("Backfilling death map events (timeline) for stored matches ...")
+            n = crawler.backfill_map_events(limit=args.limit)
             print(f"  -> {n} matches re-fetched")
             return
         for game_name, tag_line in accounts:

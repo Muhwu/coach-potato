@@ -244,6 +244,38 @@ def parse_skill_order(timeline_json, puuid):
     return sorted((1, 2, 3), key=key)
 
 
+def parse_death_events(timeline_json, puuid):
+    """Positions where `puuid` died, from the match-v5 timeline's CHAMPION_KILL
+    events (`victimId` matched against the participant id resolved the same way
+    as parse_timeline_deltas). Each event's `position: {x, y}` is populated by
+    Riot for kill events. Returns a list of {x, y, timestamp_ms} dicts ordered
+    by timestamp, or None without a timeline/participant.
+
+    NOTE: match-v5 WARD_PLACED events do NOT carry a position field (confirmed
+    against a live timeline fetch + Riot's own developer-relations tracker,
+    which has an open, unresolved feature request asking for one — see
+    CLAUDE.md). Only deaths are extracted here; there is no ward-position
+    counterpart."""
+    if not timeline_json:
+        return None
+    info = timeline_json.get("info") or {}
+    pid = next((p.get("participantId") for p in info.get("participants") or []
+                if p.get("puuid") == puuid), None)
+    if pid is None:
+        return None
+    deaths = []
+    for frame in info.get("frames") or []:
+        for ev in frame.get("events") or []:
+            if ev.get("type") != "CHAMPION_KILL" or ev.get("victimId") != pid:
+                continue
+            pos = ev.get("position") or {}
+            if "x" not in pos or "y" not in pos:
+                continue
+            deaths.append({"x": pos["x"], "y": pos["y"],
+                            "timestamp_ms": ev.get("timestamp") or 0})
+    return deaths
+
+
 def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
     """CS/level/gold advantage of me_puuid over opp_puuid at ~7 and ~14 min,
     read from the match-v5 timeline. Returns {timeline metric key: value},

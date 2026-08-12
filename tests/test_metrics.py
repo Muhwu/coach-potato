@@ -1,6 +1,7 @@
 from server.metrics import (METRICS, map_half, metric_keys, parse_build_order,
-                            parse_jungle_starts, parse_metrics, parse_skill_order,
-                            parse_starting_items, parse_timeline_deltas, strongside)
+                            parse_death_events, parse_jungle_starts, parse_metrics,
+                            parse_skill_order, parse_starting_items,
+                            parse_timeline_deltas, strongside)
 
 
 def sample_match(puuid="p1", challenges=True):
@@ -173,6 +174,34 @@ def test_parse_timeline_deltas_short_game_leaves_14m_none():
     assert d["cs_diff_7"] == 5
     assert d["cs_diff_14"] is None
     assert d["gold_diff_14"] is None
+
+
+def test_parse_death_events_extracts_positions_for_victim():
+    evs = [
+        _ev("CHAMPION_KILL", 65_000, 6, victimId=1, killerId=6, position={"x": 1200, "y": 3400}),
+        # my kill of the opponent — not my death, must be skipped
+        _ev("CHAMPION_KILL", 500_000, 1, victimId=6, killerId=1, position={"x": 9000, "y": 9000}),
+        _ev("CHAMPION_KILL", 900_000, 6, victimId=1, killerId=6, position={"x": 8000, "y": 2000}),
+    ]
+    deaths = parse_death_events(_timeline_events(evs), "me")
+    assert deaths == [
+        {"x": 1200, "y": 3400, "timestamp_ms": 65_000},
+        {"x": 8000, "y": 2000, "timestamp_ms": 900_000},
+    ]
+
+
+def test_parse_death_events_skips_events_missing_position():
+    # WARD_PLACED-shaped/kill events without a position field must be skipped,
+    # not crash — mirrors match-v5's real behavior for WARD_PLACED (no
+    # position at all) in case a malformed/older event ever lacks one.
+    evs = [_ev("CHAMPION_KILL", 65_000, 6, victimId=1, killerId=6)]
+    assert parse_death_events(_timeline_events(evs), "me") == []
+
+
+def test_parse_death_events_none_without_timeline_or_participant():
+    assert parse_death_events(None, "me") is None
+    assert parse_death_events(_timeline_events([]), "ghost") is None
+    assert parse_death_events(_timeline_events([]), "me") == []
 
 
 def test_parse_metrics_without_challenges_gives_nulls_for_challenge_fields():

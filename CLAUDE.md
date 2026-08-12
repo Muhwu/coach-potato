@@ -350,7 +350,8 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   are written, so popup and guide editor don't clobber each other's
   fields; `db.set_matchup_note` keeps un-passed fields via a _KEEP
   sentinel);
-  trends view (SVG small-multiple charts + breakdown table) in `trends.js`;
+  trends view (SVG small-multiple charts + breakdown table + an expandable
+  "Death map" heatmap — see `player_map_events` below) in `trends.js`;
   blocks view in `blocks.js`; Matchup guide view (own nav tab: pick "My
   champion" from the full roster — not just played champions — see/edit
   general champion notes, full rune pages + patch + notes for every matchup
@@ -530,6 +531,45 @@ myr/oppr pattern) into `stats.block_games_detailed`, so a block game's
 expanded per-game panel (`gameMetricsPanel` in blocks.js) shows the same
 side-by-side `.runes-compare` layout via the shared `runesCompareCol()`
 (app.js), reused as-is rather than duplicated.
+`player_map_events(id PK, match_id, puuid, event_type CHECK IN ('death'), x,
+y, timestamp_ms)` — death locations for the Trends "Death map" heatmap,
+decoded from the match-v5 TIMELINE's `CHAMPION_KILL` events
+(`metrics.parse_death_events`, victim's participant id resolved the same way
+`parse_timeline_deltas` does) for tracked + comparison puuids only (mirrors
+`Crawler._stored_puuids()`'s scope — a personal reflection tool, not full-
+match analysis). **Deaths-only**: match-v5's `WARD_PLACED` events do NOT
+carry a position field — confirmed via a live timeline fetch (a Riot dev key
+in this repo's `.env` had expired, so verification instead relied on Riot's
+own developer-relations tracker, which has an open, unresolved feature
+request asking for one) — so `event_type` only ever stores `'death'`; the
+column is left generic rather than named `death_events` in case Riot ever
+adds ward positions. Wired into the crawl exactly like the lane-delta
+metrics: `Crawler._store_metrics` calls `parse_death_events` off the SAME
+timeline fetch used for lane deltas and stores rows via `db.replace_map_events`
+(delete-then-insert, idempotent), setting `participant_metrics.has_map_events=1`
+(an additive column, same idiom as `has_timeline`) so `Crawler.backfill_map_events()`
+/ `./crawl.sh --backfill-map-events` (mirrors `backfill_lane_deltas`, incl.
+`block_games_only`) skips already-processed matches; a missing/failed
+timeline still marks the row done with zero events so it isn't retried
+forever. `stats.map_events(conn, puuids, from_ms=, to_ms=, champion=,
+roles=)` joins `player_map_events` onto the same `_filtered_base` every other
+Trends-style query uses, behind `GET /api/stats/map-events?champion=&role=&
+from_ms=&to_ms=` (or `range=`/`from=`/`to=` like `/api/stats/games`).
+Frontend: an expandable "Death map" section at the bottom of the Trends view
+(`trends.js`, collapsed by default, `.seg-toggle`, data fetched lazily on
+first expand and invalidated whenever a filter changes) draws an abstract
+schematic Rift as inline SVG (border square + two lane polylines + a
+diagonal river band, all `--grid`-tinted — no licensed map image) and plots
+each death as a semi-transparent `--critical`-tinted dot (overlapping dots
+naturally read as density). Riot's timeline coordinate space is ~0–14820 (x)
+/ ~0–14881 (y), origin bottom-left; `heatmapPoint()` flips the y-axis into
+the SVG's top-left-origin viewBox. Trends gained its own Period range-preset
+row (`#trend-range-presets`, same `.preset`/`data-range` pattern as
+Matchups') and a Role select (`#trend-role`, wired into the same shared
+`state.roleFilter`/`syncRoleSelects()` as the Overview/Matchups role filters)
+purely to drive this — `stats.trend_buckets` also gained optional
+`from_ms`/`to_ms` (additive; `None` = full history as before) so the
+existing bucket charts/breakdown table honor the new Period filter too.
 `clips(id PK, owner_type CHECK IN ('session','block_game'), owner_id, label,
 kind CHECK IN ('upload','link'), file_name, url, created_at_ms)` — 1-minute
 video clips attached to a coaching session or a specific block game (not

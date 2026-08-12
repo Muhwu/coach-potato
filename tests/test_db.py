@@ -208,6 +208,51 @@ def test_participant_metrics_table_added_to_existing_db(tmp_path):
     c2.close()
 
 
+def test_replace_map_events_round_trip(conn):
+    from server.metrics import metric_keys
+    values = {k: None for k in metric_keys()}
+    values.update({"has_challenges": 1})
+    db.insert_participant_metrics(conn, "EUW1_1", "p1", values)  # metrics row must pre-exist
+    events = [
+        {"event_type": "death", "x": 1000, "y": 2000, "timestamp_ms": 65_000},
+        {"event_type": "death", "x": 8000, "y": 3000, "timestamp_ms": 900_000},
+    ]
+    db.replace_map_events(conn, "EUW1_1", "p1", events)
+    rows = [dict(r) for r in conn.execute(
+        "SELECT event_type, x, y, timestamp_ms FROM player_map_events "
+        "WHERE match_id='EUW1_1' AND puuid='p1' ORDER BY timestamp_ms")]
+    assert rows == events
+    has_map_events = conn.execute(
+        "SELECT has_map_events FROM participant_metrics WHERE match_id='EUW1_1' AND puuid='p1'"
+    ).fetchone()["has_map_events"]
+    assert has_map_events == 1
+
+    # re-run with fewer events -> old rows replaced, not appended (idempotent)
+    db.replace_map_events(conn, "EUW1_1", "p1", events[:1])
+    count = conn.execute(
+        "SELECT COUNT(*) c FROM player_map_events WHERE match_id='EUW1_1' AND puuid='p1'"
+    ).fetchone()["c"]
+    assert count == 1
+
+    # empty list is a valid outcome (a deathless game) and still marks done
+    db.replace_map_events(conn, "EUW1_1", "p1", [])
+    count = conn.execute(
+        "SELECT COUNT(*) c FROM player_map_events WHERE match_id='EUW1_1' AND puuid='p1'"
+    ).fetchone()["c"]
+    assert count == 0
+
+
+def test_player_map_events_table_added_to_existing_db(tmp_path):
+    c1 = db.connect(tmp_path / "y.sqlite")
+    c1.close()
+    c2 = db.connect(tmp_path / "y.sqlite")
+    assert c2.execute(
+        "SELECT name FROM sqlite_master WHERE name='player_map_events'").fetchone()
+    assert "has_map_events" in {
+        r["name"] for r in c2.execute("PRAGMA table_info(participant_metrics)")}
+    c2.close()
+
+
 def test_pool_default_empty(conn):
     assert db.get_pool(conn) == {"main_blind": None, "core": [], "counter": []}
 
@@ -689,10 +734,14 @@ def test_participant_metrics_gains_new_columns_on_upgrade(tmp_path):
     c = db.connect(path)  # _migrate adds the missing columns
     cols = {r["name"] for r in c.execute("PRAGMA table_info(participant_metrics)")}
     assert "has_timeline" in cols
+    assert "has_map_events" in cols
     assert {"cs_diff_7", "level_diff_14", "gold_diff_7"} <= cols
-    row = c.execute("SELECT cs_at_10, has_timeline, cs_diff_7 FROM participant_metrics").fetchone()
+    row = c.execute(
+        "SELECT cs_at_10, has_timeline, has_map_events, cs_diff_7 FROM participant_metrics"
+    ).fetchone()
     assert row["cs_at_10"] == 80  # preserved
     assert row["has_timeline"] == 0
+    assert row["has_map_events"] == 0
     assert row["cs_diff_7"] is None
     c.close()
 

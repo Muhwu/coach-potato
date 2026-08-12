@@ -1238,6 +1238,20 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 }
 .trend-breakdown th { font-weight: 500; }
 
+.heatmap-legend { margin-bottom: 8px; }
+.heatmap-svg { width: 100%; max-width: 420px; height: auto; display: block; }
+.heatmap-border { fill: var(--page); stroke: var(--border); stroke-width: 1.5; }
+.heatmap-river { stroke: var(--grid); stroke-width: 14; stroke-linecap: round; opacity: .6; }
+.heatmap-lane { fill: none; stroke: var(--grid); stroke-width: 6; stroke-linejoin: round; opacity: .5; }
+.heatmap-base { stroke: var(--surface-1); stroke-width: 1.5; }
+.heatmap-base-blue { fill: var(--series-1); }
+.heatmap-base-red { fill: var(--critical); }
+.heatmap-death {
+  fill: color-mix(in srgb, var(--critical) 55%, transparent);
+  stroke: color-mix(in srgb, var(--critical) 80%, transparent);
+  stroke-width: 0.5;
+}
+
 .empty {
   padding: 22px;
   color: var(--muted);

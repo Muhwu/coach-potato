@@ -246,6 +246,51 @@ def test_trends_endpoint_buckets_and_meta(client):
     assert [b["bucket"] for b in default["buckets"]] == ["2020-09", "2023-11"]
 
 
+def seed_map_events(client, seeds):
+    """seeds: list of (match_id, x, y, timestamp_ms) deaths to attach for ME."""
+    import os
+    from server.metrics import metric_keys
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    for match_id, x, y, ts in seeds:
+        values = {k: None for k in metric_keys()}
+        values["has_challenges"] = 0
+        db.insert_participant_metrics(conn, match_id, ME, values)  # row must pre-exist
+        db.replace_map_events(conn, match_id, ME,
+                              [{"event_type": "death", "x": x, "y": y, "timestamp_ms": ts}])
+    conn.close()
+
+
+def test_map_events_endpoint_filters_by_champion_and_period(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    rows = conn.execute(
+        """SELECT p.match_id, p.champion_name FROM participants p
+           JOIN matches m ON m.match_id = p.match_id
+           WHERE p.puuid=? ORDER BY m.game_creation_ms""", (ME,)).fetchall()
+    conn.close()
+    kled_match = next(r["match_id"] for r in rows if r["champion_name"] == "Kled")
+    garen_matches = [r["match_id"] for r in rows if r["champion_name"] == "Garen"]
+
+    seed_map_events(client, [
+        (kled_match, 500, 500, 30_000),           # game at when=1_600_000_000_000
+        (garen_matches[0], 7000, 7000, 400_000),  # game at when=1_700_000_000_000
+    ])
+
+    all_events = client.get("/api/stats/map-events").json()["events"]
+    assert len(all_events) == 2
+
+    garen_events = client.get("/api/stats/map-events?champion=Garen").json()["events"]
+    assert [e["x"] for e in garen_events] == [7000]
+    assert garen_events[0]["event_type"] == "death"
+
+    period = client.get("/api/stats/map-events?from_ms=1650000000000").json()["events"]
+    assert [e["x"] for e in period] == [7000]  # excludes the Kled game (1_600_000_000_000)
+
+    # role filter: every fixture match is TOP by default (add_match's default)
+    assert len(client.get("/api/stats/map-events?role=TOP").json()["events"]) == 2
+    assert client.get("/api/stats/map-events?role=JUNGLE").json()["events"] == []
+
+
 def test_pool_default_and_put_round_trip(client):
     assert client.get("/api/pool").json() == {"main_blind": None, "core": [], "counter": []}
     response = client.put("/api/pool", json={
