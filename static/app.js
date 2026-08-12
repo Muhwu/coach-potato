@@ -545,7 +545,8 @@ function renderChampionTable(byChampion) {
   wireSortable(target, champSort, CHAMP_SORT_COLS, () => renderChampionTable(state.byChampion));
 }
 
-const recentUi = { runesOpen: new Set(), sort: { key: "date", dir: -1 } };
+const recentUi = { runesOpen: new Set(), reflectOpen: new Set(),
+                   sort: { key: "date", dir: -1 } };
 // Full-game curve: separate from recentUi.runesOpen since curve data needs an
 // async fetch (runes are already inline on the game row) — cache is per
 // gkey, cleared never (recent games don't change once loaded for this view).
@@ -674,13 +675,16 @@ function renderRecent(recent) {
     { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
     { key: "runes", label: "Runes", sortable: false },
     { key: "curve", label: "Curve", sortable: false },
+    { key: "reflect", label: "Reflection", sortable: false },
     { key: "block", label: "", sortable: false },
   ];
   const body = sortRows(recent, recentUi.sort, cols).map((g) => {
     const gkey = `${g.match_id}:${g.my_puuid}`;
-    const open = recentUi.runesOpen.has(gkey);
+    const runesOpen = recentUi.runesOpen.has(gkey);
+    const reflectOpen = recentUi.reflectOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
     const curveOpen = curveUi.open.has(gkey);
+    const tagCount = reflectionTagCount(g.match_id, g.my_puuid);
     let html = `<tr>
       <td>${fmtDateTime(g.game_creation_ms)}</td>
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
@@ -693,19 +697,25 @@ function renderRecent(recent) {
       <td>${fmtDuration(g.game_duration_s)}</td>
       <td>${hasRunes
         ? `<button class="preset seg-toggle runes-toggle" data-gkey="${gkey}"
-             aria-expanded="${open}" title="Runes">${open ? "▾" : "▸"} Runes</button>`
+             aria-expanded="${runesOpen}" title="Runes">${runesOpen ? "▾" : "▸"} Runes</button>`
         : `<span class="muted">–</span>`}</td>
       <td><button class="preset seg-toggle curve-toggle" data-gkey="${gkey}"
              data-match="${g.match_id}" data-puuid="${g.my_puuid}" data-opp="${g.opp_puuid ?? ""}"
              aria-expanded="${curveOpen}" title="Full-game gold/CS curve">${curveOpen ? "▾" : "▸"} Curve</button></td>
+      <td><button class="preset seg-toggle reflect-toggle" data-gkey="${gkey}"
+        data-match="${g.match_id}" data-puuid="${g.my_puuid}" aria-expanded="${reflectOpen}"
+        title="Reflection">${reflectOpen ? "▾" : "▸"} Reflect${tagCount ? ` (${tagCount})` : ""}</button></td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`;
-    if (open) {
-      html += `<tr class="games-row"><td colspan="${colCount}"><div class="runes-compare">${
-        runesCompareCol(g.my_champion, g.runes, "you")}${
-        g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
-      }</div></td></tr>`;
+    if (runesOpen || reflectOpen) {
+      html += `<tr class="games-row"><td colspan="${colCount}">
+        ${runesOpen ? `<div class="runes-compare">${
+          runesCompareCol(g.my_champion, g.runes, "you")}${
+          g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
+        }</div>` : ""}
+        ${reflectOpen ? reflectionSection(g.match_id, g.my_puuid) : ""}
+      </td></tr>`;
     }
     if (curveOpen) {
       html += `<tr class="games-row"><td colspan="${colCount}">${gameCurveSection(gkey)}</td></tr>`;
@@ -727,6 +737,24 @@ function renderRecent(recent) {
       recentUi.runesOpen.has(gkey) ? recentUi.runesOpen.delete(gkey) : recentUi.runesOpen.add(gkey);
       renderRecent(recent);
     }));
+  target.querySelectorAll(".reflect-toggle").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const gkey = btn.dataset.gkey;
+      if (recentUi.reflectOpen.has(gkey)) {
+        recentUi.reflectOpen.delete(gkey);
+        renderRecent(recent);
+        return;
+      }
+      recentUi.reflectOpen.add(gkey);
+      renderRecent(recent); // show "Loading…" immediately
+      await ensureReflection(btn.dataset.match, btn.dataset.puuid);
+      renderRecent(recent);
+    }));
+  wireReflectionSection(target, async (matchId, puuid) => {
+    reflectionUi.cache.delete(reflectionKey(matchId, puuid));
+    await ensureReflection(matchId, puuid);
+    renderRecent(recent);
+  }, () => renderRecent(recent));
 }
 
 function wirePromoteButtons(container) {
@@ -1173,6 +1201,157 @@ function wireClipsSection(container, reload, rerender) {
       }
       clipsUi.formOpen.delete(`${section.dataset.ownerType}:${section.dataset.ownerId}`);
       await reload(section.dataset.ownerType, section.dataset.ownerId);
+    }));
+}
+
+// ---------- game reflections (shared by Overview recent games and block game panels) ----------
+// A quick per-game tag/note, independent of matchup notes / block learnings /
+// sessions — a fast post-match reflection habit, not a full write-up.
+
+const REFLECTION_SUGGESTED_TAGS = [
+  "bad TP", "int death", "tilted", "good vision", "objective miss", "won lane lost game",
+];
+
+const reflectionUi = {
+  cache: new Map(),        // "matchId:puuid" -> {tags, note} once fetched
+  editingNote: new Set(),  // "matchId:puuid" keys with the note editor open
+};
+
+function reflectionKey(matchId, puuid) { return `${matchId}:${puuid}`; }
+
+async function ensureReflection(matchId, puuid) {
+  const key = reflectionKey(matchId, puuid);
+  if (reflectionUi.cache.has(key)) return;
+  reflectionUi.cache.set(key, await getJSON(
+    `/api/reflections?match_id=${encodeURIComponent(matchId)}&puuid=${encodeURIComponent(puuid)}`));
+}
+
+function reflectionTagCount(matchId, puuid) {
+  const cached = reflectionUi.cache.get(reflectionKey(matchId, puuid));
+  return cached ? cached.tags.length : 0;
+}
+
+async function putReflection(matchId, puuid, fields) {
+  return fetch(`/api/reflections/${encodeURIComponent(matchId)}/${encodeURIComponent(puuid)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
+function reflectionSection(matchId, puuid) {
+  const key = reflectionKey(matchId, puuid);
+  const reflection = reflectionUi.cache.get(key);
+  if (!reflection) {
+    return `<div class="reflection-section" data-match="${escapeHtml(matchId)}" data-puuid="${escapeHtml(puuid)}">
+      <h5>Reflection</h5><p class="muted">Loading…</p></div>`;
+  }
+  const tags = reflection.tags;
+  const allTags = [...REFLECTION_SUGGESTED_TAGS, ...tags.filter((t) => !REFLECTION_SUGGESTED_TAGS.includes(t))];
+  const chips = allTags.map((t) => {
+    const active = tags.includes(t);
+    return `<button type="button" class="chip reflection-tag ${active ? "chip-main" : "chip-inactive"}"
+      data-tag="${escapeHtml(t)}" aria-pressed="${active}">${escapeHtml(t)}</button>`;
+  }).join("");
+  const editing = reflectionUi.editingNote.has(key);
+  const noteBody = editing
+    ? `<div class="mu-notes">
+        <label class="filter-label">Note (Markdown)</label>
+        <textarea class="reflection-note-input" rows="4"
+          placeholder="Optional freeform note — what happened, what to do differently…">${escapeHtml(reflection.note)}</textarea>
+        <div class="session-actions">
+          <button type="button" class="preset reflection-note-save">Save</button>
+          <button type="button" class="preset reflection-note-cancel">Cancel</button>
+          <span class="muted reflection-note-status"></span>
+        </div>
+      </div>`
+    : `<div class="reflection-note-view">
+        <div class="md-body">${reflection.note ? renderNotes(reflection.note) : `<p class="muted">No note yet.</p>`}</div>
+        <button type="button" class="preset icon-btn reflection-note-edit" title="Edit reflection note" aria-label="Edit reflection note">✎</button>
+      </div>`;
+  return `<div class="reflection-section" data-match="${escapeHtml(matchId)}" data-puuid="${escapeHtml(puuid)}">
+    <h5>Reflection</h5>
+    <div class="chip-box reflection-tags">
+      ${chips}
+      <input type="text" class="chip-input reflection-tag-input" placeholder="+ custom tag (Enter)">
+    </div>
+    <span class="muted reflection-tag-status"></span>
+    ${noteBody}
+  </div>`;
+}
+
+// reload(matchId, puuid): async callback the caller supplies to refetch that
+// game's reflection into its own cache and re-render its view.
+// rerender(): cheap re-render of the caller's view without refetching — used
+// for opening/closing the note editor.
+function wireReflectionSection(container, reload, rerender) {
+  container.querySelectorAll(".reflection-tags").forEach((box) =>
+    box.addEventListener("click", (e) => {
+      if (e.target === box) box.querySelector(".reflection-tag-input")?.focus();
+    }));
+  container.querySelectorAll(".reflection-tag").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const section = btn.closest(".reflection-section");
+      const { match: matchId, puuid } = section.dataset;
+      const current = reflectionUi.cache.get(reflectionKey(matchId, puuid)) || { tags: [], note: "" };
+      const tag = btn.dataset.tag;
+      const tags = current.tags.includes(tag)
+        ? current.tags.filter((t) => t !== tag) : [...current.tags, tag];
+      const response = await putReflection(matchId, puuid, { tags });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        section.querySelector(".reflection-tag-status").textContent =
+          body.detail || `error ${response.status}`;
+        return;
+      }
+      await reload(matchId, puuid);
+    }));
+  container.querySelectorAll(".reflection-tag-input").forEach((input) =>
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter" && e.key !== ",") return;
+      e.preventDefault();
+      const value = input.value.replace(",", "").trim();
+      if (!value) return;
+      const section = input.closest(".reflection-section");
+      const { match: matchId, puuid } = section.dataset;
+      const current = reflectionUi.cache.get(reflectionKey(matchId, puuid)) || { tags: [], note: "" };
+      if (current.tags.includes(value)) { input.value = ""; return; }
+      const response = await putReflection(matchId, puuid, { tags: [...current.tags, value] });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        section.querySelector(".reflection-tag-status").textContent =
+          body.detail || `error ${response.status}`;
+        return;
+      }
+      input.value = "";
+      await reload(matchId, puuid);
+    }));
+  container.querySelectorAll(".reflection-note-edit").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const section = btn.closest(".reflection-section");
+      reflectionUi.editingNote.add(reflectionKey(section.dataset.match, section.dataset.puuid));
+      rerender();
+    }));
+  container.querySelectorAll(".reflection-note-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const section = btn.closest(".reflection-section");
+      reflectionUi.editingNote.delete(reflectionKey(section.dataset.match, section.dataset.puuid));
+      rerender();
+    }));
+  container.querySelectorAll(".reflection-note-save").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const section = btn.closest(".reflection-section");
+      const { match: matchId, puuid } = section.dataset;
+      const note = section.querySelector(".reflection-note-input").value;
+      const status = section.querySelector(".reflection-note-status");
+      const response = await putReflection(matchId, puuid, { note });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail || `error ${response.status}`;
+        return;
+      }
+      reflectionUi.editingNote.delete(reflectionKey(matchId, puuid));
+      await reload(matchId, puuid);
     }));
 }
 

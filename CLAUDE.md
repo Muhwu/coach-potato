@@ -625,6 +625,29 @@ progress session cards and `blocks.js`'s per-game stats panel) — clips
 only fetch when that session/game is expanded, matching the rest of the
 app's lazy-load convention. Research entries deliberately don't use this —
 no video/clip attachments there, screenshots only (see below).
+`game_reflections(match_id+puuid PK, tags, note, updated_at_ms)` — a
+lightweight per-game tag/note from the tracked player's own perspective,
+independent of matchup notes / block learnings / sessions: a fast post-match
+reflection habit ("bad TP", "int death", "tilted", "good vision", ...)
+rather than a full write-up. `tags` is a JSON array of freeform strings —
+loose, no fixed vocabulary enforced server-side (the frontend just offers
+quick-pick suggested chips plus a custom-tag input, same philosophy as
+`research_entries`' champion fields); `note` is one Markdown field. Scoped
+directly by `(match_id, puuid)` rather than `clips`' `owner_type`/`owner_id`,
+so it works for ANY game a tracked player has played, not just block games.
+`GET /api/reflections?match_id=&puuid=` returns `{tags, note}` (blank
+defaults when nothing is recorded); `PUT /api/reflections/{match_id}/{puuid}`
+is a partial update — only body keys present are written
+(`db.set_reflection` mirrors `set_matchup_note`'s `_KEEP` sentinel), so a
+tags-only edit (toggling a chip) never clobbers the note and vice versa. UI:
+a small inline editor attached to per-game rows in two places — Overview's
+"Recent games" table (`app.js`) and a block game's expanded stats panel
+(`blocks.js`'s `gameMetricsPanel`) — sharing `reflectionSection`/
+`wireReflectionSection` (app.js), the same shared-component pattern as
+`clipsSection`/`wireClipsSection`. Tags render as toggleable chips
+(`.chip-main` selected / `.chip-inactive` available); the note renders via
+the shared `renderNotes()`/`md-body` convention with an edit/view toggle
+like general champion notes.
 `research_entries(id PK, player_name, champion, opp_champion, title, notes,
 created_at_ms, updated_at_ms)` — a Research-tab study entry for someone
 else's game; `champion`/`opp_champion` are optional freeform text (loosely

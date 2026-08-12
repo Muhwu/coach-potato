@@ -618,6 +618,10 @@ td.notes-cell { text-align: left; white-space: normal; }
 .chip-core { background: rgba(27, 175, 122, 0.13); border: 1px solid #1baf7a; }
 .chip-counter { background: rgba(237, 161, 0, 0.16); border: 1px solid #c98500; }
 .chip-plain { background: var(--accent-wash); border: 1px solid var(--border); }
+/* an unselected, clickable-to-add suggestion (vs .chip-main = selected) */
+.chip-inactive { background: transparent; border: 1px dashed var(--border); color: var(--text-secondary); }
+button.chip { font: inherit; cursor: pointer; }
+button.chip:hover { border-color: var(--series-1); }
 
 .key-row { display: flex; gap: 6px; align-items: center; }
 .key-row input { flex: 1; }
@@ -1394,6 +1398,25 @@ footer {
 .clip-add-row input[type="file"] { font-size: 12px; max-width: 200px; }
 .clip-add-row input[type="url"] { flex: 1; min-width: 160px; }
 .clip-add-status { font-size: 12px; }
+
+/* ---------- game reflections (Overview recent games + block game panels) ---------- */
+.reflection-section { margin-top: 14px; max-width: 520px; }
+.reflection-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.reflection-tags.chip-box { min-height: auto; margin-bottom: 4px; }
+.reflection-tag-status { display: block; margin-bottom: 8px; }
+.reflection-note-view { display: flex; align-items: flex-start; gap: 8px; }
+.reflection-note-view .md-body { flex: 1; }
+
+/* ---- Research & comparison (Settings) ---- */
+.comparison-player {
+  display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.comparison-player:last-child { border-bottom: none; }
+.comparison-name { font-weight: 600; }
+.comparison-name .muted { font-weight: 400; }
+.comparison-games { margin-left: auto; }
+.comparison-player .cmp-more { font-size: 12px; padding: 2px 8px; }
 
 /* ---- rune analysis (Matchup guide) ---- */
 .rune-analysis { margin-top: 8px; }

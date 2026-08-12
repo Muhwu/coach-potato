@@ -821,6 +821,44 @@ def test_comparison_players_and_settings(client):
                       params={"my_champion": "Gwen", "opp_champion": "Darius"}).json() == {"players": []}
     # PATCH validates the enabled flag
     assert client.patch("/api/comparison-players/xyz", json={"enabled": "no"}).status_code == 400
+def test_reflection_endpoints(client):
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=me").json() == {
+        "tags": [], "note": ""}
+    r = client.put("/api/reflections/EUW1_1/me", json={
+        "tags": ["bad TP", "tilted"], "note": "- forced a bad TP"})
+    assert r.status_code == 200
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=me").json() == {
+        "tags": ["bad TP", "tilted"], "note": "- forced a bad TP"}
+    # tags-only update never clobbers the stored note
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": ["bad TP"]}).status_code == 200
+    got = client.get("/api/reflections?match_id=EUW1_1&puuid=me").json()
+    assert got == {"tags": ["bad TP"], "note": "- forced a bad TP"}
+    # note-only update never clobbers the stored tags
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"note": "updated"}).status_code == 200
+    got = client.get("/api/reflections?match_id=EUW1_1&puuid=me").json()
+    assert got == {"tags": ["bad TP"], "note": "updated"}
+    # a different game/player is independent
+    assert client.get("/api/reflections?match_id=EUW1_2&puuid=me").json() == {
+        "tags": [], "note": ""}
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=opp").json() == {
+        "tags": [], "note": ""}
+    # blanking both clears the row
+    client.put("/api/reflections/EUW1_1/me", json={"tags": [], "note": ""})
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=me").json() == {
+        "tags": [], "note": ""}
+    # validation
+    assert client.get("/api/reflections").status_code == 422  # match_id/puuid required
+    assert client.put("/api/reflections/EUW1_1/me", json={}).status_code == 400
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": "not-a-list"}).status_code == 400
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": [""]}).status_code == 400  # empty tag string
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": ["x" * 41]}).status_code == 400  # too long
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": ["ok"] * 21}).status_code == 400  # too many
 
 
 def test_champion_general_notes_endpoints(client):

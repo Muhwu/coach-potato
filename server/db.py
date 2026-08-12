@@ -244,6 +244,15 @@ CREATE TABLE IF NOT EXISTS tier_lists (
     updated_at_ms INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS game_reflections (
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    note TEXT NOT NULL DEFAULT '',
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (match_id, puuid)
+);
+
 CREATE TABLE IF NOT EXISTS comparison_players (
     puuid TEXT PRIMARY KEY,
     game_name TEXT NOT NULL DEFAULT '',
@@ -654,6 +663,49 @@ def set_matchup_note(conn, my_champion, opp_champion, notes=_KEEP, runes=_KEEP,
                   skill_order=excluded.skill_order,
                   updated_at_ms=excluded.updated_at_ms""",
             (my_champion, opp_champion, notes, runes_json, patch_version, skill_json))
+
+
+def get_reflection(conn, match_id, puuid):
+    """Per-game reflection (quick tags + optional freeform note) for one
+    tracked player's game, from their own perspective — independent of
+    matchup notes / block learnings / sessions. Blank defaults ({tags: [],
+    note: ''}) when nothing has been recorded for this game."""
+    row = conn.execute(
+        "SELECT tags, note FROM game_reflections WHERE match_id=? AND puuid=?",
+        (match_id, puuid)).fetchone()
+    return {"tags": json.loads(row["tags"]) if row else [],
+            "note": row["note"] if row else ""}
+
+
+_REFLECTION_KEEP = object()  # set_reflection sentinel: leave the stored value alone
+
+
+def set_reflection(conn, match_id, puuid, tags=_REFLECTION_KEEP, note=_REFLECTION_KEEP):
+    """Upsert a game's reflection. Partial update: a field not passed keeps
+    its stored value (mirrors set_matchup_note's _KEEP sentinel), so a
+    tags-only edit never clobbers the note and vice versa — pass explicit
+    blanks to clear. A row whose fields both end up blank is deleted.
+    tags: list of freeform strings."""
+    row = conn.execute(
+        "SELECT tags, note FROM game_reflections WHERE match_id=? AND puuid=?",
+        (match_id, puuid)).fetchone()
+    tags_json = (row["tags"] if row else "[]") if tags is _REFLECTION_KEEP \
+        else (json.dumps(tags) if tags else "[]")
+    note = (row["note"] if row else "") if note is _REFLECTION_KEEP else (note or "")
+    with conn:
+        if tags_json in ("", "[]") and not note.strip():
+            conn.execute(
+                "DELETE FROM game_reflections WHERE match_id=? AND puuid=?",
+                (match_id, puuid))
+            return
+        conn.execute(
+            f"""INSERT INTO game_reflections (match_id, puuid, tags, note, updated_at_ms)
+                VALUES (?, ?, ?, ?, {_now_expr()})
+                ON CONFLICT(match_id, puuid) DO UPDATE SET
+                  tags=excluded.tags,
+                  note=excluded.note,
+                  updated_at_ms=excluded.updated_at_ms""",
+            (match_id, puuid, tags_json, note))
 
 
 def get_champion_note(conn, champion):

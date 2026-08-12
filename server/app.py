@@ -1107,6 +1107,52 @@ def api_put_matchup_note(my_champion: str, opp_champion: str, body: dict):
         conn.close()
 
 
+MAX_REFLECTION_TAGS = 20
+MAX_REFLECTION_TAG_LEN = 40
+
+
+@app.get("/api/reflections")
+def api_get_reflection(match_id: str, puuid: str):
+    conn = get_conn()
+    try:
+        return db.get_reflection(conn, match_id, puuid)
+    finally:
+        conn.close()
+
+
+def _validate_reflection_tags(tags):
+    if not isinstance(tags, list) or len(tags) > MAX_REFLECTION_TAGS:
+        raise HTTPException(400, f"tags must be a list of up to {MAX_REFLECTION_TAGS} strings")
+    for tag in tags:
+        if not isinstance(tag, str) or not tag.strip() or len(tag) > MAX_REFLECTION_TAG_LEN:
+            raise HTTPException(400, f"each tag must be a non-empty string up to "
+                                      f"{MAX_REFLECTION_TAG_LEN} chars")
+
+
+@app.put("/api/reflections/{match_id}/{puuid}")
+def api_put_reflection(match_id: str, puuid: str, body: dict):
+    """Partial update: only the fields present in the body are written — a
+    tags-only edit (toggling a chip) never clobbers the note and vice versa,
+    mirroring /api/matchups/notes/{my}/{opp}."""
+    body = body or {}
+    known = ("tags", "note")
+    if not any(k in body for k in known):
+        raise HTTPException(400, f"provide at least one of: {', '.join(known)}")
+    fields = {}
+    if "tags" in body:
+        tags = body.get("tags") or []
+        _validate_reflection_tags(tags)
+        fields["tags"] = tags
+    if "note" in body:
+        fields["note"] = str(body.get("note") or "")
+    conn = get_conn()
+    try:
+        db.set_reflection(conn, match_id, puuid, **fields)
+        return {"saved": True}
+    finally:
+        conn.close()
+
+
 @app.get("/api/champions/notes/{champion}")
 def api_get_champion_note(champion: str):
     conn = get_conn()
