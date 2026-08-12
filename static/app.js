@@ -658,7 +658,7 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
-  const colCount = 11 + (multi ? 1 : 0);
+  const colCount = 12 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
   const cols = [
     { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
