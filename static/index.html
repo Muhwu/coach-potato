@@ -167,6 +167,18 @@
         Blocks page. Untick to just number blocks continuously as "#1, #2, …".</p>
     </div>
 
+    <h3 class="settings-group-head">Your roles</h3>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-main-role">Main role</label>
+      <select id="setting-main-role" style="max-width:14em"></select>
+      <p class="muted">Stats default to your main + secondary role, so autofill games don't
+        muddy your matchups. Choose "All roles" in a view's Role filter to include every game.</p>
+    </div>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-secondary-role">Secondary role</label>
+      <select id="setting-secondary-role" style="max-width:14em"></select>
+    </div>
+
     <h3 class="settings-group-head">Interface</h3>
     <div class="settings-field">
       <span class="filter-label">Visible views</span>
@@ -377,6 +389,10 @@
   <div class="filter-group">
     <label class="filter-label" for="mu-queue">Queue</label>
     <select id="mu-queue"><option value="">All</option></select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="mu-role">Role</label>
+    <select id="mu-role" class="role-filter"></select>
   </div>
   <div class="filter-group">
     <label class="filter-label" for="mu-side">Side</label>
@@ -651,6 +667,10 @@
   <div class="filter-group">
     <label class="filter-label" for="queue-select">Queue</label>
     <select id="queue-select"><option value="">All</option></select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="role-select">Role</label>
+    <select id="role-select" class="role-filter"></select>
   </div>
   <div class="filter-group">
     <label class="filter-label" for="side-select">Side</label>

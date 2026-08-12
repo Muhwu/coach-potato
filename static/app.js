@@ -9,6 +9,9 @@ const state = {
   champion: "",
   queue: "",
   side: "", // "" all | blue | red
+  roleFilter: "mine", // "mine" (main+secondary) | "" (all) | a team_position
+  mainRole: "",       // from settings
+  secondaryRole: "",
   rankTier: "",
   minGames: 1,
   mainView: "overview", // overview | matchups | progress | trends | blocks | settings
@@ -229,6 +232,39 @@ function wireSortable(container, sortState, columns, rerender) {
     }));
 }
 
+// team_position value -> label, in lane order
+const ROLE_OPTS = [["TOP", "Top"], ["JUNGLE", "Jungle"], ["MIDDLE", "Mid"],
+                   ["BOTTOM", "Bot"], ["UTILITY", "Support"]];
+function roleSettingOptions(sel) { // Settings: None + each role
+  return `<option value="">None</option>`
+    + ROLE_OPTS.map(([v, l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("");
+}
+function roleFilterOptions() { // filter rows: My roles / All / each role
+  return `<option value="mine">My roles</option><option value="">All roles</option>`
+    + ROLE_OPTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+}
+// the team_position(s) the current role filter maps to ([] = all roles)
+function roleParamList() {
+  if (state.roleFilter === "mine") return [state.mainRole, state.secondaryRole].filter(Boolean);
+  return state.roleFilter ? [state.roleFilter] : [];
+}
+function addRoleParams(params) { roleParamList().forEach((r) => params.append("role", r)); }
+// keep both filter dropdowns showing the shared role filter
+function syncRoleSelects() {
+  ["#role-select", "#mu-role"].forEach((id) => { const el = $(id); if (el) el.value = state.roleFilter; });
+}
+// apply main/secondary role from settings, default the filter, fill the dropdowns
+function applyRoleSettings(settings) {
+  state.mainRole = settings.main_role || "";
+  state.secondaryRole = settings.secondary_role || "";
+  state.roleFilter = state.mainRole ? "mine" : ""; // no main set -> show all roles
+  ["#role-select", "#mu-role"].forEach((id) => {
+    const el = $(id);
+    if (el && !el.options.length) el.innerHTML = roleFilterOptions();
+  });
+  syncRoleSelects();
+}
+
 function queryString() {
   const params = accountParams();
   if (state.range === "custom") {
@@ -240,6 +276,7 @@ function queryString() {
   if (state.champion) params.set("champion", state.champion);
   if (state.queue) params.set("queue", state.queue);
   if (state.side) params.set("side", state.side);
+  addRoleParams(params);
   if (state.rankTier) params.set("rank_tier", state.rankTier);
   if (state.minGames > 1) params.set("min_games", state.minGames);
   return params.toString();
@@ -1544,6 +1581,8 @@ async function initSettings() {
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-block-series").checked = Boolean(data.block_series_enabled);
   $("#setting-date-format").value = data.date_format || "iso";
+  $("#setting-main-role").innerHTML = roleSettingOptions(data.main_role || "");
+  $("#setting-secondary-role").innerHTML = roleSettingOptions(data.secondary_role || "");
   $("#setting-runes-mode").value = data.runes_mode || "matchup";
   state.runesMode = data.runes_mode || "matchup";
   $("#setting-enable-comparison").checked = Boolean(data.enable_player_comparison);
@@ -1722,6 +1761,8 @@ async function initSettings() {
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         block_series_enabled: $("#setting-block-series").checked,
         date_format: $("#setting-date-format").value,
+        main_role: $("#setting-main-role").value,
+        secondary_role: $("#setting-secondary-role").value,
         runes_mode: $("#setting-runes-mode").value,
         enable_player_comparison: $("#setting-enable-comparison").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
@@ -1738,6 +1779,8 @@ async function initSettings() {
       }
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
+      applyRoleSettings(body); // main/secondary role changed -> refilter
+      refresh();
       if (state.dateFormat !== body.date_format) {
         state.dateFormat = body.date_format;
         refresh(); // re-render visible dates in the new format
@@ -2004,6 +2047,9 @@ function wireFilters() {
   $("#champion-select").addEventListener("change", (e) => { state.champion = e.target.value; refresh(); });
   $("#queue-select").addEventListener("change", (e) => { state.queue = e.target.value; refresh(); });
   $("#side-select").addEventListener("change", (e) => { state.side = e.target.value; refresh(); });
+  $("#role-select").addEventListener("change", (e) => {
+    state.roleFilter = e.target.value; syncRoleSelects(); refresh();
+  });
   $("#rank-select").addEventListener("change", (e) => { state.rankTier = e.target.value; refresh(); });
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
   // one picker for the whole progress table: base columns (default on) + metric
@@ -2059,6 +2105,7 @@ async function init(firstLoad = true) {
     state.dateFormat = settings.date_format || "iso";
     state.runesMode = settings.runes_mode || "matchup";
     state.enableComparison = Boolean(settings.enable_player_comparison);
+    applyRoleSettings(settings);
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

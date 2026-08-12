@@ -142,6 +142,9 @@ def stat_filters(request: Request, conn):
         "rank_tier": params.get("rank_tier") or None,
         "min_games": int(params.get("min_games", 1)),
         "side": params.get("side") or None,  # "blue" | "red" | None (both)
+        # role filter: repeatable ?role=TOP&role=JUNGLE (the client sends the
+        # tracked player's role(s)); empty = all roles
+        "roles": request.query_params.getlist("role") or None,
     }
 
 
@@ -181,6 +184,8 @@ def _extra_settings(conn):
         "date_format": stored.get("date_format") or "iso",
         "runes_mode": stored.get("runes_mode") or "matchup",
         "enable_player_comparison": stored.get("enable_player_comparison") == "1",
+        "main_role": stored.get("main_role") or "",         # team_position or ""
+        "secondary_role": stored.get("secondary_role") or "",
     }
 
 
@@ -297,6 +302,11 @@ def api_put_settings(body: dict):
     enable_comparison = body.get("enable_player_comparison", False)
     if not isinstance(enable_comparison, bool):
         raise HTTPException(400, "enable_player_comparison must be a boolean")
+    valid_roles = ("", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+    main_role = body.get("main_role", "") or ""
+    secondary_role = body.get("secondary_role", "") or ""
+    if main_role not in valid_roles or secondary_role not in valid_roles:
+        raise HTTPException(400, "role must be TOP/JUNGLE/MIDDLE/BOTTOM/UTILITY or empty")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -315,6 +325,8 @@ def api_put_settings(body: dict):
             "date_format": date_format,
             "runes_mode": runes_mode,
             "enable_player_comparison": "1" if enable_comparison else "0",
+            "main_role": main_role,
+            "secondary_role": secondary_role,
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -833,7 +845,8 @@ def api_progress(request: Request):
         return stats.progress_segments(
             conn, puuids, sessions,
             champion=params.get("champion") or None, queues=queues,
-            side=params.get("side") or None)
+            side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
     finally:
         conn.close()
 
@@ -855,7 +868,8 @@ def api_games(request: Request, from_ms: int | None = None, to_ms: int | None = 
             champion=params.get("champion") or None, queues=queues,
             opp_champion=params.get("opp_champion") or None,
             rank_tier=params.get("rank_tier") or None,
-            side=params.get("side") or None)
+            side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
         for game in games:
             game["account"] = names.get(game["my_puuid"], "?")
         return games
@@ -886,7 +900,8 @@ def api_metrics(request: Request, from_ms: int | None = None, to_ms: int | None 
         result = stats.segment_metrics(
             conn, puuids, from_ms=from_ms, to_ms=to_ms,
             champion=params.get("champion") or None, queues=queues,
-            side=params.get("side") or None)
+            side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
         result["meta"] = METRICS
         return result
     finally:
@@ -934,7 +949,8 @@ def api_trends(request: Request, bucket: str = "month"):
             buckets = stats.trend_buckets(
                 conn, puuids, bucket=bucket,
                 champion=params.get("champion") or None, queues=queues,
-                side=params.get("side") or None)
+                side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return {"buckets": buckets, "meta": METRICS}
