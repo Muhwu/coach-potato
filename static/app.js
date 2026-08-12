@@ -1201,13 +1201,15 @@ const WIDE_VIEWS = new Set(["matchups", "progress", "trends", "blocks"]);
 const NAV_SECTIONS = [
   { key: "analyze", label: "Analyze", views: ["overview", "matchups", "trends"] },
   { key: "coach", label: "Coach", views: ["progress", "blocks", "series", "pool"] },
-  { key: "prepare", label: "Prepare", views: ["guide", "tiers", "research"] },
+  { key: "prepare", label: "Prepare",
+    views: ["guide", "tiers", "research", "players"] },
 ];
 const VIEW_LABELS = {
   overview: "Overview", matchups: "Matchups", trends: "Trends",
   progress: "Coaching progress", blocks: "Blocks", series: "Series",
   pool: "Champion pool",
   guide: "Playbook", tiers: "Tier list", research: "Research",
+  players: "Research players",
 };
 const ALL_VIEWS = NAV_SECTIONS.flatMap((s) => s.views);
 
@@ -1273,6 +1275,7 @@ function setMainView(view) {
   if (view === "blocks") initBlocks();
   if (view === "guide") initGuide();
   if (view === "research") initResearch();
+  if (view === "players") initPlayers();
   if (view === "tiers") initTiers();
   if (view === "series") initSeriesView();
   if (view === "pool") initPool();
@@ -1427,7 +1430,36 @@ async function refreshLegacySection() {
   }
 }
 
-// ---------- comparison ("research") players (Settings) ----------
+// ---------- comparison ("research") players (own view under Prepare) ----------
+// The feature TOGGLE stays in Settings (it's configuration); the players
+// themselves are a working list you revise, so they get their own view next to
+// Research, whose games they are.
+const playersUi = { wired: false };
+
+async function initPlayers() {
+  // Settings may never have been opened this session, so don't rely on it
+  // having cached the flag or filled the server dropdown
+  if (state.enableComparison === undefined || !$("#comparison-add-platform").options.length) {
+    try {
+      const data = await getJSON("/api/settings");
+      state.enableComparison = Boolean(data.enable_player_comparison);
+      fillPlatformSelect($("#comparison-add-platform"), data, data.platform);
+    } catch { state.enableComparison = state.enableComparison || false; }
+  }
+  const off = !state.enableComparison;
+  $("#players-disabled").classList.toggle("hidden", !off);
+  $("#players-card").classList.toggle("hidden", off);
+  if (off) return;
+  await loadComparisonPlayers();
+  if (playersUi.wired) return;
+  playersUi.wired = true;
+  $("#comparison-add").addEventListener("click", addComparisonPlayer);
+  $("#comparison-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addComparisonPlayer(); }
+  });
+  $("#players-settings-link").addEventListener("click", () => setMainView("settings"));
+}
+
 async function loadComparisonPlayers() {
   const list = $("#comparison-players-list");
   if (!list) return;
@@ -1522,16 +1554,21 @@ async function removeComparisonPlayer(puuid) {
   loadComparisonPlayers();
 }
 
+// shared by Settings and the Research players view — either can be the first
+// one opened, so neither may assume the other filled the dropdown
+function fillPlatformSelect(select, data, selected) {
+  const platforms = [...data.platforms].sort((a, b) =>
+    PLATFORM_ORDER.indexOf(a) - PLATFORM_ORDER.indexOf(b));
+  select.innerHTML = platforms.map((p) =>
+    `<option value="${p}" ${p === selected ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
+}
+
 async function initSettings() {
   await loadChampionRoster(); // populates the shared #champ-list datalist
   const data = await getJSON("/api/settings");
   $("#setting-key").value = data.riot_api_key;
-  const platforms = [...data.platforms].sort((a, b) =>
-    PLATFORM_ORDER.indexOf(a) - PLATFORM_ORDER.indexOf(b));
-  const platformOptions = (selected) => platforms.map((p) =>
-    `<option value="${p}" ${p === selected ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
-  $("#setting-platform").innerHTML = platformOptions(data.platform);
-  $("#comparison-add-platform").innerHTML = platformOptions(data.platform); // default to yours
+  fillPlatformSelect($("#setting-platform"), data, data.platform);
+  fillPlatformSelect($("#comparison-add-platform"), data, data.platform); // default to yours
   settingsUi.accounts = data.accounts;
   settingsUi.wasUnconfigured = !data.configured;
   renderAccountChips();
@@ -1549,7 +1586,6 @@ async function initSettings() {
   $("#setting-enable-comparison").checked = Boolean(data.enable_player_comparison);
   $("#comparison-card").classList.toggle("hidden", !data.enable_player_comparison);
   state.enableComparison = Boolean(data.enable_player_comparison);
-  loadComparisonPlayers();
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // legacy migrate select needs display names
   refreshLegacySection();
@@ -1564,11 +1600,12 @@ async function initSettings() {
   if (settingsUi.wired) return;
   settingsUi.wired = true;
   $("#settings-pool-link").addEventListener("click", () => setMainView("pool"));
-  $("#setting-enable-comparison").addEventListener("change", (e) =>
-    $("#comparison-card").classList.toggle("hidden", !e.target.checked));
-  $("#comparison-add").addEventListener("click", addComparisonPlayer);
-  $("#comparison-add-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); addComparisonPlayer(); }
+  // the players themselves live on their own view (initPlayers); the toggle
+  // stays here because it enables the feature, and the view follows it
+  $("#settings-players-link").addEventListener("click", () => setMainView("players"));
+  $("#setting-enable-comparison").addEventListener("change", (e) => {
+    $("#comparison-card").classList.toggle("hidden", !e.target.checked);
+    state.enableComparison = e.target.checked;
   });
   $("#import-all-btn").addEventListener("click", async () => {
     const status = $("#import-all-status");
