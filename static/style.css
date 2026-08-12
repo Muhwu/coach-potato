@@ -78,13 +78,22 @@ header {
   align-items: center;
   gap: 18px;
   flex-wrap: wrap;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--grid);
-  /* sticky so the section row stays reachable down a long Blocks/Trends page;
-     --page is translucent under a background image, so the header needs its
-     own solid-enough backing or the content scrolls visibly through it */
-  position: sticky; top: 0; z-index: 20;
-  background: var(--page); backdrop-filter: blur(6px);
+  /* a rounded card rather than a full-bleed rule: roomier padding all round,
+     and a border on every side so the radius actually reads */
+  padding: 14px 20px 12px;
+  margin-top: 8px;
+  border: 1px solid var(--grid);
+  border-radius: 16px;
+  /* sticky so the section row stays reachable down a long Blocks/Trends page.
+     top:8px matches margin-top so it parks with the same inset it starts at,
+     instead of jamming into the viewport edge.
+     Deliberately --surface-1-SOLID, not the floored-translucent --surface-1
+     every static panel uses: content scrolls *under* a sticky bar, and even
+     at the 0.68 opacity floor that reads as text sliding through the nav.
+     Same exception .item-tooltip already makes, for the same reason. */
+  position: sticky; top: 8px; z-index: 20;
+  background: var(--surface-1-solid); backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
 }
 .linkish {
   background: none; border: none; padding: 0; font: inherit; cursor: pointer;
@@ -217,8 +226,8 @@ select, input[type="date"], input[type="number"] {
 /* level 1 — the three modes: roomy pills, the most prominent thing in the bar */
 .section-toggle { gap: 10px; }
 .section-toggle button {
-  font-size: 14px; font-weight: 550; letter-spacing: 0.01em;
-  padding: 6px 18px; border-radius: 999px;
+  font-size: 15px; font-weight: 550; letter-spacing: 0.01em;
+  padding: 8px 22px; border-radius: 999px;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .section-toggle button:hover { border-color: var(--series-1); background: var(--accent-wash); }
@@ -226,13 +235,13 @@ select, input[type="date"], input[type="number"] {
 /* level 2 — the section's views: no boxes, an underline marks the active one,
    so two rows of outlined buttons don't fight each other */
 .sub-toggle {
-  flex-basis: 100%; gap: 2px; margin-top: 8px; padding-top: 8px;
+  flex-basis: 100%; gap: 2px; margin-top: 10px; padding-top: 10px;
   border-top: 1px solid var(--grid);
 }
 .sub-toggle button {
-  font-size: 13px; color: var(--text-secondary);
-  border: none; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0;
-  padding: 5px 14px 4px;
+  font-size: 13.5px; color: var(--text-secondary);
+  border: none; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0;
+  padding: 7px 16px 6px;
 }
 .sub-toggle button:hover { background: var(--accent-wash); color: var(--text-primary); }
 .sub-toggle button.active {
