@@ -8,9 +8,10 @@ over time for every metric, deliberate-practice **blocks**, a per-champion
 journal** for studying other players' games. Everything runs on your machine;
 the only thing that leaves it is calls to Riot's API with your own key.
 
-> Lane scope: statistics currently cover **top-lane games** (the lane the app
-> was built around). The match data for all roles is already stored, so
-> other-role support is a query/UI change, not a re-crawl.
+> Role scope: statistics cover **every role you play**. Your lane opponent is
+> the enemy in the same position, so matchups work the same whichever role
+> you're in. Set a main/secondary role in Settings, or use the **Role** filter
+> to narrow any stat view to one position.
 
 ## Desktop app (no Python required)
 
@@ -41,6 +42,10 @@ Requirements: Python 3.11+ on Linux/macOS/WSL.
 ```bash
 git clone <this repo> && cd coach-potato
 ./setup.sh              # creates .venv, installs deps, creates .env from .env.example
+
+# optional: one-click YouTube upload for recorded VODs (everything else works
+# without it — the app falls back to opening the file for a manual upload)
+.venv/bin/pip install -r requirements-youtube.txt
 ```
 
 The **web app stores its settings in the database** (Settings view / `⚙`), so
@@ -104,7 +109,7 @@ full first crawl of a large history takes roughly 2 minutes per ~100 matches.
   opponent's current rank tier.
 - **Summary tiles** — games, winrate, KDA, CS/min, current solo rank.
 - **My champions** — performance per champion you played.
-- **Recent games** — last 20 top-lane games with results, matchups, and an
+- **Recent games** — your last 20 games with results, matchups, and an
   expandable side-by-side view of the runes both players actually ran.
 - **Rank over time** — a chart from your tracked accounts' rank snapshots
   (coaching-session dates drawn as markers). Riot exposes no LP history, so
@@ -149,7 +154,7 @@ moments, and use **Export all (.md)** to download every session as one
 Markdown document for sharing with your coach.
 
 Progress stats combine **all tracked accounts** (coaching applies to you, not
-the account), top lane only, remakes excluded. The champion filter defaults to
+the account), all roles, remakes excluded. The champion filter defaults to
 Gwen. A session's date boundary is midnight UTC.
 
 ## Blocks (deliberate practice)
@@ -226,7 +231,7 @@ The **Trends** tab (`#trends`) tracks every stat over time: small line charts
 for each Core stat and every coaching metric, grouped like the coaching view,
 plus a **breakdown table** of all values per period. Bucket by month (default),
 week (Monday-start), or day; filter by champion, queue and side. All accounts
-combined, top lane only.
+combined, all roles (narrow with the Role filter).
 
 ## Appearance & data
 

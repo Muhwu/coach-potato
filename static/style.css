@@ -19,6 +19,7 @@
   --baseline: #c3c2b7;
   --border: rgba(11, 11, 11, 0.10);
   --series-1: #2a78d6;      /* winrate bars; overridable via the accent_color setting */
+  --series-2: #8a5cd6;      /* 2nd chart series (e.g. the opponent's line on the game-curve chart) */
   --good: #0ca30c;
   --critical: #d03b3b;
   --good-text: #006300;
@@ -35,6 +36,7 @@
     --baseline: #383835;
     --border: rgba(255, 255, 255, 0.10);
     --series-1: #3987e5;
+    --series-2: #a98cf0;
     --good: #0ca30c;
     --critical: #d03b3b;
     --good-text: #0ca30c;
@@ -287,6 +289,11 @@ select, input[type="date"], input[type="number"] {
 table { border-collapse: collapse; width: 100%; }
 th, td {
   text-align: center;
+  /* One size for everything in a row: cells keep the 15px body text and the
+     buttons sitting inside them match it, rather than the old mix of 15px
+     cells against 11-13px buttons. Folding Reflection and the curve into the
+     VOD panel freed two columns, which is what made the full size fit again. */
+  font-size: 15px;
   padding: 8px 10px;
   border-top: 1px solid var(--grid);
   font-variant-numeric: tabular-nums;
@@ -328,7 +335,13 @@ th.wr-col, td.wr-col { text-align: center; }
 td.period-cell { white-space: normal; min-width: 220px; max-width: 360px; }
 .period-wrap { display: flex; align-items: flex-start; gap: 8px; }
 .period-text { min-width: 0; }
-.seg-toggle { flex: none; padding: 1px 7px; margin-top: 2px; }
+.seg-toggle { flex: none; font-size: 15px; padding: 1px 7px; margin-top: 2px; }
+/* Action cells (Runes / Curve / VOD / Reflect / + Block) hold a button that
+   already carries its own padding, so the cell's 10px each side is doubled-up
+   whitespace — ~20px per cell, which across five columns is what pushed the
+   Recent-games table into horizontal scrolling. Reclaim it here rather than
+   shrinking the global table padding, which every other table relies on. */
+td:has(> .seg-toggle), td:has(> .promote-btn) { padding-left: 5px; padding-right: 5px; }
 
 tr.games-row td {
   background: var(--page);
@@ -552,7 +565,7 @@ td.notes-cell { text-align: left; white-space: normal; }
   display: block;
 }
 .game-notes:hover, .game-notes:focus { border-color: var(--border); background: var(--page); }
-.promote-btn { font-size: 12px; padding: 1px 7px; }
+.promote-btn { font-size: 15px; padding: 1px 7px; }
 .icon-btn { font-size: 17px; padding: 4px 11px; line-height: 1.25; }
 .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .col-menu a, .col-menu button {
@@ -625,6 +638,10 @@ td.notes-cell { text-align: left; white-space: normal; }
 .chip-core { background: rgba(27, 175, 122, 0.13); border: 1px solid #1baf7a; }
 .chip-counter { background: rgba(237, 161, 0, 0.16); border: 1px solid #c98500; }
 .chip-plain { background: var(--accent-wash); border: 1px solid var(--border); }
+/* an unselected, clickable-to-add suggestion (vs .chip-main = selected) */
+.chip-inactive { background: transparent; border: 1px dashed var(--border); color: var(--text-secondary); }
+button.chip { font: inherit; cursor: pointer; }
+button.chip:hover { border-color: var(--series-1); }
 
 .key-row { display: flex; gap: 6px; align-items: center; }
 .key-row input { flex: 1; }
@@ -1229,6 +1246,13 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .tl-axis { stroke: var(--baseline); stroke-width: 1; }
 .tl-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
 .tl-ylab, .tl-xlab { font-size: 9px; fill: var(--muted); }
+
+/* Full-game gold/CS/XP/level curve chart (Overview recent-games "Curve" toggle) */
+.game-curve-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.gc-legend-me { color: var(--series-1); }
+.gc-legend-opp { color: var(--series-2); }
+.gc-line-me { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
+.gc-line-opp { fill: none; stroke: var(--series-2); stroke-width: 2; stroke-linejoin: round; }
 #chart-tip {
   position: absolute;
   z-index: 10;
@@ -1246,6 +1270,20 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   color: var(--text-primary);
 }
 .trend-breakdown th { font-weight: 500; }
+
+.heatmap-legend { margin-bottom: 8px; }
+.heatmap-svg { width: 100%; max-width: 420px; height: auto; display: block; }
+.heatmap-border { fill: var(--page); stroke: var(--border); stroke-width: 1.5; }
+.heatmap-river { stroke: var(--grid); stroke-width: 14; stroke-linecap: round; opacity: .6; }
+.heatmap-lane { fill: none; stroke: var(--grid); stroke-width: 6; stroke-linejoin: round; opacity: .5; }
+.heatmap-base { stroke: var(--surface-1); stroke-width: 1.5; }
+.heatmap-base-blue { fill: var(--series-1); }
+.heatmap-base-red { fill: var(--critical); }
+.heatmap-death {
+  fill: color-mix(in srgb, var(--critical) 55%, transparent);
+  stroke: color-mix(in srgb, var(--critical) 80%, transparent);
+  stroke-width: 0.5;
+}
 
 .empty {
   padding: 22px;
@@ -1380,6 +1418,25 @@ footer {
 .clip-add-row input[type="file"] { font-size: 12px; max-width: 200px; }
 .clip-add-row input[type="url"] { flex: 1; min-width: 160px; }
 .clip-add-status { font-size: 12px; }
+
+/* ---------- game reflections (Overview recent games + block game panels) ---------- */
+.reflection-section { margin-top: 14px; max-width: 520px; }
+.reflection-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.reflection-tags.chip-box { min-height: auto; margin-bottom: 4px; }
+.reflection-tag-status { display: block; margin-bottom: 8px; }
+.reflection-note-view { display: flex; align-items: flex-start; gap: 8px; }
+.reflection-note-view .md-body { flex: 1; }
+
+/* ---- Research & comparison (Settings) ---- */
+.comparison-player {
+  display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.comparison-player:last-child { border-bottom: none; }
+.comparison-name { font-weight: 600; }
+.comparison-name .muted { font-weight: 400; }
+.comparison-games { margin-left: auto; }
+.comparison-player .cmp-more { font-size: 12px; padding: 2px 8px; }
 
 /* ---- rune analysis (Matchup guide) ---- */
 .rune-analysis { margin-top: 8px; }
@@ -1553,3 +1610,173 @@ footer {
 .tier-compare-cell .tier-chip img { width: 30px; height: 30px; }
 .tier-compare-cell .tier-drop { min-height: 40px; gap: 3px; padding: 4px; }
 @media (max-width: 900px) { .tier-compare-grid { grid-template-columns: 1fr; } }
+
+/* ---------- recordings (local Ascent VODs) ---------- */
+.recording-section { margin-top: 12px; }
+.recording-section h5, .vod-curve h5 {
+  margin: 0 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-secondary);
+}
+/* the curve closes the VOD panel — same heading treatment as "Recording"
+   above it, with a rule to separate the two */
+.vod-curve {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--grid);
+}
+.vod-reflect { margin-bottom: 14px; }
+/* carries what the old Reflect button's "(3)" said: this game has notes on it */
+.vod-tagcount {
+  display: inline-block; min-width: 1.35em; padding: 0 4px; margin-left: 3px;
+  border-radius: 999px; background: var(--accent-wash); border: 1px solid var(--series-1);
+  font-size: 10px; line-height: 1.4;
+}
+.recording-card {
+  border: 1px solid var(--grid); border-radius: 8px;
+  padding: 9px 11px; background: var(--surface-1);
+  /* wide enough for a 16:9 video plus a square map of the same height:
+     1.78 x 290 + 290 + gap ~= 820 */
+  max-width: 900px;
+}
+.recording-video {
+  width: 100%; max-height: 380px; border-radius: 6px;
+  background: #000; display: block;
+}
+.recording-marks { margin-top: 8px; }
+.recording-seek { font-size: 12px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
+.recording-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
+}
+.recording-offset-label { font-size: 12px; color: var(--text-secondary); }
+.recording-offset { width: 6.5em; }
+.recording-yt-link { text-decoration: none; }
+.recording-progress {
+  height: 6px; border-radius: 999px; margin-top: 8px;
+  background: var(--grid); overflow: hidden;
+}
+.recording-progress-fill {
+  height: 100%; background: var(--series-1); border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.recording-desc { margin-top: 8px; }
+.recording-desc-text {
+  width: 100%; margin-top: 6px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px; background: var(--page); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 9px; resize: vertical; color: var(--text-primary);
+}
+
+/* video + mini-map side by side; stacks on narrow screens */
+.recording-main {
+  display: grid; gap: 12px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.recording-map { min-width: 0; }
+.rec-map-svg { width: 100%; height: auto; display: block; }
+/* a dark halo so markers read against the map artwork underneath */
+.rec-map-dot {
+  cursor: pointer;
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.95));
+}
+.rec-map-dot:hover { stroke: var(--text-primary); stroke-width: 1.5; }
+.rec-map-dot:focus-visible { outline: 2px solid var(--series-1); }
+.rec-map-death { fill: var(--critical); stroke: var(--critical); }
+.rec-map-kill { fill: var(--good-text); stroke: var(--good-text); }
+.rec-map-assist { fill: var(--good-text); stroke: var(--good-text); opacity: 0.45; }
+.rec-map-tower { fill: var(--series-1); stroke: var(--series-1); }
+.rec-map-objective { fill: var(--series-2); stroke: var(--series-2); }
+/* filled = we did it, hollow = it happened to us. MUST stay after the colour
+   rules above — same specificity, so the later declaration is the one that
+   wins and clears the fill. */
+.rec-map-dot.rec-map-against { fill: none; stroke-width: 2; }
+.rec-map-legend {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; margin-top: 5px;
+}
+.rec-map-key { display: inline-flex; align-items: center; gap: 4px; }
+.rec-map-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+@media (max-width: 780px) { .recording-main { grid-template-columns: 1fr; } }
+
+/* ---------- schematic Summoner's Rift (VOD map + Trends death map) ---------- */
+.rift-field { fill: color-mix(in srgb, var(--series-1) 5%, transparent); stroke: var(--border); stroke-width: 1; }
+.rift-lane {
+  fill: none; stroke: color-mix(in srgb, var(--text-secondary) 34%, transparent);
+  stroke-width: 9; stroke-linecap: round; stroke-linejoin: round;
+}
+.rift-river {
+  fill: none; stroke: color-mix(in srgb, var(--series-1) 20%, transparent);
+  stroke-width: 16; stroke-linecap: round; stroke-linejoin: round;
+}
+.rift-turret { fill: var(--muted); opacity: 0.75; }
+.rift-turret-blue { fill: color-mix(in srgb, var(--series-1) 75%, var(--muted)); }
+.rift-turret-red { fill: color-mix(in srgb, var(--critical) 70%, var(--muted)); }
+.rift-pit { fill: none; stroke: var(--text-secondary); stroke-width: 1.5; opacity: 0.8; }
+.rift-pit-label {
+  font-size: 8px; font-weight: 700; text-anchor: middle;
+  fill: var(--text-secondary); pointer-events: none;
+}
+.rift-base { stroke-width: 2; fill: none; }
+.rift-base-blue { stroke: var(--series-1); }
+.rift-base-red { stroke: var(--critical); }
+/* the real minimap sits on top of the hand-drawn fallback */
+.rift-image { opacity: 0.92; }
+/* the map deserves more room than a sidebar strip */
+.recording-main { grid-template-columns: minmax(0, 1fr) 340px; }
+/* the seek chips carry the same colour coding as the map markers */
+.recording-seek.rec-map-death { border-color: var(--critical); color: var(--critical); }
+.recording-seek.rec-map-kill { border-color: var(--good-text); color: var(--good-text); }
+.recording-seek.rec-map-assist { border-color: var(--border); color: var(--text-secondary); }
+.recording-seek.rec-map-tower { border-color: var(--series-1); color: var(--series-1); }
+.recording-seek.rec-map-objective { border-color: var(--series-2); color: var(--series-2); }
+/* events that went against us read as outlines rather than solid accents */
+.recording-seek.recording-seek-against { opacity: 0.6; border-style: dashed; }
+
+/* video and map share one height so they read as a pair; the map is square at
+   that height, the video keeps its 16:9 */
+.recording-main {
+  --rec-media-h: 290px;
+  grid-template-columns: auto auto;
+  justify-content: start;
+}
+.recording-video { height: var(--rec-media-h); width: auto; max-height: none; }
+/* the map box is exactly as tall as the video, legend included — the square
+   shrinks to make room rather than pushing the box taller */
+/* the "why is there no map" placeholder: same footprint as the real map so the
+   video doesn't jump sideways, but it wraps text instead of holding a square */
+.recording-map-empty {
+  width: var(--rec-media-h); align-items: center; justify-content: center;
+  padding: 0 14px; text-align: center;
+}
+.recording-map-empty code { font-size: 11px; word-break: break-all; }
+.recording-map {
+  height: var(--rec-media-h); display: flex; flex-direction: column; min-width: 0;
+}
+.recording-map .rec-map-svg {
+  flex: 1 1 auto; min-height: 0; height: 100%; width: auto;
+  aspect-ratio: 1; align-self: center;  /* stay square, don't letterbox */
+}
+.recording-map .rec-map-legend { flex: none; }
+.recording-mark-tabs { margin: 10px 0 6px; flex-wrap: wrap; }
+.recording-mark-tab {
+  font-size: 12px; padding: 2px 9px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--surface-1); cursor: pointer;
+  color: var(--text-primary);
+}
+.recording-mark-tab.active {
+  background: var(--accent-wash); border-color: var(--series-1); font-weight: 600;
+}
+.recording-mark-list {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 220px; overflow-y: auto;
+}
+.recording-mark-list li { margin: 0; }
+.recording-mark-list .recording-seek {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  text-align: left; background: none; border: 0; border-radius: 5px;
+  padding: 3px 7px; font-size: 13px; cursor: pointer;
+}
+.recording-mark-list .recording-seek:hover { background: var(--accent-wash); }
+.recording-seek-glyph { width: 1.2em; flex: none; }
+.recording-seek-time {
+  font-variant-numeric: tabular-nums; min-width: 3.6em; color: var(--text-secondary);
+}
+.recording-seek-label { color: var(--text-primary); }
+.recording-mark-list .recording-seek-against .recording-seek-label { opacity: 0.65; }
+@media (max-width: 900px) { .recording-main { grid-template-columns: 1fr; } }
+#recordings-status:not(:empty) { font-size: 12px; margin-right: 4px; }

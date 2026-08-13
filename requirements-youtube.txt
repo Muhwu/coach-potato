@@ -1,0 +1,6 @@
+# Optional: one-click YouTube upload for recorded VODs (server/youtube.py).
+# Without these the feature degrades to revealing the file for a manual
+# upload — nothing else in the app depends on them.
+#   .venv/bin/pip install -r requirements-youtube.txt
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2

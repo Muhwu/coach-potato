@@ -17,7 +17,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import config, crypto, db, pdf_export, rune_data, stats
+from . import (ascent_log, config, crypto, db, pdf_export, recordings, rune_data,
+               stats, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING
@@ -142,6 +143,9 @@ def stat_filters(request: Request, conn):
         "rank_tier": params.get("rank_tier") or None,
         "min_games": int(params.get("min_games", 1)),
         "side": params.get("side") or None,  # "blue" | "red" | None (both)
+        # role filter: repeatable ?role=TOP&role=JUNGLE (the client sends the
+        # tracked player's role(s)); empty = all roles
+        "roles": request.query_params.getlist("role") or None,
     }
 
 
@@ -184,6 +188,14 @@ def _extra_settings(conn):
         "date_format": stored.get("date_format") or "iso",
         "runes_mode": stored.get("runes_mode") or "matchup",
         "enable_player_comparison": stored.get("enable_player_comparison") == "1",
+        "main_role": stored.get("main_role") or "",         # team_position or ""
+        "secondary_role": stored.get("secondary_role") or "",
+        "ascent_db_path": stored.get("ascent_db_path") or "",
+        "ascent_db_detected": str(recordings.default_ascent_db_path() or ""),
+        "youtube_client_secrets": stored.get("youtube_client_secrets") or "",
+        "youtube_privacy": stored.get("youtube_privacy") or youtube.DEFAULT_PRIVACY,
+        "youtube_ready": youtube.has_credentials(
+            stored.get("youtube_client_secrets"), get_db_path().parent),
     }
 
 
@@ -300,6 +312,23 @@ def api_put_settings(body: dict):
     enable_comparison = body.get("enable_player_comparison", False)
     if not isinstance(enable_comparison, bool):
         raise HTTPException(400, "enable_player_comparison must be a boolean")
+    valid_roles = ("", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+    main_role = body.get("main_role", "") or ""
+    secondary_role = body.get("secondary_role", "") or ""
+    if main_role not in valid_roles or secondary_role not in valid_roles:
+        raise HTTPException(400, "role must be TOP/JUNGLE/MIDDLE/BOTTOM/UTILITY or empty")
+    # Paths are stored as typed — they point at files this machine owns, and
+    # both are optional (blank = auto-detect Ascent / no YouTube configured).
+    ascent_db_path = (body.get("ascent_db_path") or "").strip()
+    youtube_client_secrets = (body.get("youtube_client_secrets") or "").strip()
+    for label, value in (("ascent_db_path", ascent_db_path),
+                         ("youtube_client_secrets", youtube_client_secrets)):
+        if value and not Path(value).exists():
+            raise HTTPException(400, f"{label}: no file at {value}")
+    youtube_privacy = body.get("youtube_privacy") or youtube.DEFAULT_PRIVACY
+    if youtube_privacy not in youtube.PRIVACY_VALUES:
+        raise HTTPException(
+            400, f"youtube_privacy must be one of: {', '.join(youtube.PRIVACY_VALUES)}")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -318,6 +347,11 @@ def api_put_settings(body: dict):
             "date_format": date_format,
             "runes_mode": runes_mode,
             "enable_player_comparison": "1" if enable_comparison else "0",
+            "main_role": main_role,
+            "secondary_role": secondary_role,
+            "ascent_db_path": ascent_db_path,
+            "youtube_client_secrets": youtube_client_secrets,
+            "youtube_privacy": youtube_privacy,
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -836,7 +870,8 @@ def api_progress(request: Request):
         return stats.progress_segments(
             conn, puuids, sessions,
             champion=params.get("champion") or None, queues=queues,
-            side=params.get("side") or None)
+            side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
     finally:
         conn.close()
 
@@ -858,7 +893,8 @@ def api_games(request: Request, from_ms: int | None = None, to_ms: int | None = 
             champion=params.get("champion") or None, queues=queues,
             opp_champion=params.get("opp_champion") or None,
             rank_tier=params.get("rank_tier") or None,
-            side=params.get("side") or None)
+            side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
         for game in games:
             game["account"] = names.get(game["my_puuid"], "?")
         return games
@@ -889,7 +925,8 @@ def api_metrics(request: Request, from_ms: int | None = None, to_ms: int | None 
         result = stats.segment_metrics(
             conn, puuids, from_ms=from_ms, to_ms=to_ms,
             champion=params.get("champion") or None, queues=queues,
-            side=params.get("side") or None)
+            side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
         result["meta"] = METRICS
         return result
     finally:
@@ -926,21 +963,60 @@ def api_rune_analysis(champion: str, opp_champion: str = ""):
         conn.close()
 
 
+@app.get("/api/stats/game-curve")
+def api_game_curve(match_id: str, puuid: str, opp_puuid: str | None = None):
+    """Full-game per-minute gold/CS/XP/level series for one game (+ the lane
+    opponent's, when opp_puuid is given) — the game-curve chart. 404 when
+    nothing was recorded (crawled before the feature existed, or the
+    timeline was unavailable)."""
+    conn = get_conn()
+    try:
+        curve = stats.game_curve(conn, match_id, puuid, opp_puuid)
+        if curve is None:
+            raise HTTPException(404, "no frame series recorded for that game")
+        return curve
+    finally:
+        conn.close()
+
+
 @app.get("/api/stats/trends")
 def api_trends(request: Request, bucket: str = "month"):
     params = dict(request.query_params)
+    from_ms, to_ms = parse_time_range(params)  # range=30d / from= / to= also work
     queues = [int(q) for q in request.query_params.getlist("queue")] or None
     conn = get_conn()
     try:
         try:
             puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
             buckets = stats.trend_buckets(
-                conn, puuids, bucket=bucket,
+                conn, puuids, bucket=bucket, from_ms=from_ms, to_ms=to_ms,
                 champion=params.get("champion") or None, queues=queues,
-                side=params.get("side") or None)
+                side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return {"buckets": buckets, "meta": METRICS}
+    finally:
+        conn.close()
+
+
+@app.get("/api/stats/map-events")
+def api_map_events(request: Request, from_ms: int | None = None, to_ms: int | None = None):
+    """Death-location map events for the death heatmap (Trends view).
+    Filtered like the other Trends-style queries: champion/role/period.
+    Deaths-only — see stats.map_events / CLAUDE.md for why there's no ward
+    counterpart yet."""
+    params = dict(request.query_params)
+    if from_ms is None and to_ms is None:
+        from_ms, to_ms = parse_time_range(params)  # range=30d / from= / to= also work
+    conn = get_conn()
+    try:
+        puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
+        events = stats.map_events(
+            conn, puuids, from_ms=from_ms, to_ms=to_ms,
+            champion=params.get("champion") or None,
+            roles=request.query_params.getlist("role") or None)
+        return {"events": events}
     finally:
         conn.close()
 
@@ -1051,6 +1127,52 @@ def api_put_matchup_note(my_champion: str, opp_champion: str, body: dict):
     conn = get_conn()
     try:
         db.set_matchup_note(conn, my_champion, opp_champion, **fields)
+        return {"saved": True}
+    finally:
+        conn.close()
+
+
+MAX_REFLECTION_TAGS = 20
+MAX_REFLECTION_TAG_LEN = 40
+
+
+@app.get("/api/reflections")
+def api_get_reflection(match_id: str, puuid: str):
+    conn = get_conn()
+    try:
+        return db.get_reflection(conn, match_id, puuid)
+    finally:
+        conn.close()
+
+
+def _validate_reflection_tags(tags):
+    if not isinstance(tags, list) or len(tags) > MAX_REFLECTION_TAGS:
+        raise HTTPException(400, f"tags must be a list of up to {MAX_REFLECTION_TAGS} strings")
+    for tag in tags:
+        if not isinstance(tag, str) or not tag.strip() or len(tag) > MAX_REFLECTION_TAG_LEN:
+            raise HTTPException(400, f"each tag must be a non-empty string up to "
+                                      f"{MAX_REFLECTION_TAG_LEN} chars")
+
+
+@app.put("/api/reflections/{match_id}/{puuid}")
+def api_put_reflection(match_id: str, puuid: str, body: dict):
+    """Partial update: only the fields present in the body are written — a
+    tags-only edit (toggling a chip) never clobbers the note and vice versa,
+    mirroring /api/matchups/notes/{my}/{opp}."""
+    body = body or {}
+    known = ("tags", "note")
+    if not any(k in body for k in known):
+        raise HTTPException(400, f"provide at least one of: {', '.join(known)}")
+    fields = {}
+    if "tags" in body:
+        tags = body.get("tags") or []
+        _validate_reflection_tags(tags)
+        fields["tags"] = tags
+    if "note" in body:
+        fields["note"] = str(body.get("note") or "")
+    conn = get_conn()
+    try:
+        db.set_reflection(conn, match_id, puuid, **fields)
         return {"saved": True}
     finally:
         conn.close()
@@ -1843,7 +1965,8 @@ def api_block_noted_champions():
                FROM block_games bg
                JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
                JOIN participants opp ON opp.match_id = bg.match_id
-                   AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
+                   AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+                   AND me.team_position != ''
                WHERE TRIM(bg.notes) != ''""").fetchall()
         return sorted(r["champ"] for r in rows if r["champ"])
     finally:
@@ -2409,6 +2532,256 @@ def api_delete_clip(clip_id: int):
     return {"deleted": True}
 
 
+# ---------- recordings (local Ascent VODs) ----------
+
+# background YouTube upload state, same shape as CRAWL_STATE
+UPLOAD_STATE = {"running": False, "uuid": None, "progress": 0.0,
+                "error": None, "video_id": None}
+
+
+def _sync_ascent_log_events(conn):
+    """Best-effort: no Ascent logs (or an unreadable one) must never fail the
+    recording sync, which is the part that matters."""
+    log_dir = ascent_log.default_log_dir()
+    if not log_dir:
+        return {"skipped": "no Ascent log directory"}
+    try:
+        accounts = json.loads(db.get_settings(conn).get("accounts") or "[]")
+        return ascent_log.sync(conn, log_dir, accounts)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+
+
+def _ascent_db_path(conn):
+    configured = db.get_settings(conn).get("ascent_db_path")
+    return configured or recordings.default_ascent_db_path()
+
+
+def _recording_payload(row, conn=None, puuid=None):
+    out = {
+        "uuid": row["uuid"], "match_id": row["match_id"],
+        "video_path": row["video_path"], "started_at_ms": row["started_at_ms"],
+        "duration_s": row["duration_s"], "offset_ms": row["offset_ms"],
+        "file_exists": os.path.exists(row["video_path"]),
+        "youtube_video_id": row["youtube_video_id"],
+        "youtube_url": (youtube.watch_url(row["youtube_video_id"])
+                        if row["youtube_video_id"] else None),
+        "youtube_uploaded_at_ms": row["youtube_uploaded_at_ms"],
+    }
+    if conn is not None and puuid:
+        out["deaths"] = recordings.death_markers(
+            conn, row["match_id"], puuid, row["offset_ms"])
+        # the map draws only what has coordinates, read independently of the
+        # chapter list's source so it never goes blank when the log wins
+        out["events"] = recordings.positioned_markers(
+            conn, row["match_id"], puuid, row["offset_ms"])
+        # every event, positioned or not — the seek buttons under the video
+        out["marks"] = recordings.timeline_markers(
+            conn, row["match_id"], puuid, row["offset_ms"])
+    return out
+
+
+@app.get("/api/recordings")
+def api_recordings(match_id: str, puuid: str = ""):
+    """Recordings for one game, with each death as a video position."""
+    conn = get_conn()
+    try:
+        return {"recordings": [_recording_payload(r, conn, puuid)
+                               for r in db.recordings_for_match(conn, match_id)]}
+    finally:
+        conn.close()
+
+
+@app.get("/api/recordings/matches")
+def api_recorded_matches():
+    """Every match id we have a recording for — lets the games tables show a
+    marker without one request per row."""
+    conn = get_conn()
+    try:
+        return {"match_ids": sorted(db.recorded_match_ids(conn))}
+    finally:
+        conn.close()
+
+
+@app.post("/api/recordings/sync")
+def api_sync_recordings():
+    conn = get_conn()
+    try:
+        path = _ascent_db_path(conn)
+        if not path:
+            raise HTTPException(
+                400, "No Ascent database found. Set its path in Settings.")
+        try:
+            result = recordings.sync(conn, path)
+            # second, offline source: Ascent's logs carry League's Live Client
+            # event feed (kills/towers/objectives) for recent games, so VOD
+            # chapters fill in without a Riot API key
+            result["events"] = _sync_ascent_log_events(conn)
+            return result
+        except FileNotFoundError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ValueError as exc:  # unexpected schema
+            raise HTTPException(400, str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@app.patch("/api/recordings/{rec_uuid}")
+def api_update_recording(rec_uuid: str, body: dict):
+    """Nudge a recording's sync offset (ms; negative = video runs ahead)."""
+    offset = (body or {}).get("offset_ms")
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise HTTPException(400, "offset_ms must be a whole number of milliseconds")
+    conn = get_conn()
+    try:
+        if not db.set_recording_offset(conn, rec_uuid, offset):
+            raise HTTPException(404, "no such recording")
+        return {"updated": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/recordings/{rec_uuid}")
+def api_delete_recording(rec_uuid: str):
+    """Forget the link. The video file itself is never touched."""
+    conn = get_conn()
+    try:
+        if not db.delete_recording(conn, rec_uuid):
+            raise HTTPException(404, "no such recording")
+        return {"deleted": True}
+    finally:
+        conn.close()
+
+
+@app.get("/api/recordings/upload-status")
+def api_upload_status():
+    return UPLOAD_STATE
+
+
+@app.get("/api/recordings/{rec_uuid}/description")
+def api_recording_description(rec_uuid: str, puuid: str):
+    """A ready-to-paste YouTube description with a chapter per death."""
+    conn = get_conn()
+    try:
+        row = db.get_recording(conn, rec_uuid)
+        if not row:
+            raise HTTPException(404, "no such recording")
+        return {"description": recordings.build_description(conn, row, puuid)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/recordings/{rec_uuid}/reveal")
+def api_reveal_recording(rec_uuid: str):
+    """Show the video in the OS file manager, for the manual upload path.
+
+    Nothing leaves the machine — this only opens Explorer/Finder with the file
+    selected so it can be dragged into youtube.com/upload. Returns the path so
+    the caller can also offer it as copyable text (pasting the path into
+    YouTube's file picker is quicker than dragging between windows).
+    """
+    conn = get_conn()
+    try:
+        row = db.get_recording(conn, rec_uuid)
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404, "no such recording")
+    try:
+        recordings.reveal_in_file_manager(row["video_path"])
+    except FileNotFoundError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"revealed": True, "video_path": row["video_path"]}
+
+
+@app.get("/api/recordings/{rec_uuid}/file")
+def api_recording_file(rec_uuid: str):
+    """Stream the local video so a <video> element can play and seek it.
+
+    Only paths already in our recordings table are servable — the id is looked
+    up, never taken from the request — so this can't be pointed at an arbitrary
+    file. FileResponse handles Range requests, which is what makes seeking to a
+    death timestamp work without downloading the whole file.
+    """
+    conn = get_conn()
+    try:
+        row = db.get_recording(conn, rec_uuid)
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404, "no such recording")
+    path = Path(row["video_path"])
+    if not path.exists():
+        raise HTTPException(404, f"video file is gone: {path}")
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+def _run_upload(rec_uuid, video_path, title, description, privacy,
+                client_secrets, db_dir):
+    try:
+        video_id = youtube.upload(
+            video_path, title, description, privacy,
+            client_secrets_path=client_secrets, db_dir=db_dir,
+            on_progress=lambda p: UPLOAD_STATE.update(progress=p))
+        conn = db.connect(get_db_path())
+        try:
+            db.set_recording_youtube(conn, rec_uuid, video_id, privacy)
+        finally:
+            conn.close()
+        UPLOAD_STATE.update(video_id=video_id, progress=1.0)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the user verbatim
+        UPLOAD_STATE.update(error=str(exc))
+    finally:
+        UPLOAD_STATE.update(running=False)
+
+
+@app.post("/api/recordings/{rec_uuid}/youtube")
+def api_upload_recording(rec_uuid: str, body: dict = None):
+    """Start a YouTube upload for one recording, in a background thread.
+
+    Deliberately explicit: the caller passes the title/description it showed
+    the user, and privacy defaults to whatever Settings says (private unless
+    changed). Poll /api/recordings/upload-status for progress.
+    """
+    body = body or {}
+    if UPLOAD_STATE["running"]:
+        raise HTTPException(409, "an upload is already running")
+    conn = get_conn()
+    try:
+        row = db.get_recording(conn, rec_uuid)
+        if not row:
+            raise HTTPException(404, "no such recording")
+        if not os.path.exists(row["video_path"]):
+            raise HTTPException(400, f"video file is gone: {row['video_path']}")
+        stored = db.get_settings(conn)
+        privacy = body.get("privacy") or stored.get("youtube_privacy") \
+            or youtube.DEFAULT_PRIVACY
+        if privacy not in youtube.PRIVACY_VALUES:
+            raise HTTPException(400, "invalid privacy")
+        client_secrets = stored.get("youtube_client_secrets")
+        if not youtube.has_credentials(client_secrets, get_db_path().parent):
+            raise HTTPException(
+                400, "YouTube isn't set up yet — add your OAuth client secrets "
+                     "file in Settings first.")
+        title = (body.get("title") or Path(row["video_path"]).stem)[:youtube.MAX_TITLE]
+        # default to the generated description (matchup + a chapter per death)
+        # so a one-click upload lands with timestamps already on it
+        description = body.get("description")
+        if description is None and body.get("puuid"):
+            description = recordings.build_description(conn, row, body["puuid"])
+        description = (description or "")[:youtube.MAX_DESCRIPTION]
+    finally:
+        conn.close()
+    UPLOAD_STATE.update(running=True, uuid=rec_uuid, progress=0.0,
+                        error=None, video_id=None)
+    threading.Thread(
+        target=_run_upload,
+        args=(rec_uuid, row["video_path"], title, description, privacy,
+              client_secrets, str(get_db_path().parent)),
+        daemon=True).start()
+    return {"started": True, "privacy": privacy}
+
+
 def _run_crawl():
     try:
         from .crawler import Crawler
@@ -2441,6 +2814,18 @@ def _run_crawl():
         crawler.backfill_metrics()
         crawler.backfill_lane_deltas(block_games_only=True)  # deepen block-game stats
         crawler.refresh_tracked_ranks()
+        # link any local Ascent VODs to the games we just crawled. Best-effort:
+        # Ascent not being installed (or its schema having moved) must never
+        # fail the crawl, which is the part that actually matters.
+        ascent_path = _ascent_db_path(conn)
+        if ascent_path:
+            try:
+                CRAWL_STATE["message"] = "linking recordings"
+                summary = recordings.sync(conn, ascent_path)
+                summary["events"] = _sync_ascent_log_events(conn)
+                CRAWL_STATE["recordings"] = summary
+            except Exception as exc:  # noqa: BLE001
+                CRAWL_STATE["recordings"] = {"error": str(exc)}
         db.set_settings(conn, {"last_crawl_ms": str(int(time.time() * 1000))})
         conn.close()
         CRAWL_STATE["last_result"] = results

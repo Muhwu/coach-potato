@@ -1,6 +1,19 @@
 {
   "entries": [
     {
+      "version": "1.53.0",
+      "date": "2026-08-14",
+      "items": [
+        "Stats now cover every role, not just top lane — your lane opponent is whoever played your position. Set a main/secondary role in Settings and use the new Role filter to narrow any view. Thanks to @bs1phc",
+        "Death map (Trends): a schematic Rift heatmap of where you die, built from match timelines. Thanks to @bs1phc",
+        "Full-game gold/CS/XP/level curve per game, so you can see where a lead appeared or evaporated. Thanks to @bs1phc",
+        "Per-game reflection tags plus a freeform note, kept separate from block learnings and matchup notes. Thanks to @bs1phc",
+        "Ascent VOD integration: link your local recordings to games, jump straight to a death, and chapter them automatically. Uploading to YouTube is optional — install requirements-youtube.txt for one-click upload, or use the manual path that opens the file for you. Thanks to @bs1phc",
+        "Research players moved out of Settings into their own view under Prepare, and the top bar became a rounded card with roomier nav. Thanks to @bs1phc",
+        "Fixed: hiding Series, Champion pool or Tier list in Settings → Visible tabs failed the whole save with an error"
+      ]
+    },
+    {
       "version": "1.52.0",
       "date": "2026-08-13",
       "items": [

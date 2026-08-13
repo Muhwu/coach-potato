@@ -16,6 +16,7 @@ default + `@media (prefers-color-scheme: dark)` overrides):
 | `--text-primary` / `--text-secondary` / `--muted` | text hierarchy |
 | `--grid` / `--border` / `--baseline` | hairlines, borders, chart baselines |
 | `--series-1` | THE accent: buttons, active tabs, links, chart lines. User-overridable (accent-color setting) |
+| `--series-2` | 2nd chart series when a chart needs to distinguish two lines (e.g. the game-curve chart's opponent line) |
 | `--accent-wash` | translucent accent tint for active/selected backgrounds — derived from `--series-1` via `color-mix`, follows the user's accent automatically |
 | `--good` / `--critical` / `--good-text` | win/positive vs loss/negative |
 

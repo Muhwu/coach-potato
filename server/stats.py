@@ -1,8 +1,8 @@
-"""Aggregated top-lane statistics.
+"""Aggregated matchup statistics.
 
-All functions operate on the tracked player's TOP-lane games, excluding
-remakes (< 300 s). The lane opponent is the enemy participant with
-team_position='TOP'; rank buckets use the opponent's current solo rank
+All functions operate on the tracked player's games in any role, excluding
+remakes (< 300 s). The lane opponent is the enemy participant in the same
+role (team_position); rank buckets use the opponent's current solo rank
 ('UNKNOWN' when never fetched / unranked).
 """
 import json
@@ -128,7 +128,7 @@ SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id,
 FROM participants me
 JOIN matches m ON m.match_id = me.match_id
 LEFT JOIN participants opp ON opp.match_id = me.match_id
-    AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
+    AND opp.team_id != me.team_id AND opp.team_position = me.team_position
 LEFT JOIN player_ranks pr ON pr.puuid = opp.puuid
 LEFT JOIN participant_metrics pm
     ON pm.match_id = me.match_id AND pm.puuid = me.puuid
@@ -136,7 +136,7 @@ LEFT JOIN participant_runes myr
     ON myr.match_id = me.match_id AND myr.puuid = me.puuid
 LEFT JOIN participant_runes oppr
     ON oppr.match_id = me.match_id AND oppr.puuid = opp.puuid
-WHERE me.puuid IN ({puuid_slots}) AND me.team_position = 'TOP'
+WHERE me.puuid IN ({puuid_slots}) AND me.team_position != ''
   AND m.game_duration_s >= :remake_s
 """
 
@@ -164,7 +164,8 @@ _SIDE_TEAM = {"blue": 100, "red": 200}
 
 
 def _filtered_base(puuid, from_ms=None, to_ms=None, champion=None, queues=None,
-                   rank_tier=None, require_opponent=True, opp_champion=None, side=None):
+                   rank_tier=None, require_opponent=True, opp_champion=None, side=None,
+                   roles=None):
     puuids = [puuid] if isinstance(puuid, str) else list(puuid)
     sql = _BASE.format(puuid_slots=",".join(f":puuid{i}" for i in range(len(puuids))))
     params = {"remake_s": REMAKE_S}
@@ -172,6 +173,13 @@ def _filtered_base(puuid, from_ms=None, to_ms=None, champion=None, queues=None,
     if side in _SIDE_TEAM:
         sql += " AND me.team_id = :side_team"
         params["side_team"] = _SIDE_TEAM[side]
+    # roles: restrict to the tracked player's team_position(s) — the role filter.
+    # None/empty = all roles (the lane opponent is still the enemy in my role).
+    roles = [r for r in (roles or []) if r]
+    if roles:
+        slots = ",".join(f":role{i}" for i in range(len(roles)))
+        sql += f" AND me.team_position IN ({slots})"
+        params.update({f"role{i}": r for i, r in enumerate(roles)})
     if opp_champion:
         sql += " AND opp.champion_name = :opp_champion"
         params["opp_champion"] = opp_champion
@@ -220,8 +228,9 @@ def _pack_metrics(row):
 
 
 def matchups(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
-             rank_tier=None, min_games=1, side=None):
-    base, params = _filtered_base(puuid, from_ms, to_ms, champion, queues, rank_tier, side=side)
+             rank_tier=None, min_games=1, side=None, roles=None):
+    base, params = _filtered_base(puuid, from_ms, to_ms, champion, queues, rank_tier,
+                                  side=side, roles=roles)
     params["min_games"] = min_games
     sql = f"""
         SELECT opp_champion, {_AGG},
@@ -235,8 +244,9 @@ def matchups(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
 
 
 def matchups_by_rank(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
-                     rank_tier=None, min_games=1, side=None):
-    base, params = _filtered_base(puuid, from_ms, to_ms, champion, queues, rank_tier, side=side)
+                     rank_tier=None, min_games=1, side=None, roles=None):
+    base, params = _filtered_base(puuid, from_ms, to_ms, champion, queues, rank_tier,
+                                  side=side, roles=roles)
     params["min_games"] = min_games
     sql = f"""
         SELECT rank_tier, opp_champion, {_AGG},
@@ -250,9 +260,9 @@ def matchups_by_rank(conn, puuid, from_ms=None, to_ms=None, champion=None, queue
 
 
 def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
-            rank_tier=None, min_games=1, side=None):
+            rank_tier=None, min_games=1, side=None, roles=None):
     base, params = _filtered_base(puuid, from_ms, to_ms, champion, queues, rank_tier,
-                                  require_opponent=False, side=side)
+                                  require_opponent=False, side=side, roles=roles)
     totals = conn.execute(
         f"SELECT {_AGG} FROM ({base})", params
     ).fetchone()
@@ -267,7 +277,7 @@ def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
     ]
     recent = [_decode_game_runes(r) for r in conn.execute(
         f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
-                   my_puuid, my_champion, opp_champion, rank_tier, win,
+                   my_puuid, my_champion, opp_champion, opp_puuid, rank_tier, win,
                    kills, deaths, assists, cs, my_runes_json, opp_runes_json
             FROM ({base}) ORDER BY game_creation_ms DESC LIMIT 20""",
         params)]
@@ -346,7 +356,7 @@ def comparison_entry(conn, puuid, my_champion=None, opp_champion=None, queues=No
 
 
 def progress_segments(conn, puuids, sessions, champion=None, queues=None,
-                      now_ms=None, baseline_days=30, side=None):
+                      now_ms=None, baseline_days=30, side=None, roles=None):
     """Aggregate stats per period between coaching sessions.
 
     sessions: dicts with session_date ('YYYY-MM-DD') and title, any order.
@@ -404,12 +414,12 @@ def progress_segments(conn, puuids, sessions, champion=None, queues=None,
 
 
 def segment_metrics(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=None,
-                    side=None):
+                    side=None, roles=None):
     """Aggregate coaching metrics over a period. NULLs are excluded per metric;
     metrics_games reports how many games have a metrics record at all."""
     base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,
                                   champion=champion, queues=queues,
-                                  require_opponent=False, side=side)
+                                  require_opponent=False, side=side, roles=roles)
     row = conn.execute(
         f"""SELECT COUNT(*) AS games, COUNT(pm_match_id) AS metrics_games,
             {_metric_agg_select()}
@@ -431,13 +441,15 @@ _BUCKET_EXPRS = {
 }
 
 
-def trend_buckets(conn, puuids, bucket="month", champion=None, queues=None, side=None):
+def trend_buckets(conn, puuids, bucket="month", from_ms=None, to_ms=None, champion=None,
+                  queues=None, side=None, roles=None):
     """Base stats + coaching metrics grouped per calendar bucket, oldest first.
-    Week buckets are labeled with their Monday's date."""
+    Week buckets are labeled with their Monday's date. from_ms/to_ms optionally
+    restrict to a period (default: full history, as before)."""
     if bucket not in _BUCKET_EXPRS:
         raise ValueError(f"bucket must be one of {sorted(_BUCKET_EXPRS)}")
-    base, params = _filtered_base(puuids, champion=champion, queues=queues,
-                                  require_opponent=False, side=side)
+    base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms, champion=champion,
+                                  queues=queues, require_opponent=False, side=side, roles=roles)
     rows = conn.execute(
         f"""SELECT {_BUCKET_EXPRS[bucket]} AS bucket,
             COUNT(pm_match_id) AS metrics_games,
@@ -482,6 +494,38 @@ def single_game_metrics(conn, match_id, puuid):
     return values
 
 
+_FRAME_SERIES_COLS = ("cs", "xp", "gold", "level")
+
+
+def _frame_series_side(conn, match_id, puuid):
+    rows = conn.execute(
+        """SELECT minute, cs, xp, gold, level FROM participant_frame_series
+           WHERE match_id=? AND puuid=? ORDER BY minute""",
+        (match_id, puuid)).fetchall()
+    if not rows:
+        return None
+    return rows, {k: [r[k] for r in rows] for k in _FRAME_SERIES_COLS}
+
+
+def game_curve(conn, match_id, puuid, opp_puuid=None):
+    """Full-game per-minute gold/CS/XP/level series for one participant (and
+    optionally their lane opponent) in a match — the full-game curve chart.
+    None if `puuid` has no recorded series for that match (crawled before the
+    feature existed, or the match's timeline was unavailable — run
+    ./crawl.sh --backfill-frame-series). `opp` is None when opp_puuid isn't
+    given or has no recorded series of its own."""
+    mine = _frame_series_side(conn, match_id, puuid)
+    if mine is None:
+        return None
+    rows, me = mine
+    opp = None
+    if opp_puuid:
+        theirs = _frame_series_side(conn, match_id, opp_puuid)
+        if theirs is not None:
+            opp = theirs[1]
+    return {"minutes": [r["minute"] for r in rows], "me": me, "opp": opp}
+
+
 def block_games_detailed(conn):
     """Block-game entries hydrated from stored matches, oldest first."""
     rows = conn.execute(
@@ -502,7 +546,8 @@ def block_games_detailed(conn):
            JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
            JOIN matches m ON m.match_id = bg.match_id
            LEFT JOIN participants opp ON opp.match_id = bg.match_id
-               AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
+               AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+               AND me.team_position != ''
            LEFT JOIN participant_metrics pm
                ON pm.match_id = bg.match_id AND pm.puuid = bg.puuid
            LEFT JOIN participant_runes myr
@@ -558,12 +603,12 @@ def _decode_game_runes(row):
 
 
 def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=None,
-                   opp_champion=None, rank_tier=None, side=None):
-    """Individual top-lane games for the tracked puuids, newest first."""
+                   opp_champion=None, rank_tier=None, side=None, roles=None):
+    """Individual games (any role) for the tracked puuids, newest first."""
     base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,
                                   champion=champion, queues=queues,
                                   rank_tier=rank_tier, opp_champion=opp_champion,
-                                  require_opponent=False, side=side)
+                                  require_opponent=False, side=side, roles=roles)
     sql = f"""
         SELECT match_id, game_creation_ms, game_duration_s, queue_id, my_puuid,
                my_champion, opp_champion, rank_tier, win,
@@ -573,6 +618,78 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
         FROM ({base}) ORDER BY game_creation_ms DESC
     """
     return [_decode_game_runes(r) for r in conn.execute(sql, params)]
+
+
+def session_games_detailed(conn, session_id):
+    """Games explicitly attached to a coaching session (session_games) — the
+    Live coaching / VOD review 'Add game' picker — newest first."""
+    sql = """
+        SELECT sg.id AS session_game_id, sg.match_id, sg.puuid, sg.added_at_ms,
+               m.game_creation_ms, m.game_duration_s, m.queue_id,
+               me.champion_name AS my_champion, me.win,
+               me.kills, me.deaths, me.assists, me.cs,
+               opp.champion_name AS opp_champion,
+               pl.game_name AS account,
+               myr.runes AS my_runes_json,
+               oppr.runes AS opp_runes_json
+        FROM session_games sg
+        JOIN participants me ON me.match_id = sg.match_id AND me.puuid = sg.puuid
+        JOIN matches m ON m.match_id = sg.match_id
+        LEFT JOIN participants opp ON opp.match_id = sg.match_id
+            AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+            AND me.team_position != ''
+        LEFT JOIN players pl ON pl.puuid = sg.puuid
+        LEFT JOIN participant_runes myr ON myr.match_id = sg.match_id AND myr.puuid = sg.puuid
+        LEFT JOIN participant_runes oppr ON oppr.match_id = sg.match_id AND oppr.puuid = opp.puuid
+        WHERE sg.session_id = ?
+        ORDER BY m.game_creation_ms DESC
+    """
+    return [_decode_game_runes(r) for r in conn.execute(sql, (session_id,))]
+
+
+def review_queue(conn, puuid, limit=8):
+    """Individual block games with no per-game notes yet — a lightweight
+    "you played this, you haven't written anything down" nudge, across
+    EVERY block (not just the current one).
+
+    Scoped to games you added to a block (block_games) — the games you're
+    actively practising — rather than every game ever played. One row per
+    game where block_games.notes is still blank. Newest first."""
+    base, params = _filtered_base(puuid)
+    sql = f"""
+        SELECT bg.id AS entry_id, bg.block_id, blk.title AS block_title,
+               b.match_id, b.my_puuid AS puuid, b.my_champion, b.opp_champion,
+               b.win, b.game_creation_ms
+        FROM ({base}) b
+        JOIN block_games bg ON bg.match_id = b.match_id AND bg.puuid = b.my_puuid
+        JOIN blocks blk ON blk.id = bg.block_id
+        WHERE bg.notes = ''
+        ORDER BY b.game_creation_ms DESC
+    """
+    rows = [dict(r) for r in conn.execute(sql, params)]
+    return rows[:limit]
+
+
+def map_events(conn, puuids, from_ms=None, to_ms=None, champion=None, roles=None):
+    """Death-location map events (see player_map_events) for the tracked
+    puuids, filtered the same way as the other Trends-style queries (period/
+    champion/role via _filtered_base). Explicitly deaths-only: the table also
+    holds kills/towers/objectives for VOD chapters, and the heatmap must not
+    plot those. match-v5's WARD_PLACED events carry no position (see
+    CLAUDE.md), so there is still no ward counterpart."""
+    base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,
+                                  champion=champion, require_opponent=False, roles=roles)
+    sql = f"""
+        SELECT pme.event_type, pme.x, pme.y, pme.timestamp_ms
+        FROM player_map_events pme
+        JOIN ({base}) b ON b.match_id = pme.match_id AND b.my_puuid = pme.puuid
+        -- deaths only (the table also carries kills/towers for VOD chapters),
+        -- and only rows that actually have a position: log-derived events
+        -- carry timings but no coordinates
+        WHERE pme.event_type = 'death' AND pme.x IS NOT NULL AND pme.y IS NOT NULL
+        ORDER BY pme.timestamp_ms
+    """
+    return [dict(r) for r in conn.execute(sql, params)]
 
 
 def champion_roles(conn, secondary_share=0.2):
@@ -598,7 +715,6 @@ def champion_roles(conn, secondary_share=0.2):
         order = {"TOP": 0, "JUNGLE": 1, "MIDDLE": 2, "BOTTOM": 3, "UTILITY": 4}
         out[champ] = sorted(roles, key=lambda p: order.get(p, 9))
     return out
-
 def filter_options(conn, puuid):
     base, params = _filtered_base(puuid, require_opponent=False)
     champions = [r[0] for r in conn.execute(

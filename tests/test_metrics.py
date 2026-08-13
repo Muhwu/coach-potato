@@ -1,6 +1,10 @@
 from server.metrics import (METRICS, map_half, metric_keys, parse_build_order,
-                            parse_jungle_starts, parse_metrics, parse_skill_order,
-                            parse_starting_items, parse_timeline_deltas, strongside)
+                            parse_death_events, parse_jungle_starts, parse_metrics,
+                            parse_skill_order, parse_starting_items,
+                            parse_timeline_deltas, strongside)
+from server.metrics import (METRICS, metric_keys, parse_build_order, parse_frame_series,
+                            parse_metrics, parse_skill_order, parse_starting_items,
+                            parse_timeline_deltas)
 
 
 def sample_match(puuid="p1", challenges=True):
@@ -173,6 +177,63 @@ def test_parse_timeline_deltas_short_game_leaves_14m_none():
     assert d["cs_diff_7"] == 5
     assert d["cs_diff_14"] is None
     assert d["gold_diff_14"] is None
+
+
+def test_parse_death_events_extracts_positions_for_victim():
+    evs = [
+        _ev("CHAMPION_KILL", 65_000, 6, victimId=1, killerId=6, position={"x": 1200, "y": 3400}),
+        # my kill of the opponent — not my death, must be skipped
+        _ev("CHAMPION_KILL", 500_000, 1, victimId=6, killerId=1, position={"x": 9000, "y": 9000}),
+        _ev("CHAMPION_KILL", 900_000, 6, victimId=1, killerId=6, position={"x": 8000, "y": 2000}),
+    ]
+    deaths = parse_death_events(_timeline_events(evs), "me")
+    assert deaths == [
+        {"x": 1200, "y": 3400, "timestamp_ms": 65_000},
+        {"x": 8000, "y": 2000, "timestamp_ms": 900_000},
+    ]
+
+
+def test_parse_death_events_skips_events_missing_position():
+    # WARD_PLACED-shaped/kill events without a position field must be skipped,
+    # not crash — mirrors match-v5's real behavior for WARD_PLACED (no
+    # position at all) in case a malformed/older event ever lacks one.
+    evs = [_ev("CHAMPION_KILL", 65_000, 6, victimId=1, killerId=6)]
+    assert parse_death_events(_timeline_events(evs), "me") == []
+
+
+def test_parse_death_events_none_without_timeline_or_participant():
+    assert parse_death_events(None, "me") is None
+    assert parse_death_events(_timeline_events([]), "ghost") is None
+    assert parse_death_events(_timeline_events([]), "me") == []
+def test_parse_frame_series_all_participants_per_minute():
+    tl = _timeline(frames=[
+        _frame(0, {1: (0, 0, 1, 500), 6: (0, 0, 1, 500)}),
+        _frame(420_000, {1: (55, 4, 6, 2600), 6: (40, 0, 5, 2100)}),
+        _frame(840_000, {1: (120, 8, 10, 5200), 6: (95, 0, 9, 4300)}),
+    ])
+    series = parse_frame_series(tl)
+    assert set(series) == {"me", "opp"}
+    me = series["me"]
+    assert [e["minute"] for e in me] == [0, 7, 14]
+    assert me[1] == {"minute": 7, "cs": 55 + 4, "xp": None, "gold": 2600, "level": 6}
+    assert series["opp"][2] == {"minute": 14, "cs": 95, "xp": None, "gold": 4300, "level": 9}
+
+
+def test_parse_frame_series_empty_without_timeline():
+    assert parse_frame_series(None) == {}
+    assert parse_frame_series({"info": {"participants": [], "frames": []}}) == {}
+
+
+def test_parse_frame_series_skips_unknown_participant_ids():
+    tl = {"info": {
+        "participants": [{"participantId": 1, "puuid": "me"}],
+        "frames": [{"timestamp": 60_000, "participantFrames": {
+            "1": {"minionsKilled": 10, "level": 2, "totalGold": 800},
+            "9": {"minionsKilled": 5, "level": 1, "totalGold": 400},  # no puuid mapping
+        }}],
+    }}
+    series = parse_frame_series(tl)
+    assert set(series) == {"me"}
 
 
 def test_parse_metrics_without_challenges_gives_nulls_for_challenge_fields():

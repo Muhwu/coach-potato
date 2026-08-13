@@ -9,6 +9,9 @@ const state = {
   champion: "",
   queue: "",
   side: "", // "" all | blue | red
+  roleFilter: "mine", // "mine" (main+secondary) | "" (all) | a team_position
+  mainRole: "",       // from settings
+  secondaryRole: "",
   rankTier: "",
   minGames: 1,
   mainView: "overview", // overview | matchups | progress | trends | blocks | settings
@@ -229,6 +232,39 @@ function wireSortable(container, sortState, columns, rerender) {
     }));
 }
 
+// team_position value -> label, in lane order
+const ROLE_OPTS = [["TOP", "Top"], ["JUNGLE", "Jungle"], ["MIDDLE", "Mid"],
+                   ["BOTTOM", "Bot"], ["UTILITY", "Support"]];
+function roleSettingOptions(sel) { // Settings: None + each role
+  return `<option value="">None</option>`
+    + ROLE_OPTS.map(([v, l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("");
+}
+function roleFilterOptions() { // filter rows: My roles / All / each role
+  return `<option value="mine">My roles</option><option value="">All roles</option>`
+    + ROLE_OPTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+}
+// the team_position(s) the current role filter maps to ([] = all roles)
+function roleParamList() {
+  if (state.roleFilter === "mine") return [state.mainRole, state.secondaryRole].filter(Boolean);
+  return state.roleFilter ? [state.roleFilter] : [];
+}
+function addRoleParams(params) { roleParamList().forEach((r) => params.append("role", r)); }
+// keep all filter dropdowns showing the shared role filter
+function syncRoleSelects() {
+  ["#role-select", "#mu-role", "#trend-role"].forEach((id) => { const el = $(id); if (el) el.value = state.roleFilter; });
+}
+// apply main/secondary role from settings, default the filter, fill the dropdowns
+function applyRoleSettings(settings) {
+  state.mainRole = settings.main_role || "";
+  state.secondaryRole = settings.secondary_role || "";
+  state.roleFilter = state.mainRole ? "mine" : ""; // no main set -> show all roles
+  ["#role-select", "#mu-role", "#trend-role"].forEach((id) => {
+    const el = $(id);
+    if (el && !el.options.length) el.innerHTML = roleFilterOptions();
+  });
+  syncRoleSelects();
+}
+
 function queryString() {
   const params = accountParams();
   if (state.range === "custom") {
@@ -240,6 +276,7 @@ function queryString() {
   if (state.champion) params.set("champion", state.champion);
   if (state.queue) params.set("queue", state.queue);
   if (state.side) params.set("side", state.side);
+  addRoleParams(params);
   if (state.rankTier) params.set("rank_tier", state.rankTier);
   if (state.minGames > 1) params.set("min_games", state.minGames);
   return params.toString();
@@ -292,7 +329,7 @@ function renderSummary(s) {
       : "–"}`).join("<br>") || "–";
   }
   $("#summary-tiles").innerHTML = `
-    <div class="tile"><div class="label">Top-lane games</div><div class="value">${s.games}</div>
+    <div class="tile"><div class="label">Games</div><div class="value">${s.games}</div>
       <div class="sub">${s.wins ?? 0}W ${s.games - (s.wins ?? 0)}L</div></div>
     <div class="tile"><div class="label">Winrate</div><div class="value">${pct(s.winrate)}</div>
       <div class="sub">50% reference on bars</div></div>
@@ -532,9 +569,93 @@ function renderChampionTable(byChampion) {
       openComparison({ my: btn.dataset.champ, scope: "champion" })));
 }
 
-const recentUi = { runesOpen: new Set(), sort: { key: "date", dir: -1 } };
+const recentUi = { runesOpen: new Set(), vodOpen: new Set(), sort: { key: "date", dir: -1 } };
+// Full-game curve: no open-set of its own — it renders at the bottom of the
+// VOD panel, so recentUi.vodOpen decides when it shows. Only the fetched data
+// is held here, keyed per gkey and never cleared (recent games don't change
+// once loaded for this view).
+const curveUi = { cache: new Map() };
 
 function kdaRatio(g) { return (g.kills + g.assists) / Math.max(1, g.deaths); }
+
+// ---------- full-game gold/CS/XP/level curve chart ----------
+// Gold and CS are the two most immediately useful reads for lane/game
+// review; XP and level are available from the same endpoint if a future
+// pass wants to add a metric switcher.
+const GC_METRICS = [
+  { key: "gold", label: "Gold", decimals: 0 },
+  { key: "cs", label: "CS", decimals: 0 },
+];
+const GC_CHART_W = 260, GC_CHART_H = 100;
+const GC_PAD = { l: 34, r: 8, t: 8, b: 18 };
+
+function gcChartSVG(def, minutes, meValues, oppValues) {
+  const mePts = minutes.map((m, i) => ({ x: m, v: meValues[i] })).filter((p) => p.v != null);
+  const oppPts = oppValues
+    ? minutes.map((m, i) => ({ x: m, v: oppValues[i] })).filter((p) => p.v != null)
+    : [];
+  const allVals = [...mePts.map((p) => p.v), ...oppPts.map((p) => p.v)];
+  if (!allVals.length) return "";
+  let lo = Math.min(...allVals), hi = Math.max(...allVals);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const span = hi - lo;
+  lo -= span * 0.08; hi += span * 0.08;
+  const maxX = Math.max(...minutes, 1);
+  const iw = GC_CHART_W - GC_PAD.l - GC_PAD.r, ih = GC_CHART_H - GC_PAD.t - GC_PAD.b;
+  const x = (m) => GC_PAD.l + (m / maxX) * iw;
+  const y = (v) => GC_PAD.t + ih - ((v - lo) / (hi - lo)) * ih;
+  const fmt = (v) => v.toFixed(def.decimals) + (def.suffix || "");
+  const line = (pts, cls) => pts.length > 1
+    ? `<polyline class="${cls}" points="${
+        pts.map((p) => `${x(p.x).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ")}"/>`
+    : "";
+  const maxV = Math.max(...allVals), minV = Math.min(...allVals);
+  return `<figure class="trend-chart game-curve-chart">
+    <figcaption>${def.label}</figcaption>
+    <svg viewBox="0 0 ${GC_CHART_W} ${GC_CHART_H}" role="img"
+         aria-label="${def.label} over the game">
+      <line class="tl-axis" x1="${GC_PAD.l}" x2="${GC_CHART_W - GC_PAD.r}"
+            y1="${GC_CHART_H - GC_PAD.b}" y2="${GC_CHART_H - GC_PAD.b}"/>
+      <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(maxV) + 3}" text-anchor="end">${fmt(maxV)}</text>
+      <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(minV) + 3}" text-anchor="end">${fmt(minV)}</text>
+      ${line(mePts, "gc-line-me")}${line(oppPts, "gc-line-opp")}
+      <text class="tl-xlab" x="${GC_PAD.l}" y="${GC_CHART_H - 4}">0m</text>
+      <text class="tl-xlab" x="${GC_CHART_W - GC_PAD.r}" y="${GC_CHART_H - 4}" text-anchor="end">${maxX}m</text>
+    </svg>
+  </figure>`;
+}
+
+function gameCurveSection(gkey) {
+  if (!curveUi.cache.has(gkey)) return `<p class="muted">Loading…</p>`;
+  const curve = curveUi.cache.get(gkey);
+  if (!curve) {
+    return `<p class="muted">No full-game curve recorded — crawl again or run
+      <code>./crawl.sh --backfill-frame-series</code>.</p>`;
+  }
+  const charts = GC_METRICS.map((def) =>
+    gcChartSVG(def, curve.minutes, curve.me[def.key], curve.opp ? curve.opp[def.key] : null)
+  ).join("");
+  return `<div class="game-curve">
+    <div class="game-curve-legend">
+      <span class="gc-legend-me">● You</span>
+      ${curve.opp ? `<span class="gc-legend-opp">● Opponent</span>` : ""}
+    </div>
+    <div class="chart-grid">${charts}</div>
+  </div>`;
+}
+
+// fetched when the VOD panel opens — the curve lives at the bottom of it, so
+// it has no toggle of its own
+async function ensureGameCurve(gkey, matchId, myPuuid, oppPuuid) {
+  if (curveUi.cache.has(gkey)) return;
+  const params = new URLSearchParams({ match_id: matchId, puuid: myPuuid });
+  if (oppPuuid) params.set("opp_puuid", oppPuuid);
+  try {
+    curveUi.cache.set(gkey, await getJSON(`/api/stats/game-curve?${params}`));
+  } catch {
+    curveUi.cache.set(gkey, null);
+  }
+}
 
 function runesCompareCol(champ, runes, whose) {
   const body = runes
@@ -555,7 +676,7 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
-  const colCount = 10 + (multi ? 1 : 0);
+  const colCount = 11 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
   const cols = [
     { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
@@ -571,12 +692,15 @@ function renderRecent(recent) {
     { key: "kda", label: "K/D/A", type: "num", get: kdaRatio },
     { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
     { key: "runes", label: "Runes", sortable: false },
+    { key: "vod", label: "VOD", sortable: false },
     { key: "block", label: "", sortable: false },
   ];
   const body = sortRows(recent, recentUi.sort, cols).map((g) => {
     const gkey = `${g.match_id}:${g.my_puuid}`;
-    const open = recentUi.runesOpen.has(gkey);
+    const runesOpen = recentUi.runesOpen.has(gkey);
+    const vodOpen = recentUi.vodOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
+    const tagCount = reflectionTagCount(g.match_id, g.my_puuid);
     let html = `<tr>
       <td>${fmtDateTime(g.game_creation_ms)}</td>
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
@@ -589,16 +713,41 @@ function renderRecent(recent) {
       <td>${fmtDuration(g.game_duration_s)}</td>
       <td>${hasRunes
         ? `<button class="preset seg-toggle runes-toggle" data-gkey="${gkey}"
-             aria-expanded="${open}" title="Runes">${open ? "▾" : "▸"} Runes</button>`
+             aria-expanded="${runesOpen}" title="Runes">${runesOpen ? "▾" : "▸"} Runes</button>`
         : `<span class="muted">–</span>`}</td>
+      <td><button class="preset seg-toggle vod-toggle" data-gkey="${gkey}"
+        data-match="${g.match_id}" data-puuid="${g.my_puuid}" data-opp="${g.opp_puuid ?? ""}"
+        aria-expanded="${vodOpen}"
+        title="Reflection, the recorded VOD with its map and chapters, and the full-game curve${
+          tagCount ? ` — ${tagCount} reflection tag${tagCount === 1 ? "" : "s"}` : ""}"
+        >${vodOpen ? "▾" : "▸"} 🎬 VOD${tagCount ? ` <span class="vod-tagcount">${tagCount}</span>` : ""}</button></td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`;
-    if (open) {
-      html += `<tr class="games-row"><td colspan="${colCount}"><div class="runes-compare">${
-        runesCompareCol(g.my_champion, g.runes, "you")}${
-        g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
-      }</div></td></tr>`;
+    if (runesOpen) {
+      html += `<tr class="games-row"><td colspan="${colCount}">
+        <div class="runes-compare">${
+          runesCompareCol(g.my_champion, g.runes, "you")}${
+          g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
+        }</div>
+      </td></tr>`;
+    }
+    // One panel per game, in the order you'd work through it: what you took
+    // away from it, then the footage, then the shape of the whole game.
+    // Reflection and the curve each used to be their own column; both are
+    // about this single game, so a row of three toggles that open three
+    // stacked panels was just three ways of saying "expand this game".
+    // recordingSection() renders nothing when there is no recording, which is
+    // right when it's tucked inside another panel but reads as a broken toggle
+    // when it IS the panel — so say so explicitly here.
+    if (vodOpen) {
+      const rec = recordingSection(g.match_id, g.my_puuid);
+      html += `<tr class="games-row"><td colspan="${colCount}">
+        <div class="vod-reflect">${reflectionSection(g.match_id, g.my_puuid)}</div>
+        ${rec || `<p class="muted">No recording found for this game. Ascent recordings are
+            matched by game id — press 🎬 in the header to re-scan.</p>`}
+        <div class="vod-curve"><h5>Full-game curve</h5>${gameCurveSection(gkey)}</div>
+      </td></tr>`;
     }
     return html;
   }).join("");
@@ -613,6 +762,46 @@ function renderRecent(recent) {
       recentUi.runesOpen.has(gkey) ? recentUi.runesOpen.delete(gkey) : recentUi.runesOpen.add(gkey);
       renderRecent(recent);
     }));
+  target.querySelectorAll(".vod-toggle").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const gkey = btn.dataset.gkey;
+      if (recentUi.vodOpen.has(gkey)) {
+        recentUi.vodOpen.delete(gkey);
+        renderRecent(recent);
+        return;
+      }
+      recentUi.vodOpen.add(gkey);
+      renderRecent(recent); // show "Loading…" immediately
+      await Promise.all([
+        ensureReflection(btn.dataset.match, btn.dataset.puuid),
+        ensureRecentRecording(btn.dataset.match, btn.dataset.puuid),
+        ensureGameCurve(gkey, btn.dataset.match, btn.dataset.puuid, btn.dataset.opp),
+      ]);
+      renderRecent(recent);
+    }));
+  wireReflectionSection(target, async (matchId, puuid) => {
+    reflectionUi.cache.delete(reflectionKey(matchId, puuid));
+    await ensureReflection(matchId, puuid);
+    renderRecent(recent);
+  }, () => renderRecent(recent));
+  wireRecordingSection(target, async (matchId, puuid) => {
+    recordingUi.cache.delete(recordingKey(matchId, puuid));
+    await ensureRecentRecording(matchId, puuid);
+    renderRecent(recent);
+  });
+}
+
+// loaded on demand when the 🎬 VOD toggle on a Recent games row is expanded
+async function ensureRecentRecording(matchId, puuid) {
+  const key = recordingKey(matchId, puuid);
+  if (recordingUi.cache.has(key)) return;
+  try {
+    const data = await getJSON(
+      `/api/recordings?match_id=${encodeURIComponent(matchId)}&puuid=${encodeURIComponent(puuid)}`);
+    recordingUi.cache.set(key, data.recordings || []);
+  } catch {
+    recordingUi.cache.set(key, []);
+  }
 }
 
 function wirePromoteButtons(container) {
@@ -1059,6 +1248,791 @@ function wireClipsSection(container, reload, rerender) {
       }
       clipsUi.formOpen.delete(`${section.dataset.ownerType}:${section.dataset.ownerId}`);
       await reload(section.dataset.ownerType, section.dataset.ownerId);
+    }));
+}
+
+// ---------- game reflections (shared by Overview recent games and block game panels) ----------
+// A quick per-game tag/note, independent of matchup notes / block learnings /
+// sessions — a fast post-match reflection habit, not a full write-up.
+
+const REFLECTION_SUGGESTED_TAGS = [
+  "bad TP", "int death", "tilted", "good vision", "objective miss", "won lane lost game",
+];
+
+const reflectionUi = {
+  cache: new Map(),        // "matchId:puuid" -> {tags, note} once fetched
+  editingNote: new Set(),  // "matchId:puuid" keys with the note editor open
+};
+
+/* ---------- recordings (local Ascent VODs) ----------
+
+   Shared by the Overview's Recent games and a block game's stats panel, the
+   same way clipsSection/reflectionSection are. The video is a local file
+   streamed by the backend, so it plays inline and can be seeked — which is the
+   point: each death from the match timeline becomes a clickable marker that
+   jumps the video to that moment. */
+
+// How far BEFORE a marker to drop the playhead. Every marker is the moment a
+// thing already happened, so landing on it shows the aftermath and hides the
+// cause; five seconds covers the approach without overshooting the previous
+// event in a busy fight.
+const SEEK_LEAD_MS = 5000;
+
+const recordingUi = {
+  cache: new Map(),          // "matchId:puuid" -> [recording, ...] once fetched
+  recordedMatches: null,     // Set of match ids that have a recording, or null
+  upload: { uuid: null, progress: 0, error: null, timer: null },
+  descriptions: new Map(),        // uuid -> generated YouTube description
+  descriptionOpen: new Set(),     // uuids with the description block expanded
+  markTab: new Map(),             // uuid -> which event tab is selected
+};
+
+function recordingKey(matchId, puuid) { return `${matchId}:${puuid}`; }
+
+/* Re-read Ascent: the recordings database (video files -> games) and the logs
+   (League's event feed -> chapter timestamps). Reports what it found rather
+   than just "done", because "0 imported" is usually explained by the counts. */
+function recordingSyncSummary(body) {
+  const bits = [`${body.imported} linked of ${body.seen} recordings`];
+  if (body.skipped_unmatched) bits.push(`${body.skipped_unmatched} not crawled yet`);
+  if (body.skipped_missing_file) bits.push(`${body.skipped_missing_file} file missing`);
+  const events = body.events || {};
+  if (events.events) bits.push(`${events.events} events from ${events.imported} games`);
+  else if (events.error) bits.push(`events: ${events.error}`);
+  return `${bits.join(" · ")} ✓`;
+}
+
+// dropped so expanded panels refetch instead of showing what was cached
+function clearRecordingCaches() {
+  recordingUi.recordedMatches = null;
+  recordingUi.cache.clear();
+  recordingUi.descriptions.clear();
+}
+
+async function syncRecordings() {
+  const status = $("#sync-recordings-status");
+  status.classList.remove("status-error");
+  status.textContent = "Syncing…";
+  try {
+    const response = await fetch("/api/recordings/sync", { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `error ${response.status}`);
+    status.textContent = recordingSyncSummary(body);
+    clearRecordingCaches();
+  } catch (err) {
+    status.classList.add("status-error");
+    status.textContent = String(err.message || err);
+  }
+}
+
+// the header 🎬 button — same scan, reachable without going into Settings
+async function rescanRecordings() {
+  const btn = $("#recordings-btn");
+  // its own status span: #crawl-status is owned by the crawl poller, which
+  // would wipe this the moment it next ticked
+  const status = $("#recordings-status");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  status.classList.remove("status-error");
+  status.textContent = "Scanning Ascent…";
+  try {
+    const response = await fetch("/api/recordings/sync", { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `error ${response.status}`);
+    clearRecordingCaches();
+    // re-render whichever view is showing recordings so they appear at once
+    if (state.mainView === "blocks") initBlocks();
+    else if (state.mainView === "overview") await refresh();
+    status.textContent = recordingSyncSummary(body);   // after the re-render
+  } catch (err) {
+    status.classList.add("status-error");
+    status.textContent = `Ascent scan failed — ${err.message || err}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// one cheap request so games tables can show a 🎬 marker without a fetch per row
+async function loadRecordedMatches(force = false) {
+  if (recordingUi.recordedMatches && !force) return recordingUi.recordedMatches;
+  try {
+    const data = await getJSON("/api/recordings/matches");
+    recordingUi.recordedMatches = new Set(data.match_ids || []);
+  } catch {
+    recordingUi.recordedMatches = new Set(); // feature simply stays hidden
+  }
+  return recordingUi.recordedMatches;
+}
+
+function hasRecording(matchId) {
+  return Boolean(recordingUi.recordedMatches && recordingUi.recordedMatches.has(matchId));
+}
+
+function fmtVideoTime(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function recordingSection(matchId, puuid) {
+  const key = recordingKey(matchId, puuid);
+  const list = recordingUi.cache.get(key);
+  if (list === undefined) {
+    return `<div class="recording-section" data-match="${escapeHtml(matchId)}"
+      data-puuid="${escapeHtml(puuid)}"><h5>Recording</h5><p class="muted">Loading…</p></div>`;
+  }
+  if (!list.length) return "";
+  const body = list.map((r) => recordingCard(r)).join("");
+  return `<div class="recording-section" data-match="${escapeHtml(matchId)}"
+    data-puuid="${escapeHtml(puuid)}"><h5>Recording</h5>${body}</div>`;
+}
+
+function recordingCard(r) {
+  if (!r.file_exists) {
+    return `<div class="recording-card">
+      <p class="muted">The video file has moved or been deleted:<br>
+        <code>${escapeHtml(r.video_path)}</code></p>
+      <button type="button" class="preset recording-forget" data-uuid="${escapeHtml(r.uuid)}">
+        Forget this recording</button>
+    </div>`;
+  }
+  const marks = recordingSeekRow(r);
+  const uploading = recordingUi.upload.uuid === r.uuid;
+  // Manual is the primary action: it needs no OAuth client, has no quota and
+  // isn't subject to YouTube's private-lock on unaudited projects. The API
+  // button is the one-click version for once that setup is done.
+  const manual = `<button type="button" class="preset btn-primary recording-manual"
+    data-uuid="${escapeHtml(r.uuid)}"
+    title="Opens the file in Explorer and YouTube's upload page — no setup needed">
+    📁 Upload to YouTube</button>`;
+  const apiBtn = state.youtubeReady
+    ? `<button type="button" class="preset recording-upload" data-uuid="${escapeHtml(r.uuid)}"
+         ${uploading ? "disabled" : ""}
+         title="One-click upload using your configured Google OAuth client"
+         >${uploading ? "Uploading…" : "⬆ One-click"}</button>`
+    : "";
+  const yt = r.youtube_video_id
+    ? `<a class="preset recording-yt-link" href="${escapeHtml(r.youtube_url)}"
+         target="_blank" rel="noopener noreferrer">▶ On YouTube</a>`
+    : `${manual}${apiBtn}`;
+  const progress = uploading
+    ? `<div class="recording-progress"><div class="recording-progress-fill"
+         style="width:${Math.round(recordingUi.upload.progress * 100)}%"></div></div>`
+    : "";
+  const error = recordingUi.upload.error && recordingUi.upload.uuid === r.uuid
+    ? `<span class="muted status-error">${escapeHtml(recordingUi.upload.error)}</span>` : "";
+  return `<div class="recording-card" data-uuid="${escapeHtml(r.uuid)}">
+    <div class="recording-main">
+      <video class="recording-video" controls preload="metadata"
+        src="/api/recordings/${encodeURIComponent(r.uuid)}/file"></video>
+      ${recordingMap(r)}
+    </div>
+    ${marks}
+    <div class="recording-actions">
+      ${yt}
+      <label class="recording-offset-label" title="Nudge if the video and game clocks drift">
+        offset
+        <input type="number" class="recording-offset" data-uuid="${escapeHtml(r.uuid)}"
+          step="1000" value="${r.offset_ms}"> ms
+      </label>
+      ${error}
+    </div>
+    <span class="muted recording-manual-status"></span>
+    ${recordingDescriptionBlock(r)}
+    ${progress}
+  </div>`;
+}
+
+/* ---------- the mini-map beside the player ----------
+
+   Every stored event has a map position, so the same schematic Rift the Trends
+   death map draws doubles as a clickable index of the game: each dot seeks the
+   video to that moment. Reuses heatmapPoint and the MAP_ and HEATMAP_
+   constants from trends.js — that file loads after app.js, but this only runs
+   on click, long after everything is parsed. */
+
+/* A schematic Summoner's Rift, drawn from scratch as plain SVG — three lanes,
+   the four jungle quadrants, the river running corner to corner, both bases,
+   the turret line and the Baron/Dragon pits. Deliberately an abstraction of
+   the real map's geometry rather than a copy of any map artwork.
+
+   Everything is expressed in Riot's own map coordinates (0..MAP_X_MAX by
+   0..MAP_Y_MAX, origin bottom-left) and projected through heatmapPoint, so the
+   drawing and the plotted events share one coordinate space. */
+const RIFT = {
+  blueBase: [1900, 1900],
+  redBase: [12900, 13000],
+  // each lane runs base -> base; the bends are where the lane turns the corner
+  topLane: [[2300, 3400], [1250, 7000], [1250, 11600], [2500, 13350],
+            [7000, 13650], [11700, 13400]],
+  botLane: [[3400, 2300], [7000, 1250], [11600, 1250], [13350, 2500],
+            [13650, 7000], [13400, 11700]],
+  midLane: [[3100, 3100], [6200, 6100], [8700, 8800], [11700, 11700]],
+  river: [[2400, 12600], [6600, 8400], [8400, 6600], [12600, 2400]],
+  baron: [4950, 10400],
+  dragon: [9850, 4400],
+  // fraction along each lane where the outer / inner / inhibitor turrets sit,
+  // measured from the blue end and mirrored for red
+  turretsAt: [0.17, 0.36, 0.5],
+};
+
+// a point a fraction `t` along a polyline, in map coordinates
+function riftPointAlong(points, t) {
+  const segments = [];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const d = Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+    segments.push(d);
+    total += d;
+  }
+  let travelled = t * total;
+  for (let i = 0; i < segments.length; i++) {
+    if (travelled <= segments[i]) {
+      const f = segments[i] ? travelled / segments[i] : 0;
+      return [points[i][0] + (points[i + 1][0] - points[i][0]) * f,
+              points[i][1] + (points[i + 1][1] - points[i][1]) * f];
+    }
+    travelled -= segments[i];
+  }
+  return points[points.length - 1];
+}
+
+/* The real minimap, from the same Data Dragon CDN the app already hotlinks
+   champion/rune/item icons from. The hand-drawn schematic is rendered first and
+   left underneath, so an offline or failed image degrades to something usable
+   rather than an empty square.
+
+   DDragon's map11.png covers the same coordinate space events are recorded in,
+   so it drops straight into the padded square heatmapPoint projects into. */
+function riftBackdrop() {
+  const S = HEATMAP_SIZE;
+  const inner = S - HEATMAP_PAD * 2;
+  const image = state.ddragonVersion
+    ? `<image class="rift-image"
+         href="https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/map/map11.png"
+         x="${HEATMAP_PAD}" y="${HEATMAP_PAD}" width="${inner}" height="${inner}"
+         preserveAspectRatio="none"/>` : "";
+  return riftSchematic() + image;
+}
+
+function riftSchematic() {
+  const S = HEATMAP_SIZE;
+  const path = (pts) => pts.map((p) => heatmapPoint(p[0], p[1]).map((v) => v.toFixed(1)).join(","))
+    .join(" ");
+  const at = (p) => heatmapPoint(p[0], p[1]).map((v) => v.toFixed(1));
+  const lanes = [RIFT.topLane, RIFT.midLane, RIFT.botLane];
+
+  // turrets: three per lane per side, mirrored around the lane's midpoint
+  const turrets = lanes.flatMap((lane) =>
+    RIFT.turretsAt.flatMap((t) => [[t, "rift-turret-blue"], [1 - t, "rift-turret-red"]]
+      .map(([frac, cls]) => {
+        const [x, y] = at(riftPointAlong(lane, frac));
+        return `<rect class="rift-turret ${cls}" x="${x - 2}" y="${y - 2}" width="4" height="4"/>`;
+      }))).join("");
+
+  const [baronX, baronY] = at(RIFT.baron);
+  const [dragonX, dragonY] = at(RIFT.dragon);
+  const [blueX, blueY] = at(RIFT.blueBase);
+  const [redX, redY] = at(RIFT.redBase);
+
+  return `
+    <rect class="rift-field" x="${HEATMAP_PAD}" y="${HEATMAP_PAD}"
+      width="${S - HEATMAP_PAD * 2}" height="${S - HEATMAP_PAD * 2}" rx="6"/>
+    <polyline class="rift-river" points="${path(RIFT.river)}"/>
+    ${lanes.map((l) => `<polyline class="rift-lane" points="${path(l)}"/>`).join("")}
+    ${turrets}
+    <circle class="rift-pit" cx="${baronX}" cy="${baronY}" r="6"/>
+    <text class="rift-pit-label" x="${baronX}" y="${+baronY + 3}">B</text>
+    <circle class="rift-pit" cx="${dragonX}" cy="${dragonY}" r="6"/>
+    <text class="rift-pit-label" x="${dragonX}" y="${+dragonY + 3}">D</text>
+    <circle class="rift-base rift-base-blue" cx="${blueX}" cy="${blueY}" r="9"/>
+    <circle class="rift-base rift-base-red" cx="${redX}" cy="${redY}" r="9"/>`;
+}
+
+// event type -> [css class, radius]. Deaths and kills are the ones you scan
+// for, so they're largest; assists sit behind them.
+const RECORDING_MAP_MARKS = {
+  death: ["rec-map-death", 5.5],
+  kill: ["rec-map-kill", 5.5],
+  assist: ["rec-map-assist", 3.5],
+  tower: ["rec-map-tower", 5],
+  inhibitor: ["rec-map-tower", 6],
+  objective: ["rec-map-objective", 6],
+};
+const RECORDING_MAP_LEGEND = [
+  ["death", "Deaths"], ["kill", "Kills"], ["assist", "Assists"],
+  ["tower", "Towers"], ["objective", "Objectives"],
+];
+
+/* One clickable chip per event, in game order — the same list the chapters
+   are built from, so anything with a timestamp there is reachable here. Glyph
+   and colour match the map's markers so the two read as one thing. */
+const RECORDING_MARK_GLYPHS = {
+  kill: "⚔", death: "☠", assist: "✚",
+  tower: "🏰", inhibitor: "🛡", objective: "🐉",
+};
+
+// tab -> which event types it covers. "all" is everything; structures group
+// towers with inhibitors because that's how you think about them.
+const RECORDING_MARK_TABS = [
+  ["all", "All", null],
+  ["kill", "⚔ Kills", ["kill"]],
+  ["death", "☠ Deaths", ["death"]],
+  ["assist", "✚ Assists", ["assist"]],
+  ["tower", "🏰 Structures", ["tower", "inhibitor"]],
+  ["objective", "🐉 Objectives", ["objective"]],
+];
+
+function markLabel(m, ordinals) {
+  const detail = (m.detail || "").trim();
+  if (detail) {
+    return detail.startsWith("-")
+      ? `Lost ${detail.slice(1).toLowerCase()}` : detail;
+  }
+  // kills/deaths/assists have no detail — number them as they happened
+  ordinals[m.event_type] = (ordinals[m.event_type] || 0) + 1;
+  const name = { kill: "Kill", death: "Death", assist: "Assist" }[m.event_type]
+    || m.event_type;
+  return `${name} ${ordinals[m.event_type]}`;
+}
+
+function recordingSeekRow(r) {
+  const marks = r.marks || [];
+  if (!marks.length) return "";
+  // label every mark once, in game order, so numbering is stable per tab
+  const ordinals = {};
+  const labelled = marks.map((m) => ({ ...m, label: markLabel(m, ordinals) }));
+
+  const active = recordingUi.markTab.get(r.uuid) || "all";
+  const tabs = RECORDING_MARK_TABS.map(([key, label, kinds]) => {
+    const count = kinds ? labelled.filter((m) => kinds.includes(m.event_type)).length
+      : labelled.length;
+    if (!count) return "";
+    return `<button type="button" class="recording-mark-tab ${key === active ? "active" : ""}"
+      data-uuid="${escapeHtml(r.uuid)}" data-tab="${key}">${label} ${count}</button>`;
+  }).join("");
+
+  const kinds = (RECORDING_MARK_TABS.find((t) => t[0] === active) || [])[2];
+  const shown = kinds ? labelled.filter((m) => kinds.includes(m.event_type)) : labelled;
+  const rows = shown.map((m) => {
+    const against = (m.detail || "").startsWith("-");
+    const cls = (RECORDING_MAP_MARKS[m.event_type] || ["", 0])[0];
+    return `<li><button type="button" class="recording-seek ${cls}
+      ${against ? "recording-seek-against" : ""}"
+      data-uuid="${escapeHtml(r.uuid)}" data-ms="${m.video_ms}"
+      title="Jump to ${fmtVideoTime(m.video_ms)}">
+      <span class="recording-seek-glyph">${RECORDING_MARK_GLYPHS[m.event_type] || "•"}</span>
+      <span class="recording-seek-time">${fmtVideoTime(m.video_ms)}</span>
+      <span class="recording-seek-label">${escapeHtml(m.label)}</span>
+    </button></li>`;
+  }).join("");
+
+  return `<div class="recording-marks">
+    <div class="view-toggle recording-mark-tabs" role="tablist">${tabs}</div>
+    <ul class="recording-mark-list">${rows}</ul>
+  </div>`;
+}
+
+function recordingMap(r) {
+  const events = (r.events || []).filter(
+    (e) => e.x != null && e.y != null && RECORDING_MAP_MARKS[e.event_type]);
+  if (!events.length) {
+    // Silently rendering nothing here is what makes the map look broken: the
+    // usual cause is that this game's events came from Ascent's log, which is
+    // built on League's Live Client Data feed and carries no coordinates.
+    // Only the match timeline has positions, so say what to run.
+    const fromLog = (r.events || []).length > 0;
+    return `<div class="recording-map recording-map-empty"><p class="muted">${fromLog
+      ? `No positions recorded for this game — its events came from Ascent's log, which has
+         timings but no coordinates. Run <code>./crawl.sh --recompute-map-events</code> to
+         re-derive them from the match timeline.`
+      : `No map events for this game yet. Run <code>./crawl.sh --backfill-map-events</code>
+         to pull them from the match timeline.`}</p></div>`;
+  }
+  const S = HEATMAP_SIZE;
+  const dots = events.map((e) => {
+    const [x, y] = heatmapPoint(e.x, e.y);
+    const [cls, radius] = RECORDING_MAP_MARKS[e.event_type];
+    // "-" on a detail marks an event that went against us — draw it hollow
+    const against = (e.detail || "").startsWith("-");
+    const label = `${e.detail ? (against ? `Lost ${e.detail.slice(1).toLowerCase()}` : e.detail)
+      : e.event_type} @ ${fmtVideoTime(e.video_ms)} — click to play from ${
+      SEEK_LEAD_MS / 1000}s before`;
+    return `<circle class="rec-map-dot ${cls} ${against ? "rec-map-against" : ""}"
+      cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius}"
+      data-ms="${e.video_ms}" tabindex="0" role="button"
+      ><title>${escapeHtml(label)}</title></circle>`;
+  }).join("");
+  const counts = events.reduce((acc, e) => {
+    acc[e.event_type] = (acc[e.event_type] || 0) + 1;
+    return acc;
+  }, {});
+  const legend = RECORDING_MAP_LEGEND.filter(([key]) => counts[key])
+    .map(([key, label]) => `<span class="rec-map-key">
+      <span class="rec-map-swatch ${RECORDING_MAP_MARKS[key][0]}"></span>${label} ${counts[key]}
+    </span>`).join("");
+  return `<div class="recording-map">
+    <svg class="rec-map-svg" viewBox="0 0 ${S} ${S}" role="img"
+      aria-label="Where kills, deaths, towers and objectives happened">
+      ${riftBackdrop()}
+      ${dots}
+    </svg>
+    <div class="muted rec-map-legend">${legend}</div>
+  </div>`;
+}
+
+/* The generated YouTube description — matchup summary plus a chapter per
+   death, so the uploaded video is navigable. Collapsed by default: it's only
+   needed at upload time. */
+function recordingDescriptionBlock(r) {
+  const open = recordingUi.descriptionOpen.has(r.uuid);
+  const text = recordingUi.descriptions.get(r.uuid);
+  if (!open) {
+    return `<button type="button" class="preset seg-toggle recording-desc-toggle"
+      data-uuid="${escapeHtml(r.uuid)}" aria-expanded="false">▸ Description &amp; chapters</button>`;
+  }
+  return `<div class="recording-desc">
+    <button type="button" class="preset seg-toggle recording-desc-toggle"
+      data-uuid="${escapeHtml(r.uuid)}" aria-expanded="true">▾ Description &amp; chapters</button>
+    ${text === undefined
+      ? `<p class="muted">Loading…</p>`
+      : `<textarea class="recording-desc-text" rows="10" readonly>${escapeHtml(text)}</textarea>
+         <div class="session-actions">
+           <button type="button" class="preset recording-desc-copy"
+             data-uuid="${escapeHtml(r.uuid)}">📋 Copy description</button>
+           <span class="muted recording-desc-status"></span>
+         </div>
+         <p class="muted">Paste into YouTube's description box — timestamps become
+           clickable chapters.</p>`}
+  </div>`;
+}
+
+async function ensureRecordingDescription(uuid, matchId, puuid) {
+  if (recordingUi.descriptions.has(uuid)) return;
+  try {
+    const data = await getJSON(
+      `/api/recordings/${encodeURIComponent(uuid)}/description?puuid=${encodeURIComponent(puuid)}`);
+    recordingUi.descriptions.set(uuid, data.description || "");
+  } catch {
+    recordingUi.descriptions.set(uuid, "");
+  }
+}
+
+/* reload(matchId, puuid): refetch that game's recordings into the caller's
+   cache and re-render, mirroring wireReflectionSection's contract. */
+function wireRecordingSection(container, reload) {
+  container.querySelectorAll(".recording-desc-toggle").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const uuid = btn.dataset.uuid;
+      const section = btn.closest(".recording-section");
+      if (recordingUi.descriptionOpen.has(uuid)) {
+        recordingUi.descriptionOpen.delete(uuid);
+      } else {
+        recordingUi.descriptionOpen.add(uuid);
+        if (section) {
+          await ensureRecordingDescription(uuid, section.dataset.match, section.dataset.puuid);
+        }
+      }
+      if (section) await reload(section.dataset.match, section.dataset.puuid);
+    }));
+
+  container.querySelectorAll(".recording-desc-copy").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const status = btn.parentElement.querySelector(".recording-desc-status");
+      try {
+        await navigator.clipboard.writeText(recordingUi.descriptions.get(btn.dataset.uuid) || "");
+        status.textContent = "copied ✓";
+      } catch {
+        // clipboard blocked — select it so Ctrl+C still works
+        const area = btn.closest(".recording-desc").querySelector(".recording-desc-text");
+        if (area) area.select();
+        status.textContent = "selected — press Ctrl+C";
+      }
+    }));
+
+  // both the ☠ buttons and the map dots do the same thing: jump the video
+  const seekTo = (el) => {
+    const card = el.closest(".recording-card");
+    const video = card && card.querySelector("video");
+    if (!video) return;
+    // land SEEK_LEAD_MS before the event: a death or objective only makes
+    // sense with the run-up to it, and dropping the user exactly on the
+    // timestamp meant scrubbing backwards every single time
+    video.currentTime = Math.max(0, (+el.dataset.ms) - SEEK_LEAD_MS) / 1000;
+    video.play().catch(() => { /* autoplay blocked — the seek still landed */ });
+  };
+  container.querySelectorAll(".recording-seek").forEach((btn) =>
+    btn.addEventListener("click", () => seekTo(btn)));
+  container.querySelectorAll(".recording-mark-tab").forEach((tab) =>
+    tab.addEventListener("click", () => {
+      recordingUi.markTab.set(tab.dataset.uuid, tab.dataset.tab);
+      // swap just this card's marks block — a full reload would refetch and
+      // scroll the page for what is a local view change
+      const card = tab.closest(".recording-card");
+      const section = tab.closest(".recording-section");
+      const list = recordingUi.cache.get(
+        recordingKey(section.dataset.match, section.dataset.puuid)) || [];
+      const recording = list.find((x) => x.uuid === tab.dataset.uuid);
+      if (!card || !recording) return;
+      card.querySelector(".recording-marks").outerHTML = recordingSeekRow(recording);
+      wireRecordingSection(card, reload);
+    }));
+
+  container.querySelectorAll(".rec-map-dot").forEach((dot) => {
+    dot.addEventListener("click", () => seekTo(dot));
+    dot.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); seekTo(dot); }
+    });
+  });
+
+  container.querySelectorAll(".recording-offset").forEach((input) =>
+    input.addEventListener("change", async () => {
+      await fetch(`/api/recordings/${encodeURIComponent(input.dataset.uuid)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offset_ms: Math.round(+input.value) || 0 }),
+      });
+      const section = input.closest(".recording-section");
+      if (section) await reload(section.dataset.match, section.dataset.puuid);
+    }));
+
+  container.querySelectorAll(".recording-forget").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      // the file itself is never touched — say so, since "forget" reads scary
+      if (!confirm("Forget this recording? The video file on disk is not deleted.")) return;
+      await fetch(`/api/recordings/${encodeURIComponent(btn.dataset.uuid)}`, { method: "DELETE" });
+      recordingUi.recordedMatches = null;
+      const section = btn.closest(".recording-section");
+      if (section) await reload(section.dataset.match, section.dataset.puuid);
+    }));
+
+  /* Manual upload: no OAuth, no quota, no private-lock. Does the three things
+     that turn "upload this" into one drag — copies the path, opens Explorer
+     with the file selected, and opens YouTube's upload page. Pasting the path
+     into YouTube's file picker is usually quicker than dragging between
+     windows, so the path is offered either way. */
+  container.querySelectorAll(".recording-manual").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const status = btn.closest(".recording-card").querySelector(".recording-manual-status");
+      const response = await fetch(
+        `/api/recordings/${encodeURIComponent(btn.dataset.uuid)}/reveal`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (status) {
+          status.classList.add("status-error");
+          status.textContent = body.detail || `error ${response.status}`;
+        }
+        return;
+      }
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(body.video_path);
+        copied = true;
+      } catch { /* clipboard blocked — Explorer is open anyway */ }
+      window.open("https://www.youtube.com/upload", "_blank", "noopener");
+      if (status) {
+        status.classList.remove("status-error");
+        status.textContent = copied
+          ? "Path copied — paste it into YouTube's file picker, or drag from Explorer"
+          : "Explorer opened — drag the file into the YouTube tab";
+      }
+    }));
+
+  container.querySelectorAll(".recording-upload").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const section = btn.closest(".recording-section");
+      const card = btn.closest(".recording-card");
+      const privacy = state.youtubePrivacy || "private";
+      // uploading publishes to the user's channel — always confirm first
+      if (!confirm(`Upload this recording to YouTube as ${privacy}?`)) return;
+      recordingUi.upload = { uuid: btn.dataset.uuid, progress: 0, error: null, timer: null };
+      btn.disabled = true;
+      btn.textContent = "Uploading…";
+      const response = await fetch(
+        `/api/recordings/${encodeURIComponent(btn.dataset.uuid)}/youtube`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+          title: recordingTitle(card), privacy,
+          // lets the server generate the chapter list server-side
+          puuid: section ? section.dataset.puuid : undefined,
+        }),
+        });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        recordingUi.upload.error = body.detail || `error ${response.status}`;
+        recordingUi.upload.uuid = null;
+        if (section) await reload(section.dataset.match, section.dataset.puuid);
+        return;
+      }
+      pollUploadStatus(section, reload);
+    }));
+}
+
+// a readable default title from whatever the surrounding row already shows
+function recordingTitle(card) {
+  const row = card && card.closest("tr, .block-card, .session-card");
+  const champs = row ? row.querySelectorAll(".champ-cell img, .champ-cell") : [];
+  const text = champs.length ? [...champs].map((c) => c.getAttribute("alt") || "").filter(Boolean).join(" vs ") : "";
+  return text || "Coach Potato VOD";
+}
+
+function pollUploadStatus(section, reload) {
+  clearInterval(recordingUi.upload.timer);
+  recordingUi.upload.timer = setInterval(async () => {
+    let status;
+    try {
+      status = await getJSON("/api/recordings/upload-status");
+    } catch {
+      return;
+    }
+    recordingUi.upload.progress = status.progress || 0;
+    if (!status.running) {
+      clearInterval(recordingUi.upload.timer);
+      recordingUi.upload.error = status.error;
+      recordingUi.upload.uuid = status.error ? recordingUi.upload.uuid : null;
+      if (section) await reload(section.dataset.match, section.dataset.puuid);
+      return;
+    }
+    const fill = document.querySelector(".recording-progress-fill");
+    if (fill) fill.style.width = `${Math.round(recordingUi.upload.progress * 100)}%`;
+  }, 1500);
+}
+
+function reflectionKey(matchId, puuid) { return `${matchId}:${puuid}`; }
+
+async function ensureReflection(matchId, puuid) {
+  const key = reflectionKey(matchId, puuid);
+  if (reflectionUi.cache.has(key)) return;
+  reflectionUi.cache.set(key, await getJSON(
+    `/api/reflections?match_id=${encodeURIComponent(matchId)}&puuid=${encodeURIComponent(puuid)}`));
+}
+
+function reflectionTagCount(matchId, puuid) {
+  const cached = reflectionUi.cache.get(reflectionKey(matchId, puuid));
+  return cached ? cached.tags.length : 0;
+}
+
+async function putReflection(matchId, puuid, fields) {
+  return fetch(`/api/reflections/${encodeURIComponent(matchId)}/${encodeURIComponent(puuid)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
+function reflectionSection(matchId, puuid) {
+  const key = reflectionKey(matchId, puuid);
+  const reflection = reflectionUi.cache.get(key);
+  if (!reflection) {
+    return `<div class="reflection-section" data-match="${escapeHtml(matchId)}" data-puuid="${escapeHtml(puuid)}">
+      <h5>Reflection</h5><p class="muted">Loading…</p></div>`;
+  }
+  const tags = reflection.tags;
+  const allTags = [...REFLECTION_SUGGESTED_TAGS, ...tags.filter((t) => !REFLECTION_SUGGESTED_TAGS.includes(t))];
+  const chips = allTags.map((t) => {
+    const active = tags.includes(t);
+    return `<button type="button" class="chip reflection-tag ${active ? "chip-main" : "chip-inactive"}"
+      data-tag="${escapeHtml(t)}" aria-pressed="${active}">${escapeHtml(t)}</button>`;
+  }).join("");
+  const editing = reflectionUi.editingNote.has(key);
+  const noteBody = editing
+    ? `<div class="mu-notes">
+        <label class="filter-label">Note (Markdown)</label>
+        <textarea class="reflection-note-input" rows="4"
+          placeholder="Optional freeform note — what happened, what to do differently…">${escapeHtml(reflection.note)}</textarea>
+        <div class="session-actions">
+          <button type="button" class="preset reflection-note-save">Save</button>
+          <button type="button" class="preset reflection-note-cancel">Cancel</button>
+          <span class="muted reflection-note-status"></span>
+        </div>
+      </div>`
+    : `<div class="reflection-note-view">
+        <div class="md-body">${reflection.note ? renderNotes(reflection.note) : `<p class="muted">No note yet.</p>`}</div>
+        <button type="button" class="preset icon-btn reflection-note-edit" title="Edit reflection note" aria-label="Edit reflection note">✎</button>
+      </div>`;
+  return `<div class="reflection-section" data-match="${escapeHtml(matchId)}" data-puuid="${escapeHtml(puuid)}">
+    <h5>Reflection</h5>
+    <div class="chip-box reflection-tags">
+      ${chips}
+      <input type="text" class="chip-input reflection-tag-input" placeholder="+ custom tag (Enter)">
+    </div>
+    <span class="muted reflection-tag-status"></span>
+    ${noteBody}
+  </div>`;
+}
+
+// reload(matchId, puuid): async callback the caller supplies to refetch that
+// game's reflection into its own cache and re-render its view.
+// rerender(): cheap re-render of the caller's view without refetching — used
+// for opening/closing the note editor.
+function wireReflectionSection(container, reload, rerender) {
+  container.querySelectorAll(".reflection-tags").forEach((box) =>
+    box.addEventListener("click", (e) => {
+      if (e.target === box) box.querySelector(".reflection-tag-input")?.focus();
+    }));
+  container.querySelectorAll(".reflection-tag").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const section = btn.closest(".reflection-section");
+      const { match: matchId, puuid } = section.dataset;
+      const current = reflectionUi.cache.get(reflectionKey(matchId, puuid)) || { tags: [], note: "" };
+      const tag = btn.dataset.tag;
+      const tags = current.tags.includes(tag)
+        ? current.tags.filter((t) => t !== tag) : [...current.tags, tag];
+      const response = await putReflection(matchId, puuid, { tags });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        section.querySelector(".reflection-tag-status").textContent =
+          body.detail || `error ${response.status}`;
+        return;
+      }
+      await reload(matchId, puuid);
+    }));
+  container.querySelectorAll(".reflection-tag-input").forEach((input) =>
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter" && e.key !== ",") return;
+      e.preventDefault();
+      const value = input.value.replace(",", "").trim();
+      if (!value) return;
+      const section = input.closest(".reflection-section");
+      const { match: matchId, puuid } = section.dataset;
+      const current = reflectionUi.cache.get(reflectionKey(matchId, puuid)) || { tags: [], note: "" };
+      if (current.tags.includes(value)) { input.value = ""; return; }
+      const response = await putReflection(matchId, puuid, { tags: [...current.tags, value] });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        section.querySelector(".reflection-tag-status").textContent =
+          body.detail || `error ${response.status}`;
+        return;
+      }
+      input.value = "";
+      await reload(matchId, puuid);
+    }));
+  container.querySelectorAll(".reflection-note-edit").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const section = btn.closest(".reflection-section");
+      reflectionUi.editingNote.add(reflectionKey(section.dataset.match, section.dataset.puuid));
+      rerender();
+    }));
+  container.querySelectorAll(".reflection-note-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const section = btn.closest(".reflection-section");
+      reflectionUi.editingNote.delete(reflectionKey(section.dataset.match, section.dataset.puuid));
+      rerender();
+    }));
+  container.querySelectorAll(".reflection-note-save").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const section = btn.closest(".reflection-section");
+      const { match: matchId, puuid } = section.dataset;
+      const note = section.querySelector(".reflection-note-input").value;
+      const status = section.querySelector(".reflection-note-status");
+      const response = await putReflection(matchId, puuid, { note });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail || `error ${response.status}`;
+        return;
+      }
+      reflectionUi.editingNote.delete(reflectionKey(matchId, puuid));
+      await reload(matchId, puuid);
     }));
 }
 
@@ -1611,8 +2585,16 @@ async function initSettings() {
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-block-series").checked = Boolean(data.block_series_enabled);
   $("#setting-date-format").value = data.date_format || "iso";
+  $("#setting-main-role").innerHTML = roleSettingOptions(data.main_role || "");
+  $("#setting-secondary-role").innerHTML = roleSettingOptions(data.secondary_role || "");
   $("#setting-runes-mode").value = data.runes_mode || "matchup";
   state.runesMode = data.runes_mode || "matchup";
+  $("#setting-ascent-db").value = data.ascent_db_path || "";
+  $("#ascent-detected").textContent = data.ascent_db_detected || "none found";
+  $("#setting-youtube-secrets").value = data.youtube_client_secrets || "";
+  $("#setting-youtube-privacy").value = data.youtube_privacy || "private";
+  state.youtubePrivacy = data.youtube_privacy || "private";
+  state.youtubeReady = Boolean(data.youtube_ready);
   $("#setting-enable-comparison").checked = Boolean(data.enable_player_comparison);
   $("#comparison-card").classList.toggle("hidden", !data.enable_player_comparison);
   state.enableComparison = Boolean(data.enable_player_comparison);
@@ -1634,6 +2616,7 @@ async function initSettings() {
   // the players themselves live on their own view (initPlayers); the toggle
   // stays here because it enables the feature, and the view follows it
   $("#settings-players-link").addEventListener("click", () => setMainView("players"));
+  $("#sync-recordings").addEventListener("click", syncRecordings);
   $("#setting-enable-comparison").addEventListener("change", (e) => {
     $("#comparison-card").classList.toggle("hidden", !e.target.checked);
     state.enableComparison = e.target.checked;
@@ -1790,7 +2773,12 @@ async function initSettings() {
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         block_series_enabled: $("#setting-block-series").checked,
         date_format: $("#setting-date-format").value,
+        main_role: $("#setting-main-role").value,
+        secondary_role: $("#setting-secondary-role").value,
         runes_mode: $("#setting-runes-mode").value,
+        ascent_db_path: $("#setting-ascent-db").value.trim(),
+        youtube_client_secrets: $("#setting-youtube-secrets").value.trim(),
+        youtube_privacy: $("#setting-youtube-privacy").value,
         enable_player_comparison: $("#setting-enable-comparison").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
@@ -1806,6 +2794,8 @@ async function initSettings() {
       }
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
+      applyRoleSettings(body); // main/secondary role changed -> refilter
+      refresh();
       if (state.dateFormat !== body.date_format) {
         state.dateFormat = body.date_format;
         refresh(); // re-render visible dates in the new format
@@ -2073,6 +3063,9 @@ function wireFilters() {
   $("#champion-select").addEventListener("change", (e) => { state.champion = e.target.value; refresh(); });
   $("#queue-select").addEventListener("change", (e) => { state.queue = e.target.value; refresh(); });
   $("#side-select").addEventListener("change", (e) => { state.side = e.target.value; refresh(); });
+  $("#role-select").addEventListener("change", (e) => {
+    state.roleFilter = e.target.value; syncRoleSelects(); refresh();
+  });
   $("#rank-select").addEventListener("change", (e) => { state.rankTier = e.target.value; refresh(); });
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
   // one picker for the whole progress table: base columns (default on) + metric
@@ -2093,6 +3086,7 @@ function wireFilters() {
     progressVisibleKeys(), () => renderProgress(segmentUi.segments),
     PROGRESS_COLS.map((c) => c.key));
   $("#crawl-btn").addEventListener("click", startCrawl);
+  $("#recordings-btn").addEventListener("click", rescanRecordings);
   $("#champion-table-toggle").addEventListener("click", () => {
     const btn = $("#champion-table-toggle");
     const table = $("#champion-table");
@@ -2140,6 +3134,11 @@ async function init(firstLoad = true) {
     state.runesMode = settings.runes_mode || "matchup";
     state.enableComparison = Boolean(settings.enable_player_comparison);
     applyComparisonEnabled();
+    // recording cards read these; set at startup so the one-click upload
+    // button appears without having to visit Settings first
+    state.youtubePrivacy = settings.youtube_privacy || "private";
+    state.youtubeReady = Boolean(settings.youtube_ready);
+    applyRoleSettings(settings);
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

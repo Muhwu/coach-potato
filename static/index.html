@@ -36,6 +36,10 @@
       <button id="rate-warn" class="rate-warn hidden" aria-label="Why is this slow?">!</button>
     </span>
     <button id="crawl-btn" title="Update data now" aria-label="Update data now">⟳</button>
+    <span id="recordings-status" class="muted"></span>
+    <button id="recordings-btn" class="preset icon-btn"
+      title="Re-scan Ascent for recordings and game events"
+      aria-label="Re-scan Ascent for recordings and game events">🎬</button>
     <button id="nav-changelog" class="preset icon-btn" title="What's new" aria-label="What's new">📋</button>
     <button id="nav-settings" class="preset icon-btn" title="Settings" aria-label="Settings">⚙</button>
   </div>
@@ -67,7 +71,7 @@
       <label class="filter-label" for="progress-side">Side</label>
       <select id="progress-side"><option value="">All</option><option value="blue">Blue</option><option value="red">Red</option></select>
     </div>
-    <span class="muted">Selected accounts · top lane only</span>
+    <span class="muted">Selected accounts · all roles</span>
     <span id="progress-cols" style="margin-left:auto"></span>
   </section>
 
@@ -173,6 +177,18 @@
         Blocks page. Untick to just number blocks continuously as "#1, #2, …".</p>
     </div>
 
+    <h3 class="settings-group-head">Your roles</h3>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-main-role">Main role</label>
+      <select id="setting-main-role" style="max-width:14em"></select>
+      <p class="muted">Stats default to your main + secondary role, so autofill games don't
+        muddy your matchups. Choose "All roles" in a view's Role filter to include every game.</p>
+    </div>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-secondary-role">Secondary role</label>
+      <select id="setting-secondary-role" style="max-width:14em"></select>
+    </div>
+
     <h3 class="settings-group-head">Interface</h3>
     <div class="settings-field">
       <span class="filter-label">Visible views</span>
@@ -187,6 +203,7 @@
         <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Playbook</label>
         <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
         <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="players" checked> Research players</label>
       </div>
       <p class="muted">Untick views you don't use to hide them from the top bar
         (data collection is unaffected). A section disappears when all of its
@@ -221,7 +238,8 @@
       <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
       <p class="muted">Add up to five other players (looked up via the Riot API) to
         compare yourself against in a matchup — their stats, runes and recent games
-        show side by side with yours in the Playbook, for theorycrafting runes
+        show side by side with yours from Matchups, My champions, Coaching progress
+        and the Playbook, for theorycrafting runes
         and notes. Games are fetched deep in the background when you add a player
         (Riot's API is slow, so it can take a few minutes); "Fetch more" pulls further
         back. The guide comparison shows every stored game, regardless of date.</p>
@@ -295,6 +313,83 @@
       <div class="import-all-row">
         <input type="file" id="import-all-file" accept=".zip,application/zip">
         <button id="import-all-btn" class="preset" type="button">Import</button>
+
+    <div class="settings-group">
+      <h3 class="settings-group-head">Recordings &amp; YouTube</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-ascent-db">Ascent recordings database</label>
+        <input type="text" id="setting-ascent-db" placeholder="auto-detected" style="max-width:34em">
+        <p class="muted">Ascent records your games and stores each one's match id, which is how a
+          VOD gets matched to a crawled game. The database is only ever <strong>read</strong> (on a
+          snapshot, so Ascent is never disturbed) and your video files are never moved or deleted.
+          Leave blank to use the detected path: <code id="ascent-detected" class="muted">–</code></p>
+        <div class="settings-actions">
+          <button type="button" class="preset" id="sync-recordings">Sync recordings now</button>
+          <span class="muted" id="sync-recordings-status"></span>
+        </div>
+        <p class="muted">Recordings also sync automatically after each data update.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label">Uploading to YouTube</label>
+        <p class="muted">Every recording has a <strong>📁 Upload to YouTube</strong> button that
+          needs no setup at all: it opens the file in Explorer, copies its path, and opens YouTube's
+          upload page — you drag it in, or paste the path into YouTube's file picker. No sign-in, no
+          quota, and no restriction on whether the video can be public.</p>
+        <p class="muted">The optional one-click upload below is only worth setting up if you upload
+          often enough that the drag becomes annoying.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-youtube-secrets">One-click upload: client secrets (JSON)</label>
+        <input type="text" id="setting-youtube-secrets" placeholder="not configured — manual upload works without this" style="max-width:34em">
+        <p class="muted"><strong>Optional.</strong> For true one-click upload you need your own
+          Google OAuth client: create a project at console.cloud.google.com, enable <em>YouTube Data
+          API v3</em>, create an OAuth client ID of type <em>Desktop app</em>, download the JSON and
+          put its path here. The first upload opens a Google sign-in in your browser; the token is
+          then cached locally.</p>
+        <p class="muted">Two limits are Google's, not ours, and apply to any unaudited project:
+          uploads stay <strong>private</strong> whatever you pick below, and the daily quota allows
+          roughly six uploads. The manual button above has neither limit.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-youtube-privacy">Upload privacy</label>
+        <select id="setting-youtube-privacy" style="max-width:22em">
+          <option value="private">Private (default)</option>
+          <option value="unlisted">Unlisted — anyone with the link</option>
+          <option value="public">Public</option>
+        </select>
+        <p class="muted">Applied to new uploads. Uploading always asks for confirmation first.</p>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3 class="settings-group-head">Backup &amp; restore</h3>
+      <div class="settings-field">
+        <a class="preset" href="/api/export-all" download>Export everything (.zip)</a>
+        <p class="muted">Every session, block learning, matchup guide, note, item build and Research
+          entry — plus uploaded clips and screenshots — as one .zip. Excludes your API key/accounts
+          and crawled match history (Riot can re-supply that).</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="import-all-file">Import from a backup</label>
+        <div class="import-all-row">
+          <input type="file" id="import-all-file" accept=".zip,application/zip">
+          <button id="import-all-btn" class="preset" type="button">Import</button>
+        </div>
+        <span id="import-all-status" class="muted"></span>
+        <p class="muted">Restore an "Export everything" .zip — only for a fresh/empty setup.
+          Refuses (nothing written) if anything would collide with existing data.</p>
+      </div>
+      <div id="legacy-notes-section" class="hidden">
+        <div class="settings-subhead" style="margin-top:14px">Older matchup notes</div>
+        <div class="settings-field">
+          <p class="muted" id="legacy-notes-summary"></p>
+          <div class="legacy-notes-row">
+            <select id="legacy-migrate-champion" style="max-width:16em"></select>
+            <button id="legacy-migrate-btn" class="preset" type="button">Migrate</button>
+            <button id="legacy-delete-btn" class="preset" type="button">Delete</button>
+          </div>
+          <span id="legacy-notes-status" class="muted"></span>
+        </div>
       </div>
       <span id="import-all-status" class="muted"></span>
       <p class="muted">Restore an "Export everything" .zip — only meant for a fresh/empty
@@ -376,6 +471,10 @@
   <div class="filter-group">
     <label class="filter-label" for="mu-queue">Queue</label>
     <select id="mu-queue"><option value="">All</option></select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="mu-role">Role</label>
+    <select id="mu-role" class="role-filter"></select>
   </div>
   <div class="filter-group">
     <label class="filter-label" for="mu-side">Side</label>
@@ -632,6 +731,17 @@
 
 <div id="trends-view" class="hidden">
   <section class="filter-row" aria-label="Trend filters">
+    <div class="filter-group" id="trend-range-presets">
+      <span class="filter-label">Period</span>
+      <button data-range="all" class="preset active">All</button>
+      <button data-range="3d" class="preset">3d</button>
+      <button data-range="7d" class="preset">7d</button>
+      <button data-range="14d" class="preset">14d</button>
+      <button data-range="30d" class="preset">30d</button>
+      <button data-range="90d" class="preset">90d</button>
+      <button data-range="180d" class="preset">180d</button>
+      <button data-range="365d" class="preset">1y</button>
+    </div>
     <div class="filter-group" id="bucket-toggle">
       <span class="filter-label">Bucket</span>
       <button data-bucket="day" class="preset">Day</button>
@@ -647,10 +757,13 @@
       <select id="trend-queue"><option value="">All</option></select>
     </div>
     <div class="filter-group">
+      <label class="filter-label" for="trend-role">Role</label>
+      <select id="trend-role" class="role-filter"></select>
+    </div>
+    <div class="filter-group">
       <label class="filter-label" for="trend-side">Side</label>
       <select id="trend-side"><option value="">All</option><option value="blue">Blue</option><option value="red">Red</option></select>
     </div>
-    <span class="muted">Selected accounts · top lane only</span>
     <span id="trend-metric-cols" style="margin-left:auto"></span>
   </section>
 
@@ -659,6 +772,18 @@
   <section class="panel">
     <h2>Breakdown</h2>
     <div id="trend-table"></div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <button id="heatmap-toggle" class="preset seg-toggle" aria-expanded="false"
+        title="Expand death map" aria-label="Expand death map">▸</button>
+      <h2>Death map</h2>
+    </div>
+    <p class="muted">Where you died, plotted on a schematic Rift — filtered by the
+      Period/Champion/Role above. Wards aren't shown: match-v5 doesn't record a
+      ward's placement position.</p>
+    <div id="heatmap-body" class="hidden"></div>
   </section>
 </div>
 <div id="chart-tip" class="hidden"></div>
@@ -688,6 +813,10 @@
   <div class="filter-group">
     <label class="filter-label" for="queue-select">Queue</label>
     <select id="queue-select"><option value="">All</option></select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="role-select">Role</label>
+    <select id="role-select" class="role-filter"></select>
   </div>
   <div class="filter-group">
     <label class="filter-label" for="side-select">Side</label>

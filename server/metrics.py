@@ -244,6 +244,125 @@ def parse_skill_order(timeline_json, puuid):
     return sorted((1, 2, 3), key=key)
 
 
+# Every positioned timeline event we store. 'death' came first (the Trends
+# heatmap); the rest were added for VOD chapters, which want the same beats
+# Ascent shows. Kept in one place so the db CHECK and the parser can't drift.
+MAP_EVENT_TYPES = ("death", "kill", "assist", "tower", "inhibitor", "objective")
+
+# monsterType -> the label a human wants to read in a chapter list
+_MONSTER_LABELS = {
+    "DRAGON": "Dragon", "RIFTHERALD": "Herald", "BARON_NASHOR": "Baron",
+    "HORDE": "Voidgrub", "ATAKHAN": "Atakhan",
+}
+_TOWER_LABELS = {
+    "OUTER_TURRET": "Outer tower", "INNER_TURRET": "Inner tower",
+    "BASE_TURRET": "Base tower", "NEXUS_TURRET": "Nexus tower",
+}
+
+
+def _team_of(participant_id):
+    """Timeline participants 1-5 are team 100, 6-10 are team 200. The timeline's
+    own participant list carries only {participantId, puuid}, so team has to be
+    derived — this mapping is fixed for Summoner's Rift."""
+    return 100 if participant_id <= 5 else 200
+
+
+def parse_map_events(timeline_json, puuid):
+    """Every positioned event of interest for `puuid`, from the match-v5
+    timeline: their kills/deaths/assists, plus towers, inhibitors and epic
+    monsters taken by either team.
+
+    Returns [{event_type, x, y, timestamp_ms, detail}] ordered by timestamp, or
+    None without a timeline/participant. `detail` is a short human label
+    ("Dragon", "Outer tower") prefixed with "-" when the event went against the
+    player's team, so chapters can read "Dragon" vs "-Dragon" (lost).
+
+    Only events Riot gives a `position` for are stored, since the same rows
+    feed the Trends death heatmap. In practice CHAMPION_KILL, BUILDING_KILL and
+    ELITE_MONSTER_KILL all carry one; WARD_PLACED notably does not (see
+    CLAUDE.md).
+    """
+    if not timeline_json:
+        return None
+    info = timeline_json.get("info") or {}
+    pid = next((p.get("participantId") for p in info.get("participants") or []
+                if p.get("puuid") == puuid), None)
+    if pid is None:
+        return None
+    my_team = _team_of(pid)
+    out = []
+
+    def add(kind, ev, detail=""):
+        pos = ev.get("position") or {}
+        if "x" not in pos or "y" not in pos:
+            return
+        out.append({"event_type": kind, "x": pos["x"], "y": pos["y"],
+                    "timestamp_ms": ev.get("timestamp") or 0, "detail": detail})
+
+    for frame in info.get("frames") or []:
+        for ev in frame.get("events") or []:
+            kind = ev.get("type")
+            if kind == "CHAMPION_KILL":
+                if ev.get("victimId") == pid:
+                    add("death", ev)
+                elif ev.get("killerId") == pid:
+                    add("kill", ev)
+                elif pid in (ev.get("assistingParticipantIds") or []):
+                    add("assist", ev)
+            elif kind == "BUILDING_KILL":
+                # teamId on a BUILDING_KILL is the team that LOST the building
+                lost_by_us = ev.get("teamId") == my_team
+                sign = "-" if lost_by_us else ""
+                if ev.get("buildingType") == "TOWER_BUILDING":
+                    label = _TOWER_LABELS.get(ev.get("towerType"), "Tower")
+                    add("tower", ev, f"{sign}{label}")
+                elif ev.get("buildingType") == "INHIBITOR_BUILDING":
+                    add("inhibitor", ev, f"{sign}Inhibitor")
+            elif kind == "ELITE_MONSTER_KILL":
+                label = _MONSTER_LABELS.get(ev.get("monsterType"), "Objective")
+                if ev.get("monsterType") == "DRAGON" and ev.get("monsterSubType"):
+                    # SUB_TYPE looks like "FIRE_DRAGON" -> "Fire dragon"
+                    sub = ev["monsterSubType"].replace("_DRAGON", "").replace("_", " ")
+                    label = f"{sub.capitalize()} dragon"
+                sign = "" if ev.get("killerTeamId") == my_team else "-"
+                add("objective", ev, f"{sign}{label}")
+
+    out.sort(key=lambda e: e["timestamp_ms"])
+    return out
+
+
+def parse_death_events(timeline_json, puuid):
+    """Positions where `puuid` died, from the match-v5 timeline's CHAMPION_KILL
+    events (`victimId` matched against the participant id resolved the same way
+    as parse_timeline_deltas). Each event's `position: {x, y}` is populated by
+    Riot for kill events. Returns a list of {x, y, timestamp_ms} dicts ordered
+    by timestamp, or None without a timeline/participant.
+
+    NOTE: match-v5 WARD_PLACED events do NOT carry a position field (confirmed
+    against a live timeline fetch + Riot's own developer-relations tracker,
+    which has an open, unresolved feature request asking for one — see
+    CLAUDE.md). Only deaths are extracted here; there is no ward-position
+    counterpart."""
+    if not timeline_json:
+        return None
+    info = timeline_json.get("info") or {}
+    pid = next((p.get("participantId") for p in info.get("participants") or []
+                if p.get("puuid") == puuid), None)
+    if pid is None:
+        return None
+    deaths = []
+    for frame in info.get("frames") or []:
+        for ev in frame.get("events") or []:
+            if ev.get("type") != "CHAMPION_KILL" or ev.get("victimId") != pid:
+                continue
+            pos = ev.get("position") or {}
+            if "x" not in pos or "y" not in pos:
+                continue
+            deaths.append({"x": pos["x"], "y": pos["y"],
+                            "timestamp_ms": ev.get("timestamp") or 0})
+    return deaths
+
+
 def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
     """CS/level/gold advantage of me_puuid over opp_puuid at ~7 and ~14 min,
     read from the match-v5 timeline. Returns {timeline metric key: value},
@@ -348,3 +467,27 @@ def strongside(lane_position, lane_jungle_half):
     if lane_half is None or lane_jungle_half is None:
         return None
     return lane_jungle_half != lane_half
+def parse_frame_series(timeline_json):
+    """Full-game per-minute gold/CS/XP/level series for EVERY participant in
+    a match timeline (not just two marks like parse_timeline_deltas) — the
+    source for the full-game curve chart. Returns {puuid: [{"minute", "cs",
+    "xp", "gold", "level"}, ...]}, one entry per timeline frame, ordered as
+    the frames appear. Empty dict without a timeline. minute = round(frame
+    timestamp-ms / 60000)."""
+    if not timeline_json:
+        return {}
+    info = timeline_json.get("info") or {}
+    pid_to_puuid = {p.get("participantId"): p.get("puuid")
+                    for p in info.get("participants") or []}
+    out = {}
+    for frame in info.get("frames") or []:
+        minute = round((frame.get("timestamp") or 0) / 60_000)
+        for pid_str, pf in (frame.get("participantFrames") or {}).items():
+            puuid = pid_to_puuid.get(int(pid_str))
+            if not puuid:
+                continue
+            out.setdefault(puuid, []).append({
+                "minute": minute, "cs": _cs(pf), "xp": pf.get("xp"),
+                "gold": pf.get("totalGold"), "level": pf.get("level"),
+            })
+    return out

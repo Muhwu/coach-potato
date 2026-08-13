@@ -4,11 +4,14 @@
 
 const trendState = {
   wired: false,
+  range: "all",
   bucket: "month",
   champion: "",
   queue: "",
   side: "", // "" all | blue | red
   data: null,
+  heatmapOpen: false,
+  heatmapEvents: null, // cache; cleared whenever filters change
 };
 
 // Core stats that predate the metric registry; scale maps raw -> display.
@@ -29,6 +32,13 @@ function coreValue(bucket, def) {
 async function initTrends() {
   if (!trendState.wired) {
     trendState.wired = true;
+    document.querySelectorAll("#trend-range-presets .preset").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#trend-range-presets .preset").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        trendState.range = btn.dataset.range;
+        loadTrends();
+      }));
     document.querySelectorAll("#bucket-toggle .preset").forEach((btn) =>
       btn.addEventListener("click", () => {
         document.querySelectorAll("#bucket-toggle .preset").forEach((b) => b.classList.remove("active"));
@@ -38,10 +48,14 @@ async function initTrends() {
       }));
     $("#trend-champion").addEventListener("change", (e) => { trendState.champion = e.target.value; loadTrends(); });
     $("#trend-queue").addEventListener("change", (e) => { trendState.queue = e.target.value; loadTrends(); });
+    $("#trend-role").addEventListener("change", (e) => {
+      state.roleFilter = e.target.value; syncRoleSelects(); loadTrends();
+    });
     $("#trend-side").addEventListener("change", (e) => { trendState.side = e.target.value; loadTrends(); });
     renderMetricColPicker($("#trend-metric-cols"), "cp-metriccols-trends", () => {  // app.js
       if (trendState.data) { renderTrendCharts(); renderTrendTable(); }
     });
+    $("#heatmap-toggle").addEventListener("click", toggleHeatmap);
   }
   // options rebuild on every entry so account-scope changes are reflected
   const { champions, queues } = await unionFilterOptions();
@@ -54,17 +68,25 @@ async function initTrends() {
   loadTrends();
 }
 
+function trendRangeParams(params) {
+  if (trendState.range !== "all") params.set("range", trendState.range);
+  return params;
+}
+
 async function loadTrends() {
   const seq = (trendState.seq = (trendState.seq || 0) + 1);
-  const params = accountParams(new URLSearchParams({ bucket: trendState.bucket }));
+  const params = trendRangeParams(accountParams(new URLSearchParams({ bucket: trendState.bucket })));
   if (trendState.champion) params.set("champion", trendState.champion);
   if (trendState.queue) params.set("queue", trendState.queue);
   if (trendState.side) params.set("side", trendState.side);
+  addRoleParams(params); // shared role filter (app.js)
   const data = await getJSON(`/api/stats/trends?${params}`);
   if (seq !== trendState.seq) return; // superseded by a newer load
   trendState.data = data;
   renderTrendCharts();
   renderTrendTable();
+  trendState.heatmapEvents = null; // filters changed — stale
+  if (trendState.heatmapOpen) loadHeatmap();
 }
 
 // ---------- charts ----------
@@ -174,4 +196,69 @@ function renderTrendTable() {
     `</tr>`).join("");
   target.innerHTML = `<div class="table-wrap"><table class="trend-breakdown">
     <thead>${groupHeader}${labelHeader}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+// ---------- death map (schematic Summoner's Rift) ----------
+// Riot's match-v5 timeline coordinate space, origin bottom-left (see
+// metrics.parse_death_events / CLAUDE.md). Wards aren't plotted here —
+// match-v5's WARD_PLACED events carry no position field.
+
+const MAP_X_MAX = 14820, MAP_Y_MAX = 14881;
+const HEATMAP_SIZE = 320, HEATMAP_PAD = 16;
+
+function toggleHeatmap() {
+  trendState.heatmapOpen = !trendState.heatmapOpen;
+  const btn = $("#heatmap-toggle");
+  btn.textContent = trendState.heatmapOpen ? "▾" : "▸";
+  btn.setAttribute("aria-expanded", String(trendState.heatmapOpen));
+  const label = trendState.heatmapOpen ? "Collapse death map" : "Expand death map";
+  btn.title = label; btn.setAttribute("aria-label", label);
+  $("#heatmap-body").classList.toggle("hidden", !trendState.heatmapOpen);
+  if (trendState.heatmapOpen && trendState.heatmapEvents == null) loadHeatmap();
+}
+
+async function loadHeatmap() {
+  const seq = (trendState.heatmapSeq = (trendState.heatmapSeq || 0) + 1);
+  $("#heatmap-body").innerHTML = `<div class="empty">Loading…</div>`;
+  const params = trendRangeParams(accountParams(new URLSearchParams()));
+  if (trendState.champion) params.set("champion", trendState.champion);
+  addRoleParams(params); // shared role filter (app.js)
+  const data = await getJSON(`/api/stats/map-events?${params}`);
+  if (seq !== trendState.heatmapSeq) return; // superseded by a newer load
+  trendState.heatmapEvents = data.events || [];
+  renderHeatmap();
+}
+
+// map-space (x: 0..MAP_X_MAX, y: 0..MAP_Y_MAX, origin bottom-left) -> SVG
+// space (origin top-left) — flip y, scale both axes into the padded square.
+function heatmapPoint(x, y) {
+  const inner = HEATMAP_SIZE - HEATMAP_PAD * 2;
+  const clamp = (v, max) => Math.min(Math.max(v, 0), max);
+  const sx = HEATMAP_PAD + (clamp(x, MAP_X_MAX) / MAP_X_MAX) * inner;
+  const sy = HEATMAP_PAD + (1 - clamp(y, MAP_Y_MAX) / MAP_Y_MAX) * inner;
+  return [sx, sy];
+}
+
+function renderHeatmap() {
+  const target = $("#heatmap-body");
+  const events = trendState.heatmapEvents;
+  if (events == null) return; // still loading
+  const deaths = events.filter((e) => e.event_type === "death");
+  if (!deaths.length) {
+    target.innerHTML = `<div class="empty">No deaths recorded for the current filters.</div>`;
+    return;
+  }
+  const S = HEATMAP_SIZE;
+  const dots = deaths.map((e) => {
+    const [x, y] = heatmapPoint(e.x, e.y);
+    const label = `Death @ ${fmtDuration((e.timestamp_ms || 0) / 1000)}`;
+    return `<circle class="heatmap-death" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4"><title>${escapeHtml(label)}</title></circle>`;
+  }).join("");
+  target.innerHTML = `
+    <div class="muted heatmap-legend">${deaths.length} death${deaths.length === 1 ? "" : "s"} plotted</div>
+    <svg class="heatmap-svg" viewBox="0 0 ${S} ${S}" role="img" aria-label="Death locations on a schematic Summoner's Rift">
+      ${riftBackdrop()}
+      ${dots}
+    </svg>
+  `;
 }

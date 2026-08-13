@@ -39,6 +39,7 @@ function muQuery() {
   if (muState.champion) params.set("champion", muState.champion);
   if (muState.queue) params.set("queue", muState.queue);
   if (muState.side) params.set("side", muState.side);
+  addRoleParams(params); // shared role filter (app.js)
   if (muState.rankTier) params.set("rank_tier", muState.rankTier);
   if (muState.minGames > 1) params.set("min_games", muState.minGames);
   return params;
@@ -57,6 +58,9 @@ async function initMatchups() {
     $("#mu-champion").addEventListener("change", (e) => { muState.champion = e.target.value; loadMatchups(); });
     $("#mu-queue").addEventListener("change", (e) => { muState.queue = e.target.value; loadMatchups(); });
     $("#mu-side").addEventListener("change", (e) => { muState.side = e.target.value; loadMatchups(); });
+    $("#mu-role").addEventListener("change", (e) => {
+      state.roleFilter = e.target.value; syncRoleSelects(); loadMatchups();
+    });
     $("#mu-rank").addEventListener("change", (e) => { muState.rankTier = e.target.value; loadMatchups(); });
     $("#mu-min-games").addEventListener("change", (e) => {
       muState.minGames = Math.max(1, +e.target.value || 1); loadMatchups();
@@ -405,7 +409,7 @@ function renderMU(rows) {
   muState.rows = rows;
   const target = $("#mu-table");
   if (!rows.length) {
-    target.innerHTML = `<div class="table-wrap"><div class="empty">No top-lane games match the current filters.</div></div>`;
+    target.innerHTML = `<div class="table-wrap"><div class="empty">No games match the current filters.</div></div>`;
     return;
   }
   const headerCols = muHeaderCols();

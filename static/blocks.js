@@ -504,7 +504,10 @@ function gameMetricsPanel(entryId, game) {
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
   }</div>` : "";
-  return `${laneResultControl(entryId, game)}${metrics}${runes}${
+  return `${weaksideControl(entryId, game)}${laneResultControl(entryId, game)}${
+    metrics}${runes}${
+    recordingSection(game.match_id, game.puuid)}${
+    reflectionSection(game.match_id, game.puuid)}${
     clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
 
@@ -522,6 +525,8 @@ async function toggleGameStats(entryId, matchId, puuid) {
       blockState.gameClipsCache.set(entryId,
         await getJSON(`/api/clips?owner_type=block_game&owner_id=${entryId}`));
     }
+    await ensureReflection(matchId, puuid);
+    await ensureBlockRecording(matchId, puuid);
   }
   renderBlocks();
 }
@@ -545,6 +550,20 @@ const LANE_RESULT_MARKS = {
 function manualLaneResult(game, mark) {
   const value = game[`lane_result_${mark}`];
   return value && LANE_RESULT_MARKS[value] ? value : null;
+}
+
+// lazily fetch this game's recordings (with its death markers) on first expand,
+// matching how clips and reflections load
+async function ensureBlockRecording(matchId, puuid) {
+  const key = recordingKey(matchId, puuid);
+  if (recordingUi.cache.has(key)) return;
+  try {
+    const data = await getJSON(
+      `/api/recordings?match_id=${encodeURIComponent(matchId)}&puuid=${encodeURIComponent(puuid)}`);
+    recordingUi.cache.set(key, data.recordings || []);
+  } catch {
+    recordingUi.cache.set(key, []);
+  }
 }
 
 // Sorting has to follow what the column actually shows, so a manual verdict
@@ -1110,6 +1129,16 @@ function renderBlocks() {
       await getJSON(`/api/clips?owner_type=block_game&owner_id=${ownerId}`));
     renderBlocks();
   }, () => renderBlocks());
+  wireReflectionSection(target, async (matchId, puuid) => {
+    reflectionUi.cache.delete(reflectionKey(matchId, puuid));
+    await ensureReflection(matchId, puuid);
+    renderBlocks();
+  }, () => renderBlocks());
+  wireRecordingSection(target, async (matchId, puuid) => {
+    recordingUi.cache.delete(recordingKey(matchId, puuid));
+    await ensureBlockRecording(matchId, puuid);
+    renderBlocks();
+  });
 }
 
 // ---------- picker ----------

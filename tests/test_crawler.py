@@ -47,21 +47,26 @@ JUNGLE_POS = {"top": {"x": 3800, "y": 7900}, "bot": {"x": 11000, "y": 6900}}
 
 
 def timeline_json(match_id, me_puuid=TRACKED_PUUID, opp_puuid="opp-1",
-                  jungle_halves=("top", "bot")):
+                  jungle_halves=("top", "bot"), death_events=None):
     """Minimal match-v5 timeline: participantIds 1 (me) and 2 (opp), frames at
     0/1/7/14 min where `me` leads the opponent. participantIds 3/4 are the two
     junglers (ally-1 / enemy-1 in match_json), standing in `jungle_halves`
     (blue, red) at the 1-min frame with a camp cleared — that's what
-    strong/weak-side detection reads."""
+    strong/weak-side detection reads. death_events: optional list of
+    CHAMPION_KILL event dicts (victimId/position/timestamp) attached to the
+    last frame, for the map-events crawler tests."""
     my_half, their_half = jungle_halves
 
-    def frame(ts, mine, theirs, junglers=False):
+    def frame(ts, mine, theirs, junglers=False, events=None):
         keys = ("minionsKilled", "jungleMinionsKilled", "level", "totalGold")
         pf = {"1": dict(zip(keys, mine)), "2": dict(zip(keys, theirs))}
         if junglers:
             pf["3"] = {"position": JUNGLE_POS[my_half], "jungleMinionsKilled": 4}
             pf["4"] = {"position": JUNGLE_POS[their_half], "jungleMinionsKilled": 4}
-        return {"timestamp": ts, "participantFrames": pf}
+        f = {"timestamp": ts, "participantFrames": pf}
+        if events is not None:
+            f["events"] = events
+        return f
     return {"metadata": {"matchId": match_id}, "info": {
         "participants": [{"participantId": 1, "puuid": me_puuid},
                          {"participantId": 2, "puuid": opp_puuid},
@@ -71,7 +76,7 @@ def timeline_json(match_id, me_puuid=TRACKED_PUUID, opp_puuid="opp-1",
             frame(0, (0, 0, 1, 500), (0, 0, 1, 500)),
             frame(60_000, (5, 0, 2, 700), (4, 0, 2, 700), junglers=True),
             frame(420_000, (50, 5, 6, 2600), (40, 0, 5, 2200)),
-            frame(840_000, (110, 10, 10, 5300), (90, 0, 9, 4500)),
+            frame(840_000, (110, 10, 10, 5300), (90, 0, 9, 4500), events=death_events),
         ]}}
 
 
@@ -407,6 +412,57 @@ def test_backfill_lane_deltas_block_games_only(conn):
     assert crawler.backfill_lane_deltas() == 1
 
 
+def test_crawl_stores_frame_series_inline_from_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)  # opp_pos TOP shares the lane
+    client = FakeClient([match], timelines=[timeline_json("EUW1_1")])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    rows = conn.execute(
+        """SELECT minute, cs, level, gold FROM participant_frame_series
+           WHERE match_id='EUW1_1' AND puuid=? ORDER BY minute""",
+        (TRACKED_PUUID,)).fetchall()
+    assert [r["minute"] for r in rows] == [0, 1, 7, 14]
+    assert (rows[2]["cs"], rows[2]["level"], rows[2]["gold"]) == (55, 6, 2600)
+    # the lane opponent's series is stored too (both participantIds in the
+    # fixture timeline), from the SAME timeline fetch — not a second one
+    opp_rows = conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid='opp-1'"
+    ).fetchone()["c"]
+    assert opp_rows == 4
+    assert client.timeline_calls == 1
+
+
+def test_crawl_tolerates_missing_timeline_for_frame_series(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([match])  # no timelines — get_match_timeline raises
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series").fetchone()["c"] == 0
+
+
+def test_backfill_frame_series_fills_missing_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    client = FakeClient([m1, m2])  # no timelines during crawl
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_metrics WHERE has_timeline=1").fetchone()["c"] == 2
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series").fetchone()["c"] == 0
+    client.timelines = {t["metadata"]["matchId"]: t
+                        for t in (timeline_json("EUW1_1"), timeline_json("EUW1_2"))}
+    client.timeline_calls = 0
+    assert crawler.backfill_frame_series() == 2
+    assert client.timeline_calls == 2
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()["c"] == 4
+    # nothing left to backfill
+    client.timeline_calls = 0
+    assert crawler.backfill_frame_series() == 0
+    assert client.timeline_calls == 0
+
+
 def test_backfill_metrics_fetches_missing_only(conn):
     m1 = match_json("EUW1_1", 1_700_000_000_000)
     m2 = match_json("EUW1_2", 1_700_000_100_000)
@@ -464,6 +520,87 @@ def test_refresh_tracked_ranks_appends_rank_history(conn):
         (TRACKED_PUUID,)).fetchall()
     assert [(r["solo_tier"], r["solo_lp"], r["fetched_at_ms"]) for r in rows] == [
         ("DIAMOND", 12, 1_800_000_000_000), ("DIAMOND", 30, 1_800_000_100_000)]
+
+
+def test_crawl_stores_map_events_inline_from_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    deaths = [
+        {"type": "CHAMPION_KILL", "timestamp": 840_000, "victimId": 1, "killerId": 2,
+         "position": {"x": 5000, "y": 8000}},
+        {"type": "CHAMPION_KILL", "timestamp": 900_000, "victimId": 2, "killerId": 1,
+         "position": {"x": 1000, "y": 1000}},  # my kill — stored as a "kill" event
+        {"type": "WARD_PLACED", "timestamp": 850_000, "creatorId": 1, "wardType": "YELLOW_TRINKET"},
+    ]
+    client = FakeClient([match], timelines=[timeline_json("EUW1_1", death_events=deaths)])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    rows = conn.execute(
+        "SELECT event_type, x, y, timestamp_ms FROM player_map_events WHERE match_id='EUW1_1' "
+        "AND puuid=?", (TRACKED_PUUID,)).fetchall()
+    # deaths AND kills are stored now (the event set widened for VOD chapters);
+    # WARD_PLACED still isn't, because match-v5 gives it no position
+    assert len(rows) == 2
+    assert (rows[0]["event_type"], rows[0]["x"], rows[0]["y"], rows[0]["timestamp_ms"]) == (
+        "death", 5000, 8000, 840_000)
+    assert (rows[1]["event_type"], rows[1]["timestamp_ms"]) == ("kill", 900_000)
+    has_map_events = conn.execute(
+        "SELECT has_map_events FROM participant_metrics WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()["has_map_events"]
+    assert has_map_events == 1
+
+
+def test_crawl_tolerates_missing_timeline_for_map_events(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([match])  # no timelines — get_match_timeline raises
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT has_map_events FROM participant_metrics WHERE puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert row["has_map_events"] == 1  # marked done so backfill won't retry forever
+    assert conn.execute("SELECT COUNT(*) c FROM player_map_events").fetchone()["c"] == 0
+
+
+def test_backfill_map_events_fills_missing_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    client = FakeClient([m1, m2])  # no timelines during crawl -> has_map_events already 1 (tolerant)
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_metrics WHERE has_map_events=1").fetchone()["c"] == 2
+    # reset to simulate pre-upgrade rows (has_map_events column just added)
+    conn.execute("UPDATE participant_metrics SET has_map_events=0")
+    conn.commit()
+    deaths = [{"type": "CHAMPION_KILL", "timestamp": 840_000, "victimId": 1, "killerId": 2,
+              "position": {"x": 3000, "y": 4000}}]
+    client.timelines = {t["metadata"]["matchId"]: t for t in (
+        timeline_json("EUW1_1", death_events=deaths), timeline_json("EUW1_2", death_events=deaths))}
+    client.timeline_calls = 0
+    assert crawler.backfill_map_events() == 2
+    assert client.timeline_calls == 2
+    assert crawler.backfill_map_events() == 0  # nothing left with has_map_events=0
+    row = conn.execute(
+        "SELECT x, y FROM player_map_events WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert (row["x"], row["y"]) == (3000, 4000)
+
+
+def test_backfill_map_events_block_games_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)  # will be added to a block
+    m2 = match_json("EUW1_2", 1_700_000_100_000)  # not in any block
+    client = FakeClient([m1, m2])
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    conn.execute("UPDATE participant_metrics SET has_map_events=0")
+    conn.commit()
+    db.add_game_to_block(conn, "EUW1_1", TRACKED_PUUID)  # only m1 is in a block
+    client.timelines = {t["metadata"]["matchId"]: t
+                        for t in (timeline_json("EUW1_1"), timeline_json("EUW1_2"))}
+    client.timeline_calls = 0
+    assert crawler.backfill_map_events(block_games_only=True) == 1
+    assert client.timeline_calls == 1
+    assert conn.execute("SELECT has_map_events FROM participant_metrics WHERE match_id='EUW1_2' "
+                        "AND puuid=?", (TRACKED_PUUID,)).fetchone()["has_map_events"] == 0
+    assert crawler.backfill_map_events() == 1  # unscoped run handles the rest
 
 
 def test_comparison_player_stored_without_tracking(conn):

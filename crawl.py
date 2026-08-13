@@ -33,11 +33,20 @@ def main():
                         help="only backfill actual runes played for stored matches, no crawl")
     parser.add_argument("--backfill-lane-deltas", action="store_true",
                         help="only backfill lane ΔCS/level/gold (needs the match timeline), no crawl")
+    parser.add_argument("--backfill-frame-series", action="store_true",
+                        help="only backfill the full-game gold/CS/XP/level curve "
+                             "(needs the match timeline), no crawl")
     parser.add_argument("--backfill-items", action="store_true",
                         help="only backfill summoner spells + items for stored matches, no crawl")
     parser.add_argument("--backfill-jungle-sides", action="store_true",
                         help="only backfill jungle start halves / strong-weak side "
                              "(needs the match timeline), no crawl")
+    parser.add_argument("--backfill-map-events", action="store_true",
+                        help="only backfill map events (deaths/kills/towers/objectives, "
+                             "needs the match timeline), no crawl")
+    parser.add_argument("--recompute-map-events", action="store_true",
+                        help="re-derive map events for games already processed — needed after the "
+                             "event set widened beyond deaths; re-fetches every timeline")
     args = parser.parse_args()
 
     config = load_config()
@@ -69,6 +78,11 @@ def main():
             n = crawler.backfill_lane_deltas(limit=args.limit)
             print(f"  -> {n} matches re-fetched")
             return
+        if args.backfill_frame_series:
+            print("Backfilling full-game gold/CS/XP/level curve (timeline) for stored matches ...")
+            n = crawler.backfill_frame_series(limit=args.limit)
+            print(f"  -> {n} matches re-fetched")
+            return
         if args.backfill_items:
             print("Backfilling summoner spells + items for stored matches ...")
             n = crawler.backfill_items(limit=args.limit)
@@ -77,6 +91,14 @@ def main():
         if args.backfill_jungle_sides:
             print("Backfilling jungle start sides (timeline) for stored matches ...")
             n = crawler.backfill_jungle_starts(limit=args.limit)
+        if args.backfill_map_events:
+            print("Backfilling death map events (timeline) for stored matches ...")
+            n = crawler.backfill_map_events(limit=args.limit)
+        if args.backfill_map_events or args.recompute_map_events:
+            what = "Recomputing" if args.recompute_map_events else "Backfilling"
+            print(f"{what} map events (deaths/kills/towers/objectives) for stored matches ...")
+            n = crawler.backfill_map_events(limit=args.limit,
+                                            recompute=args.recompute_map_events)
             print(f"  -> {n} matches re-fetched")
             return
         for game_name, tag_line in accounts:

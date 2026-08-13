@@ -246,6 +246,51 @@ def test_trends_endpoint_buckets_and_meta(client):
     assert [b["bucket"] for b in default["buckets"]] == ["2020-09", "2023-11"]
 
 
+def seed_map_events(client, seeds):
+    """seeds: list of (match_id, x, y, timestamp_ms) deaths to attach for ME."""
+    import os
+    from server.metrics import metric_keys
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    for match_id, x, y, ts in seeds:
+        values = {k: None for k in metric_keys()}
+        values["has_challenges"] = 0
+        db.insert_participant_metrics(conn, match_id, ME, values)  # row must pre-exist
+        db.replace_map_events(conn, match_id, ME,
+                              [{"event_type": "death", "x": x, "y": y, "timestamp_ms": ts}])
+    conn.close()
+
+
+def test_map_events_endpoint_filters_by_champion_and_period(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    rows = conn.execute(
+        """SELECT p.match_id, p.champion_name FROM participants p
+           JOIN matches m ON m.match_id = p.match_id
+           WHERE p.puuid=? ORDER BY m.game_creation_ms""", (ME,)).fetchall()
+    conn.close()
+    kled_match = next(r["match_id"] for r in rows if r["champion_name"] == "Kled")
+    garen_matches = [r["match_id"] for r in rows if r["champion_name"] == "Garen"]
+
+    seed_map_events(client, [
+        (kled_match, 500, 500, 30_000),           # game at when=1_600_000_000_000
+        (garen_matches[0], 7000, 7000, 400_000),  # game at when=1_700_000_000_000
+    ])
+
+    all_events = client.get("/api/stats/map-events").json()["events"]
+    assert len(all_events) == 2
+
+    garen_events = client.get("/api/stats/map-events?champion=Garen").json()["events"]
+    assert [e["x"] for e in garen_events] == [7000]
+    assert garen_events[0]["event_type"] == "death"
+
+    period = client.get("/api/stats/map-events?from_ms=1650000000000").json()["events"]
+    assert [e["x"] for e in period] == [7000]  # excludes the Kled game (1_600_000_000_000)
+
+    # role filter: every fixture match is TOP by default (add_match's default)
+    assert len(client.get("/api/stats/map-events?role=TOP").json()["events"]) == 2
+    assert client.get("/api/stats/map-events?role=JUNGLE").json()["events"] == []
+
+
 def test_pool_default_and_put_round_trip(client):
     assert client.get("/api/pool").json() == {"main_blind": None, "core": [], "counter": []}
     response = client.put("/api/pool", json={
@@ -441,6 +486,33 @@ def test_single_game_metrics_endpoint(client):
     assert any(m["key"] == "cs_at_10" for m in data["meta"])
     assert client.get(
         "/api/stats/games/metrics?match_id=EUW1_nope&puuid=x").status_code == 404
+
+
+def test_game_curve_endpoint(client):
+    import os
+    game = client.get("/api/stats/summary").json()["recent"][0]
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.insert_frame_series(conn, [
+        {"match_id": game["match_id"], "puuid": game["my_puuid"], "minute": 0,
+         "cs": 0, "xp": 0, "gold": 500, "level": 1},
+        {"match_id": game["match_id"], "puuid": game["my_puuid"], "minute": 7,
+         "cs": 55, "xp": 3200, "gold": 2600, "level": 6},
+        {"match_id": game["match_id"], "puuid": game["opp_puuid"], "minute": 7,
+         "cs": 40, "xp": 2800, "gold": 2100, "level": 5},
+    ])
+    conn.close()
+    data = client.get(
+        f"/api/stats/game-curve?match_id={game['match_id']}&puuid={game['my_puuid']}"
+        f"&opp_puuid={game['opp_puuid']}").json()
+    assert data["minutes"] == [0, 7]
+    assert data["me"]["cs"] == [0, 55]
+    assert data["opp"]["cs"] == [40]  # opp only has the 7-min frame recorded
+    # without opp_puuid, opp is simply absent
+    no_opp = client.get(
+        f"/api/stats/game-curve?match_id={game['match_id']}&puuid={game['my_puuid']}").json()
+    assert no_opp["opp"] is None
+    assert client.get(
+        "/api/stats/game-curve?match_id=EUW1_nope&puuid=x").status_code == 404
 
 
 def test_settings_auto_crawl_round_trip_and_default(client):
@@ -751,6 +823,44 @@ def test_comparison_players_and_settings(client):
     assert body["you"]["scoped"] is not None  # your own column stays either way
     # PATCH validates the enabled flag
     assert client.patch("/api/comparison-players/xyz", json={"enabled": "no"}).status_code == 400
+def test_reflection_endpoints(client):
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=me").json() == {
+        "tags": [], "note": ""}
+    r = client.put("/api/reflections/EUW1_1/me", json={
+        "tags": ["bad TP", "tilted"], "note": "- forced a bad TP"})
+    assert r.status_code == 200
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=me").json() == {
+        "tags": ["bad TP", "tilted"], "note": "- forced a bad TP"}
+    # tags-only update never clobbers the stored note
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": ["bad TP"]}).status_code == 200
+    got = client.get("/api/reflections?match_id=EUW1_1&puuid=me").json()
+    assert got == {"tags": ["bad TP"], "note": "- forced a bad TP"}
+    # note-only update never clobbers the stored tags
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"note": "updated"}).status_code == 200
+    got = client.get("/api/reflections?match_id=EUW1_1&puuid=me").json()
+    assert got == {"tags": ["bad TP"], "note": "updated"}
+    # a different game/player is independent
+    assert client.get("/api/reflections?match_id=EUW1_2&puuid=me").json() == {
+        "tags": [], "note": ""}
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=opp").json() == {
+        "tags": [], "note": ""}
+    # blanking both clears the row
+    client.put("/api/reflections/EUW1_1/me", json={"tags": [], "note": ""})
+    assert client.get("/api/reflections?match_id=EUW1_1&puuid=me").json() == {
+        "tags": [], "note": ""}
+    # validation
+    assert client.get("/api/reflections").status_code == 422  # match_id/puuid required
+    assert client.put("/api/reflections/EUW1_1/me", json={}).status_code == 400
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": "not-a-list"}).status_code == 400
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": [""]}).status_code == 400  # empty tag string
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": ["x" * 41]}).status_code == 400  # too long
+    assert client.put("/api/reflections/EUW1_1/me",
+                      json={"tags": ["ok"] * 21}).status_code == 400  # too many
 
 
 def test_champion_general_notes_endpoints(client):

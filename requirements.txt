@@ -5,3 +5,7 @@ pytest>=8
 cryptography>=42
 python-multipart>=0.0.9
 reportlab>=4.0
+# YouTube upload for recorded VODs is OPTIONAL and deliberately not installed
+# here — it pulls in the Google API client stack, and the app (and the packaged
+# build) work fine without it, offering the manual "open the folder" path
+# instead. To enable it: pip install -r requirements-youtube.txt

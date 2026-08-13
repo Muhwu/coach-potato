@@ -3,9 +3,10 @@
 **Coach Potato** — coaching & improvement app for LoL: crawls Riot match
 history for the configured accounts into sqlite, serves matchup stats /
 coaching progress / trends / block learnings via FastAPI + vanilla-JS
-frontend. Stats are currently top-lane scoped (`team_position='TOP'` in
-`stats._BASE`); all roles' data is stored, so generalizing is a query/UI
-change, not a crawler change.
+frontend. Stats cover games in ANY role: `stats._BASE` keys off the tracked
+player's own `team_position` (`me.team_position != ''`) and matches the lane
+opponent as the enemy in that SAME role (`opp.team_position = me.team_position`).
+(It used to be hard-scoped to `'TOP'`; that filter was removed so all roles show.)
 
 ## Commands
 
@@ -220,6 +221,36 @@ change, not a crawler change.
   fetched and polls `/api/blocks/timeline-status`.
 - Block series: `block_series(id, title, goals, created_at_ms)`; every `blocks`
   row has a `series_id` (added in `_migrate`; `seed_block_series` on connect
+- Full-game curve: `participant_frame_series(match_id+puuid+minute, cs, xp,
+  gold, level)` — the WHOLE per-minute timeline series (not just the two
+  ~7/14 min marks lane deltas sample), stored for ALL 10 participants per
+  match (like `participants` itself), so any pair's curve can be charted
+  without resolving "who is the lane opponent" at storage time.
+  `metrics.parse_frame_series(timeline_json)` is the pure extraction
+  function (buckets each frame's `timestamp` into `minute = round(ts_ms /
+  60000)`, one entry per participant per frame); `Crawler._store_frame_series`
+  writes it via `db.insert_frame_series` (INSERT OR IGNORE, idempotent).
+  Populated once per match — not once per tracked puuid — from the SAME
+  timeline fetch `crawl_player` already makes for lane deltas (no extra API
+  call). `crawler.backfill_frame_series()` / `./crawl.sh
+  --backfill-frame-series` fills existing matches that already had a
+  timeline processed (`participant_metrics.has_timeline=1`) but predate this
+  feature; it re-fetches the timeline (the raw JSON isn't cached anywhere)
+  so a permanently-missing timeline can resurface on repeat runs — accepted
+  since this is a manual, on-demand backfill, not part of the crawl loop.
+  `stats.game_curve(conn, match_id, puuid, opp_puuid=None)` reads it back as
+  `{minutes: [...], me: {cs, xp, gold, level}, opp: {...} | null}`, behind
+  `GET /api/stats/game-curve?match_id=&puuid=&opp_puuid=` (404 when nothing
+  recorded for that puuid). UI: the Overview "Recent games" table's ▸/▾
+  "Curve" toggle (`curveUi`/`toggleGameCurve`/`gameCurveSection` in app.js,
+  a sibling to the existing `.runes-toggle`, since curve data needs an async
+  fetch on first expand while runes are already inline on the row) renders
+  gold + CS as two small SVG line charts (`gcChartSVG`) — the two most
+  immediately useful for a lane/game read; XP/level are in the payload for a
+  future metric switcher. A second `--series-2` theme color (in
+  `style.css`, alongside `--series-1`) distinguishes the opponent's line.
+- Block series: `block_series(id, title, created_at_ms)`; every `blocks` row
+  has a `series_id` (added in `_migrate`; `seed_block_series` on connect
   ensures ≥1 series exists and assigns orphan/legacy blocks to it).
   `create_block` attaches the current (newest) series; `start_new_series`
   (POST `/api/blocks/series`) opens a fresh one, finalizing an in-progress
@@ -363,7 +394,8 @@ change, not a crawler change.
   are written, so popup and guide editor don't clobber each other's
   fields; `db.set_matchup_note` keeps un-passed fields via a _KEEP
   sentinel);
-  trends view (SVG small-multiple charts + breakdown table) in `trends.js`;
+  trends view (SVG small-multiple charts + breakdown table + an expandable
+  "Death map" heatmap — see `player_map_events` below) in `trends.js`;
   blocks view in `blocks.js`; Matchup guide view (own nav tab: pick "My
   champion" from the full roster — not just played champions — see/edit
   general champion notes, full rune pages + patch + notes for every matchup
@@ -377,6 +409,91 @@ change, not a crawler change.
   opponent, one Markdown notes field (covers general + VOD notes together),
   and multiple screenshots — deliberately no timestamp log or video/clip
   attachments here) in `research.js`.
+  attachments here) in `research.js`; Macros view (own nav tab: a flat list
+  of collapsible (collapsed by default) freeform title + Markdown-notes
+  sections for game-macro notes — not tied to any champion, matchup, or
+  session; sections append at the bottom in creation order, no drag-reorder;
+  editing a section force-expands it and keeps it expanded after save) in
+  `macros.js`.
+- **Ascent VOD integration** — `server/recordings.py` imports local recordings
+  from Ascent's own sqlite db (`%LOCALAPPDATA%\Ascent\recordings.db`, path
+  overridable via the `ascent_db_path` setting). Ascent stores `game_match_id`
+  per recording — the SAME match-v5 id we key `matches` on — which is the whole
+  reason this can work without guesswork. **Two invariants the module exists to
+  hold:** Ascent's db is only ever READ, and always via a snapshot (db + `-wal`
+  + `-shm` copied to a temp dir) because it is a live database owned by another
+  running process with a large WAL; and video files are never copied, moved or
+  deleted — only paths are stored, and "forget" drops the row, not the file.
+  Only recordings whose match is already crawled are imported. `sync()` runs at
+  the end of `_run_crawl` (best-effort — Ascent missing must never fail a crawl)
+  and behind `POST /api/recordings/sync`. `recordings` table is keyed by
+  Ascent's uuid so re-syncing is idempotent; re-sync refreshes path/timings but
+  never clobbers OUR columns (`offset_ms`, YouTube state).
+  `GET /api/recordings/{uuid}/file` streams the local mp4 through
+  `FileResponse` (Range requests work, which is what makes seeking possible) and
+  only serves paths already in the table — the id is looked up, never taken from
+  the request. `player_map_events` was widened from deaths-only to also carry
+  kills/assists/towers/inhibitors/objectives (`metrics.parse_map_events`), with
+  a `detail` label whose leading `-` marks an event that went AGAINST the
+  player's team. SQLite can't ALTER that CHECK constraint, so `_migrate`
+  rebuilds the table (rename/create/copy/drop), carrying every existing death
+  forward. **Anything reading that table for the heatmap must filter
+  `event_type='death'`** — `stats.map_events` now does, or the Trends death map
+  would start plotting kills and towers. Existing rows look complete
+  (`has_map_events=1`) but hold only deaths, so
+  `backfill_map_events(recompute=True)` / `./crawl.sh --recompute-map-events`
+  re-derives them; it re-fetches every timeline (real Riot calls) and, like the
+  lane-delta recompute, skips rather than clobbers when a fetch fails.
+  **A second, offline event source** lives in `server/ascent_log.py`: Ascent
+  records via Overwolf's GEP, which reads League's Live Client Data feed, and
+  those events are written into `%LOCALAPPDATA%\Ascent\logs\*.log` inside
+  periodic game snapshots (`match_id="..."` GEP lines bracket each game;
+  `"allPlayers":[...]` gives team membership, `"events":[...]` the feed). Parsed
+  into the same rows with `source='ascent_log'` and **NULL x/y** — Live Client
+  Data has no coordinates, so `stats.map_events` filters `x IS NOT NULL` as well
+  as `event_type='death'`. Needs no API key, but only reaches as far back as the
+  logs roll (days). Team membership decides ours-vs-theirs; without it every
+  objective a teammate took would read as lost. **The two sources must never be
+  mixed for one game** — both describe it, so reading both doubles every death.
+  `recordings.preferred_source()` picks whichever has MORE events per
+  (match, puuid): a pre-widening timeline holds deaths only and loses to the
+  log, a recomputed timeline wins. Self-correcting, no flag to maintain.
+  `recordings.timeline_markers()` reads them all back for the VOD chapter list
+  and for the mini-map beside the player (`recordingMap` in app.js; each dot
+  seeks the video to that moment). The Rift itself is `riftBackdrop()` in
+  app.js, shared by that map AND the Trends death map so there is only one:
+  Riot's official minimap (`ddragon .../img/map/map11.png`, hotlinked exactly
+  like the champion/rune/item icons the app already uses) laid over a
+  hand-drawn schematic fallback (`riftSchematic()` — lanes, river, turret line,
+  Baron/Dragon pits) that shows through if the image can't load. Both are drawn
+  in Riot's map coordinates and projected with `heatmapPoint`, so no offset
+  correction is needed — verified by plotting known landmarks (Baron pit, both
+  nexuses) over the image.
+  `death_markers()` turns `player_map_events` timestamps into video
+  positions: measured across a real library, Ascent starts recording within a
+  few seconds of the game (durations match to ~2-6s), so timeline time maps
+  essentially 1:1 onto video time; `offset_ms` is the per-recording nudge.
+  Frontend: `recordingSection`/`wireRecordingSection` in app.js, the same
+  shared-component pattern as `clipsSection`/`reflectionSection`, used by
+  Overview's Recent games and blocks.js's per-game panel.
+- **YouTube upload** — `server/youtube.py`, behind
+  `POST /api/recordings/{uuid}/youtube` (background thread + `UPLOAD_STATE`,
+  polled via `/api/recordings/upload-status`, mirroring `CRAWL_STATE`). Needs
+  the user's OWN Google OAuth desktop client (`youtube_client_secrets` setting)
+  — that cannot be automated, it is tied to their Google account.
+  **Entirely optional and NOT installed by default**: the Google libraries live
+  in `requirements-youtube.txt`, not `requirements.txt`, so neither a dev setup
+  nor the packaged build pulls the Google API stack. They're imported lazily,
+  and `youtube.libraries_available()` feeds `has_credentials()` — so with the
+  libraries absent the app reports `youtube_ready: false` and the UI offers the
+  manual "reveal the file" path instead of an upload button that could only
+  fail. Keep that invariant if you touch the readiness logic; the
+  `test_youtube_is_optional_without_the_google_libraries` test pins it, and the
+  two tests that genuinely need the libraries skip without them.
+  Token caches as `youtube_token.json` beside the db. Defaults to **private** because
+  an unaudited OAuth project cannot produce anything else regardless of the
+  setting, and the default quota allows only ~6 uploads/day. The UI always
+  `confirm()`s before uploading — it publishes to the user's channel.
 
 ## Schema (data/lol.sqlite)
 
@@ -543,6 +660,51 @@ myr/oppr pattern) into `stats.block_games_detailed`, so a block game's
 expanded per-game panel (`gameMetricsPanel` in blocks.js) shows the same
 side-by-side `.runes-compare` layout via the shared `runesCompareCol()`
 (app.js), reused as-is rather than duplicated.
+`player_map_events(id PK, match_id, puuid, event_type CHECK IN ('death'), x,
+y, timestamp_ms)` — death locations for the Trends "Death map" heatmap,
+decoded from the match-v5 TIMELINE's `CHAMPION_KILL` events
+(`metrics.parse_death_events`, victim's participant id resolved the same way
+`parse_timeline_deltas` does) for tracked + comparison puuids only (mirrors
+`Crawler._stored_puuids()`'s scope — a personal reflection tool, not full-
+match analysis). **Deaths-only**: match-v5's `WARD_PLACED` events do NOT
+carry a position field — confirmed via a live timeline fetch (a Riot dev key
+in this repo's `.env` had expired, so verification instead relied on Riot's
+own developer-relations tracker, which has an open, unresolved feature
+request asking for one) — so `event_type` only ever stores `'death'`; the
+column is left generic rather than named `death_events` in case Riot ever
+adds ward positions. Wired into the crawl exactly like the lane-delta
+metrics: `Crawler._store_metrics` calls `parse_death_events` off the SAME
+timeline fetch used for lane deltas and stores rows via `db.replace_map_events`
+(delete-then-insert, idempotent), setting `participant_metrics.has_map_events=1`
+(an additive column, same idiom as `has_timeline`) so `Crawler.backfill_map_events()`
+/ `./crawl.sh --backfill-map-events` (mirrors `backfill_lane_deltas`, incl.
+`block_games_only`) skips already-processed matches; a missing/failed
+timeline still marks the row done with zero events so it isn't retried
+forever. `stats.map_events(conn, puuids, from_ms=, to_ms=, champion=,
+roles=)` joins `player_map_events` onto the same `_filtered_base` every other
+Trends-style query uses, behind `GET /api/stats/map-events?champion=&role=&
+from_ms=&to_ms=` (or `range=`/`from=`/`to=` like `/api/stats/games`).
+Frontend: an expandable "Death map" section at the bottom of the Trends view
+(`trends.js`, collapsed by default, `.seg-toggle`, data fetched lazily on
+first expand and invalidated whenever a filter changes) draws the Rift via the
+shared `riftBackdrop()` (app.js) and plots
+each death as a semi-transparent `--critical`-tinted dot (overlapping dots
+naturally read as density). Riot's timeline coordinate space is ~0–14820 (x)
+/ ~0–14881 (y), origin bottom-left; `heatmapPoint()` flips the y-axis into
+the SVG's top-left-origin viewBox. Trends gained its own Period range-preset
+row (`#trend-range-presets`, same `.preset`/`data-range` pattern as
+Matchups') and a Role select (`#trend-role`, wired into the same shared
+`state.roleFilter`/`syncRoleSelects()` as the Overview/Matchups role filters)
+purely to drive this — `stats.trend_buckets` also gained optional
+`from_ms`/`to_ms` (additive; `None` = full history as before) so the
+existing bucket charts/breakdown table honor the new Period filter too.
+`participant_frame_series(match_id+puuid+minute PK, cs, xp, gold, level)` —
+full-game per-minute gold/CS/XP/level series from the match-v5 timeline, for
+ALL 10 participants (not just tracked/lane-opponent puuids, unlike
+`participant_runes`/lane deltas) — see the crawler bullet above for the
+extraction/backfill/endpoint details. Feeds the Overview "Recent games"
+table's ▸/▾ "Curve" toggle (a two-line SVG chart per game: you vs the lane
+opponent, gold + CS).
 `clips(id PK, owner_type CHECK IN ('session','block_game'), owner_id, label,
 kind CHECK IN ('upload','link'), file_name, url, created_at_ms)` — 1-minute
 video clips attached to a coaching session or a specific block game (not
@@ -561,6 +723,29 @@ progress session cards and `blocks.js`'s per-game stats panel) — clips
 only fetch when that session/game is expanded, matching the rest of the
 app's lazy-load convention. Research entries deliberately don't use this —
 no video/clip attachments there, screenshots only (see below).
+`game_reflections(match_id+puuid PK, tags, note, updated_at_ms)` — a
+lightweight per-game tag/note from the tracked player's own perspective,
+independent of matchup notes / block learnings / sessions: a fast post-match
+reflection habit ("bad TP", "int death", "tilted", "good vision", ...)
+rather than a full write-up. `tags` is a JSON array of freeform strings —
+loose, no fixed vocabulary enforced server-side (the frontend just offers
+quick-pick suggested chips plus a custom-tag input, same philosophy as
+`research_entries`' champion fields); `note` is one Markdown field. Scoped
+directly by `(match_id, puuid)` rather than `clips`' `owner_type`/`owner_id`,
+so it works for ANY game a tracked player has played, not just block games.
+`GET /api/reflections?match_id=&puuid=` returns `{tags, note}` (blank
+defaults when nothing is recorded); `PUT /api/reflections/{match_id}/{puuid}`
+is a partial update — only body keys present are written
+(`db.set_reflection` mirrors `set_matchup_note`'s `_KEEP` sentinel), so a
+tags-only edit (toggling a chip) never clobbers the note and vice versa. UI:
+a small inline editor attached to per-game rows in two places — Overview's
+"Recent games" table (`app.js`) and a block game's expanded stats panel
+(`blocks.js`'s `gameMetricsPanel`) — sharing `reflectionSection`/
+`wireReflectionSection` (app.js), the same shared-component pattern as
+`clipsSection`/`wireClipsSection`. Tags render as toggleable chips
+(`.chip-main` selected / `.chip-inactive` available); the note renders via
+the shared `renderNotes()`/`md-body` convention with an edit/view toggle
+like general champion notes.
 `research_entries(id PK, player_name, champion, opp_champion, title, notes,
 created_at_ms, updated_at_ms)` — a Research-tab study entry for someone
 else's game; `champion`/`opp_champion` are optional freeform text (loosely
