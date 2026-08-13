@@ -226,16 +226,9 @@
         (Riot's API is slow, so it can take a few minutes); "Fetch more" pulls further
         back. The guide comparison shows every stored game, regardless of date.</p>
       <div id="comparison-card" class="hidden">
-        <div id="comparison-players-list"></div>
-        <div class="key-row" style="margin-top:6px">
-          <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"
-            spellcheck="false" autocomplete="off" style="max-width:200px">
-          <select id="comparison-add-platform" title="Server the player is on" style="max-width:9em"></select>
-          <button id="comparison-add" class="preset" type="button">Add player</button>
-        </div>
-        <p class="muted" style="margin-top:2px">Pick the player's server — they can be
-          on a different region than your own accounts.</p>
-        <p id="comparison-status" class="muted"></p>
+        <p class="muted" style="margin-top:12px">The players themselves are managed on their own
+          page under Prepare →
+          <button id="settings-players-link" class="linkish" type="button">Research players</button>.</p>
       </div>
     </div>
 
@@ -510,6 +503,44 @@
     <button type="submit" class="preset">Add entry</button>
     <span id="research-add-status" class="muted"></span>
   </form>
+</section>
+</div>
+
+<div id="players-view" class="hidden">
+<section class="panel">
+  <div class="section-head">
+    <h2>Research players</h2>
+    <span class="muted">Grouped by the champion they're for</span>
+  </div>
+  <p class="muted">Other players whose games are crawled so you can compare yourself against
+    them — their runes, spells, items and laning show beside yours in the Playbook's ⧉ pop-out.
+    Games are fetched in the background (Riot's API is slow, so it can take a few minutes).</p>
+  <div id="players-disabled" class="muted hidden">Player comparison is switched off —
+    turn it on in <button id="players-settings-link" class="linkish" type="button">Settings</button>
+    to add players.</div>
+  <div id="players-card">
+    <div id="comparison-players-list"></div>
+    <div class="key-row" style="margin-top:6px; flex-wrap:wrap">
+      <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"
+        spellcheck="false" autocomplete="off" style="max-width:170px">
+      <input class="chip-input" id="comparison-add-champion" list="champ-list"
+        placeholder="for champion (blank = all)" spellcheck="false" autocomplete="off" style="max-width:180px">
+      <select id="comparison-add-platform" title="Server the player is on" style="max-width:9em"></select>
+      <button id="comparison-add" class="preset" type="button">Add player</button>
+    </div>
+    <p class="muted" style="margin-top:2px">Pick which champion this player mains (blank = shown
+      for every matchup) and their server — they can be on a different region than your accounts.
+      The Playbook auto-loads the players for your selected "My champion".</p>
+    <p id="comparison-status" class="muted"></p>
+  </div>
+</section>
+</div>
+
+<div id="macros-view" class="hidden">
+<section class="panel">
+  <h2>Macros</h2>
+  <p class="muted">Freeform sections for game-macro notes — give each one a title and notes.</p>
+  <div id="macros-list"></div>
 </section>
 </div>
 

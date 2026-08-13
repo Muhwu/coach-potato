@@ -150,7 +150,10 @@ def api_version():
     return {"version": config.app_version(), "repo": config.GITHUB_REPO}
 
 
-HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "guide", "research"}
+# must stay in step with the .view-toggle-cb checkboxes in index.html — a view
+# offered there but missing here makes saving settings 400
+HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "series",
+                  "pool", "guide", "research", "players", "tiers"}
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
