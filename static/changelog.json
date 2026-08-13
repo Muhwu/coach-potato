@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.52.0",
+      "date": "2026-08-13",
+      "items": [
+        "Player comparison is no longer stuck in the Playbook — the ⧉ button now also sits on every Matchups row, on each champion in My champions, and on Coaching progress (which compares totals, not per-session segments)",
+        "The comparison window shows YOUR stats as the first column, so it's actually side by side. It also opens much wider, and defaults to a roomy comparison table — stats down the side, players across the top, with the best value in each row marked (fewer deaths counts as better). \"Compact view\" switches back to the dense card layout",
+        "My champions has a column picker: kills/deaths/assists, gold per minute, damage per minute and average game length are all available beyond the default six"
+      ]
+    },
+    {
       "version": "1.51.0",
       "date": "2026-08-12",
       "items": [

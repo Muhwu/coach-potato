@@ -745,8 +745,10 @@ def test_comparison_players_and_settings(client):
     assert body["fetching"]["running"] is False  # background-fetch status
     # comparison off -> empty player list even if some exist
     client.put("/api/settings", json={**base, "enable_player_comparison": False})
-    assert client.get("/api/matchups/comparison",
-                      params={"my_champion": "Gwen", "opp_champion": "Darius"}).json() == {"players": []}
+    body = client.get("/api/comparison",
+                      params={"my_champion": "Gwen", "opp_champion": "Darius"}).json()
+    assert body["players"] == []
+    assert body["you"]["scoped"] is not None  # your own column stays either way
     # PATCH validates the enabled flag
     assert client.patch("/api/comparison-players/xyz", json={"enabled": "no"}).status_code == 400
 
@@ -1823,3 +1825,48 @@ def test_series_closing_notes_kept_when_a_new_series_starts(client):
     series = {s["id"]: s for s in client.get("/api/blocks").json()["series"]}
     assert series[first]["closing_notes"] == "wrapped up"
     assert series[max(series)]["closing_notes"] == ""  # the new one starts blank
+
+
+def test_comparison_scopes_measure_you_and_others_the_same_way(client):
+    # matchup scope: your Gwen-vs-Darius games (2 in the fixture) plus the
+    # champion baseline to read them against
+    body = client.get("/api/comparison", params={
+        "scope": "matchup", "my_champion": "Garen", "opp_champion": "Darius"}).json()
+    assert body["scope"] == "matchup"
+    assert body["you"]["scoped"]["games"] == 2
+    assert body["you"]["overall"]["games"] == 2   # Garen vs everyone
+    assert len(body["you"]["recent"]) == 2
+    assert body["players"] == []                  # comparison disabled by default
+
+    # champion scope: no opponent filter, and no baseline to compare against
+    body = client.get("/api/comparison", params={
+        "scope": "champion", "my_champion": "Garen"}).json()
+    assert body["you"]["scoped"]["games"] == 2
+    assert body["you"]["overall"] is None
+    assert body["opp_champion"] == ""
+
+    # overall scope: every tracked game regardless of champion
+    body = client.get("/api/comparison", params={"scope": "overall"}).json()
+    assert body["you"]["scoped"]["games"] == 3    # Garen x2 + Kled
+    assert body["my_champion"] == ""
+
+
+def test_comparison_rejects_unknown_scope_and_champion(client):
+    assert client.get("/api/comparison", params={"scope": "nonsense"}).status_code == 400
+    assert client.get("/api/comparison", params={
+        "scope": "champion", "my_champion": "NotAChampion"}).status_code == 400
+
+
+def test_comparison_includes_enabled_players_alongside_you(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    # set the flag directly: the settings endpoint refuses to save without an
+    # API key, which this fixture db has no reason to carry
+    db.set_settings(conn, {"enable_player_comparison": "1"})
+    db.add_comparison_player(conn, "rival-1", "Rival", "EUW", "euw1")
+    conn.close()
+    body = client.get("/api/comparison", params={"scope": "overall"}).json()
+    assert [p["game_name"] for p in body["players"]] == ["Rival"]
+    # a player with no crawled games still gets a zeroed row, not a missing one
+    assert body["players"][0]["scoped"]["games"] == 0
+    assert body["you"]["scoped"]["games"] == 3

@@ -51,13 +51,18 @@ class DesktopApi:
     def __init__(self, base_url):
         self.base_url = base_url
 
-    def open_compare(self, my_champion, opp_champion):
+    def open_compare(self, my_champion, opp_champion, scope="matchup"):
         import webview  # available here — main() only reaches this via pywebview
-        query = urllib.parse.urlencode({"my": my_champion or "", "opp": opp_champion or ""})
+        query = urllib.parse.urlencode({"my": my_champion or "", "opp": opp_champion or "",
+                                        "scope": scope or "matchup"})
+        label = {"matchup": f"{my_champion} vs {opp_champion}",
+                 "champion": my_champion, "overall": "Overall"}.get(scope, "Comparison")
+        # wide enough for the comparison table's you + N player columns; the
+        # window was one card wide when it only ever showed a single matchup
         webview.create_window(
-            f"Compare · {my_champion} vs {opp_champion}",
+            f"Compare · {label}",
             f"{self.base_url}/compare.html?{query}",
-            width=470, height=940)  # one card wide; enlarge for up to 3 per row
+            width=1180, height=900)
         return True
 
 

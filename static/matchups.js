@@ -380,12 +380,18 @@ function matchupRow(row, cols) {
     : "";
   const cdLink = `<button class="preset icon-btn mu-cd-link" data-opp="${escapeHtml(row.opp_champion)}"
       title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>`;
+  // you vs the players you follow, in this matchup (guide.js#openComparison)
+  const cmpLink = state.enableComparison
+    ? `<button class="preset icon-btn mu-cmp-link" data-opp="${escapeHtml(row.opp_champion)}"
+        title="Compare this matchup with other players"
+        aria-label="Compare this matchup with other players">⧉</button>`
+    : "";
   const statCells = muVisibleCols().map((c) => c.cell(row)).join("");
   let html = `<tr>
     <td><button class="preset seg-toggle matchup-toggle" data-key="${escapeHtml(key)}"
       aria-expanded="${expanded}" title="Matchup details">${expanded ? "▾" : "▸"}</button></td>
     <td><span class="champ-cell">${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span></td>
-    <td>${guideLink}${cdLink}${
+    <td>${guideLink}${cdLink}${cmpLink}${
       hasBlockNotes ? `<span class="note-flag" title="Has block notes">🧱</span>` : ""}</td>
     ${statCells}
   </tr>`;
@@ -459,6 +465,11 @@ function wireMUHandlers(target) {
     }));
   target.querySelectorAll(".mu-guide-link").forEach((btn) =>
     btn.addEventListener("click", () => openGuide(btn.dataset.my, btn.dataset.opp)));
+  target.querySelectorAll(".mu-cmp-link").forEach((btn) =>
+    btn.addEventListener("click", () => openComparison({
+      // no specific "My champion" filter -> compare every champion you've
+      // played into this opponent, which is still a like-for-like matchup
+      my: muState.champion || "", opp: btn.dataset.opp, scope: "matchup" })));
   target.querySelectorAll(".mu-cd-link").forEach((btn) =>
     btn.addEventListener("click", async () =>
       // your side prefers the active "My champion" filter, then the pool's

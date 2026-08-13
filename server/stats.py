@@ -307,32 +307,42 @@ def rune_analysis(conn, puuid, champion, opp_champion=None, queues=None):
     }
 
 
-def comparison_for_matchup(conn, puuid, my_champion, opp_champion, queues=None):
-    """Stats for ONE comparison ('research') player in a specific matchup,
-    for the Matchup guide's you-vs-them panel. Reuses the same TOP-scoped
-    base as your own stats, just pointed at their puuid:
-      - matchup: their aggregate on my_champion vs opp_champion (+ metrics)
-      - overall: their aggregate on my_champion vs everyone (+ metrics)
-      - recent:  their recent games in this matchup, with the runes they ran
-    Aggregate rows come back even with zero games (games=0), so the caller can
-    render "no games recorded" without a special case."""
-    mbase, mparams = _filtered_base(puuid, champion=my_champion,
-                                    opp_champion=opp_champion, queues=queues)
-    matchup = _pack_metrics(conn.execute(
-        f"SELECT {_AGG}, {_metric_agg_select()} FROM ({mbase})", mparams).fetchone())
-    obase, oparams = _filtered_base(puuid, champion=my_champion, queues=queues,
-                                    require_opponent=False)
-    overall = _pack_metrics(conn.execute(
-        f"SELECT {_AGG}, {_metric_agg_select()} FROM ({obase})", oparams).fetchone())
+def comparison_entry(conn, puuid, my_champion=None, opp_champion=None, queues=None,
+                     limit=20):
+    """One side of a player comparison — either YOU (pass your tracked puuids)
+    or a single comparison ('research') player. Reuses the same TOP-scoped base
+    as every other stat, just pointed at whichever puuid(s) are asked for, so
+    the two sides are always measured the same way.
+
+      - scoped:  aggregate under the requested filter (+ metrics) — a matchup
+                 (both champions), one champion, or everything
+      - overall: that player's aggregate on my_champion regardless of opponent,
+                 so a matchup reads against the champion baseline. None when
+                 the scope isn't a matchup (nothing to compare it against).
+      - recent:  their recent games in scope, with the runes/loadout they ran
+
+    Aggregates come back even with zero games (games=0), so callers render
+    "no games recorded" without a special case."""
+    sbase, sparams = _filtered_base(puuid, champion=my_champion,
+                                    opp_champion=opp_champion, queues=queues,
+                                    require_opponent=bool(opp_champion))
+    scoped = _pack_metrics(conn.execute(
+        f"SELECT {_AGG}, {_metric_agg_select()} FROM ({sbase})", sparams).fetchone())
+    overall = None
+    if my_champion and opp_champion:
+        obase, oparams = _filtered_base(puuid, champion=my_champion, queues=queues,
+                                        require_opponent=False)
+        overall = _pack_metrics(conn.execute(
+            f"SELECT {_AGG}, {_metric_agg_select()} FROM ({obase})", oparams).fetchone())
     recent = [_decode_game_runes(r) for r in conn.execute(
         f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
                    my_puuid, my_champion, opp_champion, rank_tier, win,
                    kills, deaths, assists, cs, my_runes_json, opp_runes_json,
                    spell1, spell2, my_items_json, my_starting_items_json, my_build_order_json,
                    my_skill_order_json
-            FROM ({mbase}) ORDER BY game_creation_ms DESC LIMIT 20""",
-        mparams)]
-    return {"matchup": matchup, "overall": overall, "recent": recent}
+            FROM ({sbase}) ORDER BY game_creation_ms DESC LIMIT :limit""",
+        {**sparams, "limit": limit})]
+    return {"scoped": scoped, "overall": overall, "recent": recent}
 
 
 def progress_segments(conn, puuids, sessions, champion=None, queues=None,

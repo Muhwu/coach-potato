@@ -51,15 +51,39 @@
     background: rgba(128,128,128,.13);
   }
   .cmp-card img { vertical-align: middle; }
+
+  /* comparison table (default view): stats down the side, players across the
+     top, so values line up in a column and can be scanned across a row */
+  .cmp-table-wrap { margin-bottom: 20px; overflow-x: auto; }
+  .cmp-table-cap { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+  .cmp-table { border-collapse: collapse; min-width: min(100%, 520px); }
+  .cmp-table th, .cmp-table td {
+    padding: 7px 16px; text-align: right; font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--grid); white-space: nowrap;
+  }
+  .cmp-table thead th { text-align: right; font-size: 13px; padding-bottom: 9px; }
+  .cmp-table thead th .muted { font-weight: 400; font-size: 11px; }
+  .cmp-table tbody th {
+    text-align: left; font-weight: 500; color: var(--text-secondary); font-size: 12px;
+  }
+  .cmp-table td { font-size: 14px; }
+  .cmp-best { font-weight: 700; color: var(--good); }
+  .cmp-mine-col { background: var(--accent-wash); }
+  .cmp-card.cmp-mine { border-color: var(--series-1); }
+  .cmp-recent-stack { display: flex; flex-direction: column; gap: 18px; }
+  .cmp-recent-block h3 { margin: 0 0 6px; font-size: 13px; }
+  .cmp-recent-block.cmp-mine h3 { color: var(--series-1); }
 </style>
 </head>
 <body class="cmp-doc">
 <h1 class="cmp-title" id="title">Comparison</h1>
 <p class="cmp-sub muted" id="subtitle"></p>
 <div class="cmp-controls">
+  <button type="button" id="view-toggle" class="cmp-toggle" aria-pressed="false"
+    title="Switch between the roomy comparison table and the dense card layout">Compact view</button>
   <button type="button" id="loadout-toggle" class="cmp-toggle" aria-pressed="false">Show spells &amp; items</button>
 </div>
-<div class="cmp-cards" id="cards"><p class="muted">Loading…</p></div>
+<div id="cards"><p class="muted">Loading…</p></div>
 <p class="cmp-note">Runes (with shards) are what each player actually ran in recent games.
   Toggle "Show spells &amp; items" to also reveal the ability max order (Skill),
   summoner spells, and the full Build in purchase order (from the timeline; ward
@@ -67,9 +91,20 @@
 <script>
 const P = new URLSearchParams(location.search);
 const my = P.get("my") || "", opp = P.get("opp") || "";
-document.getElementById("title").textContent = `${opp} matchup — other players`;
-document.getElementById("subtitle").textContent = `Playing ${my} into ${opp}`;
-document.title = `Compare · ${my} vs ${opp}`;
+// scope decides what's being compared — see /api/comparison
+const scope = ["matchup", "champion", "overall"].includes(P.get("scope"))
+  ? P.get("scope") : "matchup";
+const SCOPE_TEXT = {
+  matchup: { title: `${my} vs ${opp}`, sub: `Your ${my} games into ${opp}, next to everyone you compare against`,
+             col: `vs ${opp}` },
+  champion: { title: `${my}`, sub: `Every ${my} game, yours next to everyone you compare against`,
+              col: `on ${my}` },
+  overall: { title: "Overall", sub: "Every tracked game — totals, not per coaching session",
+             col: "all games" },
+}[scope];
+document.getElementById("title").textContent = SCOPE_TEXT.title;
+document.getElementById("subtitle").textContent = SCOPE_TEXT.sub;
+document.title = `Compare · ${SCOPE_TEXT.title}`;
 
 // name -> icon maps, built from the same runes.json the guide uses
 const treeIcon = {}, runeIconMap = {}, shardIconMap = {};
@@ -199,7 +234,9 @@ function deltaRow(s) {
   return statRow("Lane Δ @14m", val);
 }
 let showLoadout = localStorage.getItem("cmp-loadout") === "1";
-let CMP_PLAYERS = [];
+// default is the roomier table view; compact is the original card grid
+let compactView = localStorage.getItem("cmp-compact") === "1";
+let CMP_ENTRIES = [];
 
 function headRow() {
   const cols = showLoadout
@@ -221,29 +258,109 @@ function gameRow(g) {
   }
   return `<div class="cmp-game">${cells.join("")}</div>`;
 }
-function card(p) {
-  const recent = (p.recent || []).length
+function recentBlock(p) {
+  return (p.recent || []).length
     ? `<div class="cmp-recent ${showLoadout ? "loadout" : ""}">${headRow()}`
       + `${p.recent.slice(0, 10).map(gameRow).join("")}</div>`
-    : "<p class='muted'>No recent games — use \"Fetch more\" in Settings.</p>";
-  return `<div class="cmp-card">
-    <h2>${esc(p.game_name)}<span class="muted">#${esc(p.tag_line)}</span></h2>
-    ${statRow(`This matchup vs ${esc(opp)}`, aggLine(p.matchup))}
-    ${deltaRow(p.matchup)}
-    ${statRow(`Overall on ${esc(my)}`, aggLine(p.overall))}
-    <h3>Recent games</h3>${recent}
+    : `<p class='muted'>${p.you ? "No games recorded yet."
+        : "No recent games — use \"Fetch more\" in Settings."}</p>`;
+}
+function card(p) {
+  return `<div class="cmp-card${p.you ? " cmp-mine" : ""}">
+    <h2>${esc(p.game_name)}${p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}</h2>
+    ${statRow(SCOPE_TEXT.col, aggLine(p.scoped))}
+    ${deltaRow(p.scoped)}
+    ${p.overall ? statRow(`Overall on ${esc(my)}`, aggLine(p.overall)) : ""}
+    <h3>Recent games</h3>${recentBlock(p)}
   </div>`;
 }
+
+// ---- comparison table: stats as ROWS, players as COLUMNS, so the numbers
+// line up vertically and can be read across at a glance. Best value per row
+// is marked; "best" is direction-aware (fewer deaths is better).
+const TABLE_ROWS = [
+  { label: "Games", get: (s) => s && s.games, fmt: (v) => num(v, 0), dir: 0 },
+  { label: "W–L", get: (s) => s && s.games,
+    render: (s) => (s && s.games ? `${num(s.wins, 0)}–${num(s.games - s.wins, 0)}` : "—"), dir: 0 },
+  { label: "Winrate", get: (s) => s && s.games ? s.winrate * 100 : null,
+    fmt: (v) => `${num(v, 0)}%`, dir: 1 },
+  { label: "KDA", get: (s) => s && s.games ? s.kda : null, fmt: (v) => num(v, 2), dir: 1 },
+  { label: "Kills", get: (s) => s && s.games ? s.kills : null, fmt: (v) => num(v, 1), dir: 1 },
+  { label: "Deaths", get: (s) => s && s.games ? s.deaths : null, fmt: (v) => num(v, 1), dir: -1 },
+  { label: "Assists", get: (s) => s && s.games ? s.assists : null, fmt: (v) => num(v, 1), dir: 1 },
+  { label: "CS/min", get: (s) => s && s.games ? s.cs_min : null, fmt: (v) => num(v, 1), dir: 1 },
+  { label: "Gold/min", get: (s) => s && s.games ? s.gold_min : null, fmt: (v) => num(v, 0), dir: 1 },
+  { label: "DMG/min", get: (s) => s && s.games ? s.dmg_min : null, fmt: (v) => num(v, 0), dir: 1 },
+  { label: "Avg length", get: (s) => s && s.games ? s.avg_duration_s : null,
+    render: (s) => (s && s.games ? `${Math.floor(s.avg_duration_s / 60)}:${
+      String(Math.round(s.avg_duration_s % 60)).padStart(2, "0")}` : "—"), dir: 0 },
+  { label: "ΔCS @14m", get: (s) => (s && s.metrics ? s.metrics.cs_diff_14 : null),
+    fmt: (v) => (v > 0 ? "+" : "") + num(v, 1), dir: 1 },
+  { label: "ΔGold @14m", get: (s) => (s && s.metrics ? s.metrics.gold_diff_14 : null),
+    fmt: (v) => (v > 0 ? "+" : "") + num(v, 0), dir: 1 },
+];
+
+function statTable(entries, pick, caption) {
+  const cells = TABLE_ROWS.map((row) => {
+    const values = entries.map((p) => row.get(pick(p)));
+    const numeric = values.filter((v) => typeof v === "number" && isFinite(v));
+    let best = null;
+    if (row.dir && numeric.length > 1) {
+      best = row.dir > 0 ? Math.max(...numeric) : Math.min(...numeric);
+    }
+    const tds = entries.map((p, i) => {
+      const stat = pick(p);
+      const v = values[i];
+      const text = row.render ? row.render(stat)
+        : (v == null || !isFinite(v) ? "—" : row.fmt(v));
+      const isBest = best !== null && v === best && numeric.length > 1
+        && new Set(numeric).size > 1;
+      return `<td class="${isBest ? "cmp-best" : ""}${p.you ? " cmp-mine-col" : ""}">${text}</td>`;
+    }).join("");
+    return `<tr><th>${row.label}</th>${tds}</tr>`;
+  }).join("");
+  const head = entries.map((p) =>
+    `<th class="${p.you ? "cmp-mine-col" : ""}">${esc(p.game_name)}${
+      p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}</th>`).join("");
+  return `<div class="cmp-table-wrap">
+    ${caption ? `<h3 class="cmp-table-cap">${caption}</h3>` : ""}
+    <table class="cmp-table"><thead><tr><th></th>${head}</tr></thead>
+    <tbody>${cells}</tbody></table></div>`;
+}
+
+function renderTableView(entries) {
+  const baseline = entries.some((p) => p.overall)
+    ? statTable(entries, (p) => p.overall, `Overall on ${esc(my)} — the baseline this matchup sits against`)
+    : "";
+  const games = entries.map((p) => `<div class="cmp-recent-block${p.you ? " cmp-mine" : ""}">
+      <h3>${esc(p.game_name)}${p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}
+        <span class="muted">— recent games</span></h3>
+      ${recentBlock(p)}
+    </div>`).join("");
+  return statTable(entries, (p) => p.scoped, SCOPE_TEXT.col) + baseline
+    + `<div class="cmp-recent-stack">${games}</div>`;
+}
+
 function renderCards() {
-  document.getElementById("cards").innerHTML = CMP_PLAYERS.length
-    ? CMP_PLAYERS.map(card).join("")
-    : "<p class='muted'>No enabled comparison players — add them in "
-      + "Settings → Research &amp; comparison.</p>";
+  const entries = CMP_ENTRIES;
+  const target = document.getElementById("cards");
+  target.classList.toggle("cmp-cards", compactView);
+  if (!entries.length) {
+    target.innerHTML = "<p class='muted'>No data to compare.</p>";
+    return;
+  }
+  target.innerHTML = (compactView ? entries.map(card).join("") : renderTableView(entries))
+    + (entries.length === 1
+      ? "<p class='muted'>Only your own games here — add players in "
+        + "Settings → Research &amp; comparison to compare against them.</p>" : "");
 }
 function syncToggle() {
   const btn = document.getElementById("loadout-toggle");
   btn.setAttribute("aria-pressed", showLoadout ? "true" : "false");
   btn.textContent = showLoadout ? "Hide spells & items" : "Show spells & items";
+  const view = document.getElementById("view-toggle");
+  view.setAttribute("aria-pressed", compactView ? "true" : "false");
+  view.textContent = "Compact view";
 }
 
 (async function () {
@@ -253,17 +370,26 @@ function syncToggle() {
     syncToggle();
     renderCards();
   });
+  document.getElementById("view-toggle").addEventListener("click", () => {
+    compactView = !compactView;
+    localStorage.setItem("cmp-compact", compactView ? "1" : "0");
+    syncToggle();
+    renderCards();
+  });
   syncToggle();
   await Promise.all([loadRunes(), loadDdragon()]);
   let data;
   try {
-    data = await (await fetch(`api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
-      + `&opp_champion=${encodeURIComponent(opp)}`)).json();
+    const query = new URLSearchParams({ scope, my_champion: my, opp_champion: opp });
+    data = await (await fetch(`api/comparison?${query}`)).json();
   } catch (e) {
     document.getElementById("cards").innerHTML = "<p class='muted'>Failed to load comparison.</p>";
     return;
   }
-  CMP_PLAYERS = data.players || [];
+  // you first, so every row reads "mine, then theirs"
+  const you = data.you || {};
+  CMP_ENTRIES = [{ ...you, game_name: "You", tag_line: "", you: true },
+                 ...(data.players || [])];
   renderCards();
 })();
 </script>

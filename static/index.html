@@ -72,7 +72,13 @@
   </section>
 
   <section class="panel">
-    <h2>Progress between coaching sessions</h2>
+    <div class="section-head">
+      <h2>Progress between coaching sessions</h2>
+      <div class="head-actions">
+        <button id="progress-compare" class="preset hidden" type="button"
+          title="Compare your totals with other players">⧉ Compare players</button>
+      </div>
+    </div>
     <div id="progress-table"></div>
   </section>
 
@@ -681,6 +687,9 @@
     <button id="champion-table-toggle" class="preset seg-toggle" aria-expanded="false"
       title="Expand/collapse My champions">▸</button>
     <h2>My champions</h2>
+    <div class="head-actions">
+      <span id="champion-cols"></span>
+    </div>
   </div>
   <div id="champion-table" class="hidden"></div>
 </section>

@@ -1701,25 +1701,44 @@ def api_delete_comparison_player(puuid: str):
     return {"ok": True}
 
 
-@app.get("/api/matchups/comparison")
-def api_matchup_comparison(my_champion: str, opp_champion: str):
-    """Per enabled comparison player: their stats in this matchup, overall on
-    my_champion, and recent games with runes — for the guide's you-vs-them
-    panel. Returns [] players when comparison is off or none are enabled."""
-    _validate_champion(my_champion)
-    _validate_champion(opp_champion)
+COMPARISON_SCOPES = ("matchup", "champion", "overall")
+
+
+@app.get("/api/comparison")
+def api_comparison(scope: str = "matchup", my_champion: str = "", opp_champion: str = ""):
+    """You vs the enabled comparison players, measured the same way on both
+    sides. `scope` picks what's being compared:
+      - matchup:  my_champion vs opp_champion (the Playbook / Matchups rows)
+      - champion: my_champion against everyone (the My champions rows)
+      - overall:  every tracked game, no champion filter (Coaching progress —
+                  deliberately TOTALS, not the per-session segments)
+    `you` aggregates ALL tracked accounts, matching how coaching progress
+    treats you as a player rather than an account. Returns you + [] players
+    when comparison is off, so callers still render your own column."""
+    if scope not in COMPARISON_SCOPES:
+        raise HTTPException(400, f"scope must be one of {', '.join(COMPARISON_SCOPES)}")
+    if scope != "overall" and my_champion:
+        _validate_champion(my_champion)
+    if scope == "matchup" and opp_champion:
+        _validate_champion(opp_champion)
+    champion = my_champion or None if scope != "overall" else None
+    opponent = opp_champion or None if scope == "matchup" else None
     conn = get_conn()
     try:
-        if db.get_settings(conn).get("enable_player_comparison") != "1":
-            return {"players": []}
+        tracked = [r["puuid"] for r in
+                   conn.execute("SELECT puuid FROM players WHERE is_tracked=1")]
+        you = (stats.comparison_entry(conn, tracked, champion, opponent) if tracked
+               else {"scoped": None, "overall": None, "recent": []})
         out = []
-        for p in db.list_comparison_players(conn):
-            if not p["enabled"]:
-                continue
-            data = stats.comparison_for_matchup(conn, p["puuid"], my_champion, opp_champion)
-            out.append({"puuid": p["puuid"], "game_name": p["game_name"],
-                        "tag_line": p["tag_line"], **data})
-        return {"players": out}
+        if db.get_settings(conn).get("enable_player_comparison") == "1":
+            for p in db.list_comparison_players(conn):
+                if not p["enabled"]:
+                    continue
+                data = stats.comparison_entry(conn, p["puuid"], champion, opponent)
+                out.append({"puuid": p["puuid"], "game_name": p["game_name"],
+                            "tag_line": p["tag_line"], **data})
+        return {"scope": scope, "my_champion": champion or "",
+                "opp_champion": opponent or "", "you": you, "players": out}
     finally:
         conn.close()
 

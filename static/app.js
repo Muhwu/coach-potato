@@ -477,15 +477,36 @@ function renderRankChart() {
   });
 }
 
-const CHAMP_SORT_COLS = [
-  { key: "champion", label: "Champion", type: "text", get: (r) => displayName(r.champion) },
-  { key: "games", label: "Games", type: "num" },
-  { key: "wins", label: "W–L", type: "num", get: (r) => r.wins },
-  { key: "winrate", label: "Winrate", type: "num", cls: "wr-col" },
-  { key: "kda", label: "KDA", type: "num" },
-  { key: "cs_min", label: "CS/min", type: "num" },
+// Every column the summary already returns per champion — the table used to
+// hard-code six of them; the rest are opt-in through the picker.
+const CHAMP_ALL_COLS = [
+  { key: "champion", label: "Champion", type: "text", get: (r) => displayName(r.champion),
+    cell: (r) => `<td><span class="champ-cell">${champIcon(r.champion)}${
+      displayName(r.champion)}</span></td>` },
+  { key: "games", label: "Games", type: "num", cell: (r) => `<td>${r.games}</td>` },
+  { key: "wins", label: "W–L", type: "num", get: (r) => r.wins,
+    cell: (r) => `<td>${r.wins}–${r.games - r.wins}</td>` },
+  { key: "winrate", label: "Winrate", type: "num", cls: "wr-col",
+    cell: (r) => `<td class="wr-col">${wrCell(r.winrate)}</td>` },
+  { key: "kda", label: "KDA", type: "num", cell: (r) => `<td>${fmt(r.kda, 2)}</td>` },
+  { key: "kills", label: "Kills", type: "num", cell: (r) => `<td>${fmt(r.kills, 1)}</td>` },
+  { key: "deaths", label: "Deaths", type: "num", cell: (r) => `<td>${fmt(r.deaths, 1)}</td>` },
+  { key: "assists", label: "Assists", type: "num", cell: (r) => `<td>${fmt(r.assists, 1)}</td>` },
+  { key: "cs_min", label: "CS/min", type: "num", cell: (r) => `<td>${fmt(r.cs_min)}</td>` },
+  { key: "gold_min", label: "Gold/min", type: "num", cell: (r) => `<td>${fmt(r.gold_min, 0)}</td>` },
+  { key: "dmg_min", label: "DMG/min", type: "num", cell: (r) => `<td>${fmt(r.dmg_min, 0)}</td>` },
+  { key: "avg_duration_s", label: "Avg length", type: "num",
+    cell: (r) => `<td>${fmtDuration(r.avg_duration_s)}</td>` },
 ];
+const CHAMP_DEFAULT_COLS = ["champion", "games", "wins", "winrate", "kda", "cs_min"];
+const champCols = colPrefs("cp-cols-champions", CHAMP_ALL_COLS.map((c) => c.key),
+                           CHAMP_DEFAULT_COLS);
 const champSort = { key: "games", dir: -1 };
+
+function champVisibleCols() {
+  // champion always leads — a row with no name can't be read
+  return CHAMP_ALL_COLS.filter((c) => c.key === "champion" || champCols.has(c.key));
+}
 
 function renderChampionTable(byChampion) {
   const target = $("#champion-table");
@@ -494,18 +515,21 @@ function renderChampionTable(byChampion) {
     return;
   }
   state.byChampion = byChampion;
-  const body = sortRows(byChampion, champSort, CHAMP_SORT_COLS).map((row) => `<tr>
-      <td><span class="champ-cell">${champIcon(row.champion)}${displayName(row.champion)}</span></td>
-      <td>${row.games}</td>
-      <td>${row.wins}–${row.games - row.wins}</td>
-      <td class="wr-col">${wrCell(row.winrate)}</td>
-      <td>${fmt(row.kda, 2)}</td>
-      <td>${fmt(row.cs_min)}</td>
-    </tr>`).join("");
+  const cols = champVisibleCols();
+  // comparing a champion needs a champion, so the button lives per row
+  const compare = state.enableComparison;
+  const body = sortRows(byChampion, champSort, CHAMP_ALL_COLS).map((row) =>
+    `<tr>${cols.map((c) => c.cell(row)).join("")}${compare
+      ? `<td><button class="preset icon-btn champ-cmp-link" data-champ="${escapeHtml(row.champion)}"
+           title="Compare this champion with other players"
+           aria-label="Compare this champion with other players">⧉</button></td>` : ""}</tr>`).join("");
   target.innerHTML = `<div class="table-wrap"><table>
-    ${sortableThead(CHAMP_SORT_COLS, champSort)}
+    ${sortableThead(cols, champSort, "", compare ? "<th></th>" : "")}
     <tbody>${body}</tbody></table></div>`;
-  wireSortable(target, champSort, CHAMP_SORT_COLS, () => renderChampionTable(state.byChampion));
+  wireSortable(target, champSort, CHAMP_ALL_COLS, () => renderChampionTable(state.byChampion));
+  target.querySelectorAll(".champ-cmp-link").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      openComparison({ my: btn.dataset.champ, scope: "champion" })));
 }
 
 const recentUi = { runesOpen: new Set(), sort: { key: "date", dir: -1 } };
@@ -1362,6 +1386,12 @@ function applyAppearance(data) {
   }
 }
 
+// comparison is opt-in: the buttons that open it only exist when it's on
+function applyComparisonEnabled() {
+  const btn = $("#progress-compare");
+  if (btn) btn.classList.toggle("hidden", !state.enableComparison);
+}
+
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
   if (viewHidden(state.mainView)) {
@@ -1549,6 +1579,7 @@ async function initSettings() {
   $("#setting-enable-comparison").checked = Boolean(data.enable_player_comparison);
   $("#comparison-card").classList.toggle("hidden", !data.enable_player_comparison);
   state.enableComparison = Boolean(data.enable_player_comparison);
+  applyComparisonEnabled();
   loadComparisonPlayers();
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // legacy migrate select needs display names
@@ -1747,6 +1778,7 @@ async function initSettings() {
       if (runesModeChanged && typeof loadGuide === "function"
           && state.mainView === "guide") loadGuide();
       state.enableComparison = Boolean(body.enable_player_comparison);
+      applyComparisonEnabled();
       $("#comparison-card").classList.toggle("hidden", !body.enable_player_comparison);
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
@@ -2008,6 +2040,17 @@ function wireFilters() {
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
   // one picker for the whole progress table: base columns (default on) + metric
   // averages incl. lane deltas (default off). Expanded panels show all metrics.
+  // My champions: its own column picker (all the summary's per-champion stats)
+  renderColPicker($("#champion-cols"), "cp-cols-champions",
+    CHAMP_ALL_COLS.filter((c) => c.key !== "champion")
+      .map((c) => ({ key: c.key, label: c.label })),
+    champCols, () => renderChampionTable(state.byChampion || []),
+    CHAMP_DEFAULT_COLS.filter((k) => k !== "champion"));
+  // Coaching progress compares TOTALS (not the per-session segments), honouring
+  // whichever champion filter the view is on
+  $("#progress-compare").addEventListener("click", () => openComparison({
+    my: state.progressChampion || "",
+    scope: state.progressChampion ? "champion" : "overall" }));
   renderColPicker($("#progress-cols"), "cp-cols-progress",
     progressAllCols().map((c) => ({ key: c.key, label: c.label })),
     progressVisibleKeys(), () => renderProgress(segmentUi.segments),
@@ -2059,6 +2102,7 @@ async function init(firstLoad = true) {
     state.dateFormat = settings.date_format || "iso";
     state.runesMode = settings.runes_mode || "matchup";
     state.enableComparison = Boolean(settings.enable_player_comparison);
+    applyComparisonEnabled();
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

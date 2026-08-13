@@ -316,6 +316,20 @@ change, not a crawler change.
   notes] / Games tabs; a 📖 link per row — shown only when a specific "My
   champion" filter is active, since guides are scoped per champion pair —
   deep-links to that matchup's Matchup guide) in `matchups.js`;
+  Player comparison ("you vs them") is scoped, NOT matchup-only:
+  `GET /api/comparison?scope=matchup|champion|overall` returns `you` (all
+  tracked puuids aggregated, so it matches how coaching progress treats you)
+  plus one entry per enabled comparison player, every side built by the same
+  `stats.comparison_entry` so the two are measured identically. Each entry is
+  `{scoped, overall, recent}` — `overall` is the champion baseline and is None
+  unless the scope is a matchup. `openComparison({my, opp, scope})` in guide.js
+  is the single entry point (Playbook rows, Matchups rows, My champions rows,
+  the Coaching-progress button); it prefers a real second native window via
+  `DesktopApi.open_compare` (pywebview), then `window.open`, then an in-app
+  overlay. `compare.html` renders you first and has two layouts — a stat
+  matrix (default; rows = stats, columns = players, best-in-row marked
+  direction-aware) and the original card grid behind "Compact view"
+  (`cmp-compact` in localStorage).
   Live Lookup (📡 on the Matchup guide) calls `GET /api/live-game`
   (`riot_client.get_active_game` → spectator-v5 by-puuid on the platform
   host, per tracked account; 404 = not in a game) which returns the numeric

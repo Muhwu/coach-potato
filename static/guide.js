@@ -932,7 +932,8 @@ function wireGuideHandlers(target) {
       renderGuide();
     }));
   target.querySelectorAll(".guide-compare-link").forEach((btn) =>
-    btn.addEventListener("click", () => openComparisonWindow(btn.dataset.opp)));
+    btn.addEventListener("click", () => openComparison(
+      { my: guideState.myChampion, opp: btn.dataset.opp, scope: "matchup" })));
   target.querySelectorAll(".guide-build-clear").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const opp = btn.dataset.opp;
@@ -1099,17 +1100,24 @@ function comparisonBodyHtml(my, opp, data) {
         ${itemStrip(g)}</div>`).join("")
     : `<p class="muted">No recent games recorded — add or "Fetch more" in Settings.</p>`);
 
-  const cards = (data.players || []).map((p) => `<div class="cmp-card"><h2>${escapeHtml(p.game_name)}
-    <span class="muted">#${escapeHtml(p.tag_line)}</span></h2>
-    ${statLine(`This matchup vs ${displayName(opp)}`, p.matchup)}
-    ${deltaLine(p.matchup)}
-    ${statLine(`Overall on ${displayName(my)}`, p.overall)}
-    <h3>Recent runes played</h3>${recentRunes(p.recent)}</div>`).join("")
-    || `<div class="cmp-card"><p class="muted">No enabled comparison players — add them in
-        Settings → Research &amp; comparison.</p></div>`;
+  // you first, so the fallback overlay reads the same way as the pop-out
+  const entries = [{ ...(data.you || {}), game_name: "You", tag_line: "", you: true },
+                   ...(data.players || [])];
+  const scopeLabel = opp ? `vs ${displayName(opp)}` : (my ? `on ${displayName(my)}` : "All games");
+  const cards = entries.map((p) => `<div class="cmp-card${p.you ? " cmp-mine" : ""}">
+    <h2>${escapeHtml(p.game_name)}${p.tag_line
+      ? `<span class="muted">#${escapeHtml(p.tag_line)}</span>` : ""}</h2>
+    ${statLine(scopeLabel, p.scoped || {})}
+    ${deltaLine(p.scoped || {})}
+    ${p.overall ? statLine(`Overall on ${displayName(my)}`, p.overall) : ""}
+    <h3>Recent runes played</h3>${recentRunes(p.recent)}</div>`).join("");
+  const heading = opp ? `${displayName(my)} vs ${displayName(opp)}`
+    : (my ? displayName(my) : "Overall");
 
-  return `<h1 class="cmp-title">${displayName(opp)} matchup — other players</h1>
-    <div class="cmp-cards">${cards}</div>`;
+  return `<h1 class="cmp-title">${heading} — you vs others</h1>
+    <div class="cmp-cards">${cards}</div>${entries.length === 1
+      ? `<p class="muted">Add players in Settings → Research &amp; comparison to
+         compare against them.</p>` : ""}`;
 }
 
 function showComparisonOverlay(inner) {
@@ -1131,24 +1139,29 @@ function showComparisonOverlay(inner) {
   document.addEventListener("keydown", onKey);
 }
 
-async function openComparisonWindow(opp) {
-  const my = guideState.myChampion;
-  const url = `compare.html?my=${encodeURIComponent(my)}&opp=${encodeURIComponent(opp)}`;
+// Shared by every view that offers a comparison (Playbook rows, Matchups
+// rows, My champions, Coaching progress). `scope` decides what's compared:
+// matchup (both champions), champion (one), overall (everything).
+async function openComparison({ my = "", opp = "", scope = "matchup" } = {}) {
+  const query = new URLSearchParams({ my, opp, scope });
+  const url = `compare.html?${query}`;
   const pw = (typeof window.pywebview !== "undefined") ? window.pywebview : null;
   // Desktop app: ask Python (pywebview) to open a real, independent second
   // native window — the main window stays fully interactive so you can keep
   // typing notes while it's open. (window.open here would trip the WebView2
   // "open in the Store?" prompt, so we never call it in the desktop app.)
   if (pw && pw.api && typeof pw.api.open_compare === "function") {
-    try { await pw.api.open_compare(my, opp); return; }
+    try { await pw.api.open_compare(my, opp, scope); return; }
     catch (e) { /* fall through to the overlay */ }
   }
   // Browser: a normal, independent pop-out window pointed at the standalone page.
   if (!pw) {
     let win = null;
     try {
-      win = window.open(url, `cp-compare-${my}-${opp}`,
-        "width=470,height=940,scrollbars=yes,resizable=yes"); // one card wide; widen for up to 3
+      win = window.open(url, `cp-compare-${scope}-${my}-${opp}`,
+        // wide enough for the comparison table (you + several players) without
+        // the columns wrapping; the compact card grid uses the room too
+        "width=1180,height=940,scrollbars=yes,resizable=yes");
     } catch (e) { win = null; }
     if (win) return;
   }
@@ -1159,8 +1172,8 @@ async function openComparisonWindow(opp) {
     // spell/item icons for the per-game strips need the DDragon version
     await loadDdragonVersion();
     await loadSummonerSpells();
-    data = await getJSON(`/api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
-      + `&opp_champion=${encodeURIComponent(opp)}`);
+    data = await getJSON(`/api/comparison?${new URLSearchParams(
+      { scope, my_champion: my, opp_champion: opp })}`);
   } catch (e) { alert("Failed to load the comparison."); return; }
   showComparisonOverlay(comparisonBodyHtml(my, opp, data));
 }

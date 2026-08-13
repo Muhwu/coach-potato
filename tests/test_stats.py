@@ -247,24 +247,46 @@ def test_rune_analysis_winrate_by_keystone_and_secondary(conn):
     assert stats.rune_analysis(conn, ME, "Gwen", opp_champion="Sett")["keystones"] == []
 
 
-def test_comparison_for_matchup_scopes_to_player(conn):
+def test_comparison_entry_scopes_to_player(conn):
     # a comparison player's own games on Gwen vs Darius, isolated from ME
     other = "cmp-puuid-1"
     add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other)
     add_match(conn, my_champ="Gwen", opp_champ="Sett", win=False, puuid=other)
-    data = stats.comparison_for_matchup(conn, other, "Gwen", "Darius")
-    assert data["matchup"]["games"] == 1          # only vs Darius
-    assert data["overall"]["games"] == 2          # all Gwen games
+    data = stats.comparison_entry(conn, other, "Gwen", "Darius")
+    assert data["scoped"]["games"] == 1           # only vs Darius
+    assert data["overall"]["games"] == 2          # all Gwen games — the baseline
     assert len(data["recent"]) == 1
     # ME has no such games, so ME's comparison view is empty
-    assert stats.comparison_for_matchup(conn, ME, "Gwen", "Darius")["matchup"]["games"] == 0
+    assert stats.comparison_entry(conn, ME, "Gwen", "Darius")["scoped"]["games"] == 0
+
+
+def test_comparison_entry_scopes_champion_and_overall(conn):
+    other = "cmp-puuid-4"
+    add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other)
+    add_match(conn, my_champ="Gwen", opp_champ="Sett", win=False, puuid=other)
+    add_match(conn, my_champ="Sett", opp_champ="Teemo", win=True, puuid=other)
+    # champion scope: every game on that champion, no baseline to compare to
+    champ = stats.comparison_entry(conn, other, "Gwen")
+    assert champ["scoped"]["games"] == 2
+    assert champ["overall"] is None
+    # overall scope: every game regardless of champion
+    assert stats.comparison_entry(conn, other)["scoped"]["games"] == 3
+
+
+def test_comparison_entry_aggregates_several_puuids_as_one_player(conn):
+    # "you" is all your tracked accounts, the way coaching progress treats you
+    add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid="acct-a")
+    add_match(conn, my_champ="Gwen", opp_champ="Darius", win=False, puuid="acct-b")
+    both = stats.comparison_entry(conn, ["acct-a", "acct-b"], "Gwen", "Darius")
+    assert both["scoped"]["games"] == 2
+    assert both["scoped"]["wins"] == 1
 
 
 def test_comparison_recent_includes_spells_and_items(conn):
     other = "cmp-puuid-2"
     add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other,
               spell1=4, spell2=14, items=[3153, 3078, 3111, 3006, 0, 0, 3364])
-    game = stats.comparison_for_matchup(conn, other, "Gwen", "Darius")["recent"][0]
+    game = stats.comparison_entry(conn, other, "Gwen", "Darius")["recent"][0]
     assert game["spell1"] == 4 and game["spell2"] == 14
     assert game["items"] == [3153, 3078, 3111, 3006, 0, 0, 3364]  # full inventory, 0 = empty
 
@@ -273,7 +295,7 @@ def test_comparison_recent_loadout_none_when_untracked(conn):
     # a game stored without loadout data (older row) reports None, not a crash
     other = "cmp-puuid-3"
     add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other)
-    game = stats.comparison_for_matchup(conn, other, "Gwen", "Darius")["recent"][0]
+    game = stats.comparison_entry(conn, other, "Gwen", "Darius")["recent"][0]
     assert game["spell1"] is None and game["items"] is None
 
 
