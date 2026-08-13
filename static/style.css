@@ -797,7 +797,15 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border-bottom: 1px solid var(--grid);
   padding-bottom: 5px;
 }
-#settings-card .settings-group-head:first-child { margin-top: 0; }
+/* only the very first heading in the card loses its top margin — scoped to a
+   DIRECT child, or the headings inside .settings-group wrappers also match and
+   collide with the section above them */
+#settings-card > .settings-group-head:first-child { margin-top: 0; }
+/* a heading below a group head (e.g. "Older matchup notes" inside Backup) */
+.settings-subhead {
+  font-size: 12px; font-weight: 650; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 4px;
+}
 .settings-savebar {
   position: sticky;
   bottom: 0;
@@ -1780,3 +1788,26 @@ footer {
 .recording-mark-list .recording-seek-against .recording-seek-label { opacity: 0.65; }
 @media (max-width: 900px) { .recording-main { grid-template-columns: 1fr; } }
 #recordings-status:not(:empty) { font-size: 12px; margin-right: 4px; }
+
+/* Ascent scan result: a popover off the 🎬 button. The summary runs to several
+   clauses ("12 linked of 40 · 8 not crawled yet · 250 events from 12 games"),
+   which as inline header text wrapped the whole bar onto a second line. */
+.recordings-box { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+.recordings-badge {
+  width: 18px; height: 18px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface-1);
+  color: var(--text-secondary); font: inherit; font-size: 11px; line-height: 1;
+  cursor: pointer;
+}
+.recordings-badge:hover { border-color: var(--series-1); color: var(--text-primary); }
+.recordings-badge.status-error { color: var(--critical); border-color: var(--critical); }
+.recordings-pop {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+  width: max-content; max-width: 320px;
+  background: var(--surface-1-solid); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 12px; color: var(--text-secondary); text-align: left;
+  white-space: normal;
+}
+.recordings-pop.status-error { color: var(--critical); }

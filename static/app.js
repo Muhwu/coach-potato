@@ -1325,16 +1325,40 @@ async function syncRecordings() {
   }
 }
 
+// The Ascent scan summary is several clauses long, so it lives in a popover
+// hung off the 🎬 button instead of as inline header text (which wrapped the
+// header onto a second line). The badge is the affordance: ⏳ while scanning,
+// ✓/! when there's a result to read.
+function setRecordingStatus(text, { busy = false, error = false } = {}) {
+  const badge = $("#recordings-badge");
+  const pop = $("#recordings-pop");
+  pop.textContent = text || "";
+  pop.classList.toggle("status-error", error);
+  badge.classList.toggle("hidden", !text);
+  badge.classList.toggle("status-error", error);
+  badge.textContent = busy ? "⏳" : (error ? "!" : "✓");
+  badge.title = text ? `${text} — click for details` : "";
+  if (busy) {  // don't pop open on its own; the badge invites the click
+    pop.classList.add("hidden");
+    badge.setAttribute("aria-expanded", "false");
+  }
+}
+
+function toggleRecordingPop(force) {
+  const pop = $("#recordings-pop");
+  const open = force === undefined ? pop.classList.contains("hidden") : force;
+  pop.classList.toggle("hidden", !open);
+  $("#recordings-badge").setAttribute("aria-expanded", String(open));
+}
+
 // the header 🎬 button — same scan, reachable without going into Settings
 async function rescanRecordings() {
   const btn = $("#recordings-btn");
   // its own status span: #crawl-status is owned by the crawl poller, which
   // would wipe this the moment it next ticked
-  const status = $("#recordings-status");
   if (btn.disabled) return;
   btn.disabled = true;
-  status.classList.remove("status-error");
-  status.textContent = "Scanning Ascent…";
+  setRecordingStatus("Scanning Ascent…", { busy: true });
   try {
     const response = await fetch("/api/recordings/sync", { method: "POST" });
     const body = await response.json();
@@ -1343,10 +1367,9 @@ async function rescanRecordings() {
     // re-render whichever view is showing recordings so they appear at once
     if (state.mainView === "blocks") initBlocks();
     else if (state.mainView === "overview") await refresh();
-    status.textContent = recordingSyncSummary(body);   // after the re-render
+    setRecordingStatus(recordingSyncSummary(body));   // after the re-render
   } catch (err) {
-    status.classList.add("status-error");
-    status.textContent = `Ascent scan failed — ${err.message || err}`;
+    setRecordingStatus(`Ascent scan failed — ${err.message || err}`, { error: true });
   } finally {
     btn.disabled = false;
   }
@@ -1397,23 +1420,26 @@ function recordingCard(r) {
   }
   const marks = recordingSeekRow(r);
   const uploading = recordingUi.upload.uuid === r.uuid;
-  // Manual is the primary action: it needs no OAuth client, has no quota and
-  // isn't subject to YouTube's private-lock on unaudited projects. The API
-  // button is the one-click version for once that setup is done.
-  const manual = `<button type="button" class="preset btn-primary recording-manual"
+  // Only offer "Upload to YouTube" when it can actually happen — i.e. the
+  // optional Google libraries are installed AND an OAuth client is configured
+  // (youtube_ready covers both). Otherwise the card shows the plain
+  // reveal-the-file action plus an ℹ explaining how to turn upload on, rather
+  // than a YouTube button that would dead-end.
+  const reveal = `<button type="button" class="preset recording-manual"
     data-uuid="${escapeHtml(r.uuid)}"
-    title="Opens the file in Explorer and YouTube's upload page — no setup needed">
-    📁 Upload to YouTube</button>`;
-  const apiBtn = state.youtubeReady
-    ? `<button type="button" class="preset recording-upload" data-uuid="${escapeHtml(r.uuid)}"
-         ${uploading ? "disabled" : ""}
+    title="Open the folder containing this recording">📁 Show file</button>`;
+  const uploadBtn = state.youtubeReady
+    ? `<button type="button" class="preset btn-primary recording-upload"
+         data-uuid="${escapeHtml(r.uuid)}" ${uploading ? "disabled" : ""}
          title="One-click upload using your configured Google OAuth client"
-         >${uploading ? "Uploading…" : "⬆ One-click"}</button>`
-    : "";
+         >${uploading ? "Uploading…" : "⬆ Upload to YouTube"}</button>`
+    : `<button type="button" class="preset icon-btn recording-yt-info"
+         aria-label="Why is there no YouTube upload button?"
+         title="YouTube upload isn't set up. Install the optional Google libraries (requirements-youtube.txt) and add your OAuth client secrets in Settings → Recordings &amp; YouTube. Click to open Settings.">ℹ</button>`;
   const yt = r.youtube_video_id
     ? `<a class="preset recording-yt-link" href="${escapeHtml(r.youtube_url)}"
          target="_blank" rel="noopener noreferrer">▶ On YouTube</a>`
-    : `${manual}${apiBtn}`;
+    : `${uploadBtn}${reveal}`;
   const progress = uploading
     ? `<div class="recording-progress"><div class="recording-progress-fill"
          style="width:${Math.round(recordingUi.upload.progress * 100)}%"></div></div>`
@@ -1810,6 +1836,9 @@ function wireRecordingSection(container, reload) {
      with the file selected, and opens YouTube's upload page. Pasting the path
      into YouTube's file picker is usually quicker than dragging between
      windows, so the path is offered either way. */
+  // the ℹ shown in place of the upload button when YouTube isn't set up
+  container.querySelectorAll(".recording-yt-info").forEach((btn) =>
+    btn.addEventListener("click", () => setMainView("settings")));
   container.querySelectorAll(".recording-manual").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const status = btn.closest(".recording-card").querySelector(".recording-manual-status");
@@ -3087,6 +3116,14 @@ function wireFilters() {
     PROGRESS_COLS.map((c) => c.key));
   $("#crawl-btn").addEventListener("click", startCrawl);
   $("#recordings-btn").addEventListener("click", rescanRecordings);
+  $("#recordings-badge").addEventListener("click", () => toggleRecordingPop());
+  // click-away / Esc close, like the other transient popovers
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".recordings-box")) toggleRecordingPop(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") toggleRecordingPop(false);
+  });
   $("#champion-table-toggle").addEventListener("click", () => {
     const btn = $("#champion-table-toggle");
     const table = $("#champion-table");

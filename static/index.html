@@ -36,10 +36,16 @@
       <button id="rate-warn" class="rate-warn hidden" aria-label="Why is this slow?">!</button>
     </span>
     <button id="crawl-btn" title="Update data now" aria-label="Update data now">⟳</button>
-    <span id="recordings-status" class="muted"></span>
-    <button id="recordings-btn" class="preset icon-btn"
-      title="Re-scan Ascent for recordings and game events"
-      aria-label="Re-scan Ascent for recordings and game events">🎬</button>
+    <!-- the scan result is a popover, not inline text: the summary is several
+         clauses long and used to wrap the header onto a second line -->
+    <span class="recordings-box">
+      <button id="recordings-btn" class="preset icon-btn"
+        title="Re-scan Ascent for recordings and game events"
+        aria-label="Re-scan Ascent for recordings and game events">🎬</button>
+      <button id="recordings-badge" class="recordings-badge hidden" type="button"
+        aria-expanded="false" title="Last Ascent scan — click for details"></button>
+      <div id="recordings-pop" class="recordings-pop hidden" role="status"></div>
+    </span>
     <button id="nav-changelog" class="preset icon-btn" title="What's new" aria-label="What's new">📋</button>
     <button id="nav-settings" class="preset icon-btn" title="Settings" aria-label="Settings">⚙</button>
   </div>
@@ -287,33 +293,6 @@
       <p class="muted">Uploads and applies immediately (up to 15 MB).</p>
     </div>
 
-    <div id="legacy-notes-section" class="hidden">
-      <h3 class="settings-group-head">Older matchup notes</h3>
-      <div class="settings-field">
-        <p class="muted" id="legacy-notes-summary"></p>
-        <div class="legacy-notes-row">
-          <select id="legacy-migrate-champion" style="max-width:16em"></select>
-          <button id="legacy-migrate-btn" class="preset" type="button">Migrate</button>
-          <button id="legacy-delete-btn" class="preset" type="button">Delete</button>
-        </div>
-        <span id="legacy-notes-status" class="muted"></span>
-      </div>
-    </div>
-
-    <h3 class="settings-group-head">Backup</h3>
-    <div class="settings-field">
-      <a class="preset" href="/api/export-all" download>Export everything (.zip)</a>
-      <p class="muted">Every coaching session, block learning, matchup guide, champion
-        note, item build, and Research entry you've written — plus every uploaded
-        clip and screenshot — as one .zip file. Doesn't include your API key/accounts
-        or crawled match history (Riot's API can always re-supply that).</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="import-all-file">Import from a backup</label>
-      <div class="import-all-row">
-        <input type="file" id="import-all-file" accept=".zip,application/zip">
-        <button id="import-all-btn" class="preset" type="button">Import</button>
-
     <div class="settings-group">
       <h3 class="settings-group-head">Recordings &amp; YouTube</h3>
       <div class="settings-field">
@@ -391,10 +370,6 @@
           <span id="legacy-notes-status" class="muted"></span>
         </div>
       </div>
-      <span id="import-all-status" class="muted"></span>
-      <p class="muted">Restore an "Export everything" .zip — only meant for a fresh/empty
-        setup (new machine, reinstall). Refuses (nothing is written) if anything in the
-        backup would collide with data already here.</p>
     </div>
 
     <div class="settings-savebar">
