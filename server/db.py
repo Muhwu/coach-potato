@@ -569,14 +569,13 @@ def delete_account_data(conn, puuid):
         conn.execute("DELETE FROM players WHERE puuid=?", (puuid,))
 
 
-# ---------- comparison ("research") players: up to N others to compare
+# ---------- comparison ("research") players: any number of others to compare
 # yourself against in the Matchup guide. Stored in their own table (separate
 # from tracked `players`) so each can be enabled/disabled independently, on or
 # off as you see fit, without touching your own tracked stats. Their match
 # data still lands in matches/participants like anyone else; this table just
 # records who they are and whether each is currently active. ----------
 
-MAX_COMPARISON_PLAYERS = 6  # 3 + 3 in the comparison window's 3-per-row grid
 COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
 
 
@@ -594,13 +593,10 @@ def comparison_puuids(conn, enabled_only=False):
 
 
 def add_comparison_player(conn, puuid, game_name, tag_line, platform=""):
-    """Insert a comparison player (enabled by default). Returns False without
-    inserting if the max is already reached (unless this puuid is already one,
-    in which case it's a no-op refresh of the display name/server). `platform`
-    is the player's server (they may be on a different region than you)."""
-    existing = {r["puuid"] for r in conn.execute("SELECT puuid FROM comparison_players")}
-    if puuid not in existing and len(existing) >= MAX_COMPARISON_PLAYERS:
-        return False
+    """Insert a comparison player (enabled by default); there is no cap on how
+    many you can add. An already-known puuid is a no-op refresh of the display
+    name/server. `platform` is the player's server (they may be on a different
+    region than you). Returns True."""
     nxt = conn.execute(
         "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM comparison_players").fetchone()["n"]
     with conn:

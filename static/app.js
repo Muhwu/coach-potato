@@ -2499,7 +2499,6 @@ async function loadComparisonPlayers() {
   let data;
   try { data = await getJSON("/api/comparison-players"); }
   catch { list.innerHTML = ""; return; }
-  state.comparisonMax = data.max;
   renderComparisonPlayers(data.players || [], data.fetching || {});
   // a background fetch is running — poll until it finishes, updating counts
   const status = $("#comparison-status");
@@ -2517,7 +2516,6 @@ async function loadComparisonPlayers() {
 function renderComparisonPlayers(players, fetching = {}) {
   const list = $("#comparison-players-list");
   if (!list) return;
-  const max = state.comparisonMax || 5;
   const busy = Boolean(fetching.running);
   list.innerHTML = players.length
     ? players.map((p) => `
@@ -2530,9 +2528,9 @@ function renderComparisonPlayers(players, fetching = {}) {
           title="Fetch &amp; store more of this player's games (deeper history)">Fetch more</button>
         <button class="preset icon-btn cmp-remove" type="button" title="Remove">✕</button>
       </div>`).join("")
-    : `<p class="muted">No comparison players yet — add up to ${max}.</p>`;
-  $("#comparison-add-input").disabled = busy || players.length >= max;
-  $("#comparison-add").disabled = busy || players.length >= max;
+    : `<p class="muted">No comparison players yet — add as many as you like.</p>`;
+  $("#comparison-add-input").disabled = busy;
+  $("#comparison-add").disabled = busy;
   list.querySelectorAll(".cmp-enable").forEach((cb) =>
     cb.addEventListener("change", () =>
       toggleComparisonPlayer(cb.closest(".comparison-player").dataset.puuid, cb.checked)));

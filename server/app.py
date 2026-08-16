@@ -1730,7 +1730,7 @@ def api_get_comparison_players():
         for p in players:
             p["enabled"] = bool(p["enabled"])
             p["games"] = _comparison_games(conn, p["puuid"])
-        return {"players": players, "max": db.MAX_COMPARISON_PLAYERS,
+        return {"players": players, "max": None,  # no cap on comparison players
                 "fetching": dict(COMPARISON_CRAWL)}
     finally:
         conn.close()
@@ -1750,7 +1750,6 @@ def api_add_comparison_player(body: dict):
         settings = config.resolve_settings(conn)
         if not settings["configured"]:
             raise HTTPException(400, "not configured — set your API key in Settings")
-        existing = db.list_comparison_players(conn)
     finally:
         conn.close()
     # a comparison player can be on a different server than your own accounts;
@@ -1764,10 +1763,6 @@ def api_add_comparison_player(body: dict):
     except NotFoundError:
         raise HTTPException(404, f"no Riot account {riot_id!r}")
     puuid = account["puuid"]
-    if (puuid not in {p["puuid"] for p in existing}
-            and len(existing) >= db.MAX_COMPARISON_PLAYERS):
-        raise HTTPException(409, f"at most {db.MAX_COMPARISON_PLAYERS} comparison players — "
-                                 "remove one first")
     game_name = account.get("gameName", name.strip())
     tag_line = account.get("tagLine", tag.strip())
     # Register as a comparison player FIRST: the crawler only stores per-match

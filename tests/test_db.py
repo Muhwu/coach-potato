@@ -741,19 +741,20 @@ def test_champion_notes_gains_runes_column_on_upgrade(tmp_path):
     c.close()
 
 
-def test_comparison_players_crud_and_limit(tmp_path):
+def test_comparison_players_crud_is_uncapped(tmp_path):
     c = db.connect(tmp_path / "cp.sqlite")
-    for i in range(db.MAX_COMPARISON_PLAYERS):
+    for i in range(25):  # no cap on how many players you can compare against
         assert db.add_comparison_player(c, f"p{i}", f"Name{i}", "EUW") is True
-    # one past the max is rejected
-    assert db.add_comparison_player(c, "over", "TooMany", "EUW") is False
-    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS
+    assert len(db.list_comparison_players(c)) == 25
+    # re-adding a known puuid refreshes it rather than duplicating
+    assert db.add_comparison_player(c, "p0", "Renamed", "EUW") is True
+    assert len(db.list_comparison_players(c)) == 25
+    assert db.list_comparison_players(c)[0]["game_name"] == "Renamed"
     db.set_comparison_enabled(c, "p0", False)
     assert "p0" not in db.comparison_puuids(c, enabled_only=True)
     assert db.bump_comparison_lookback(c, "p1") == 2 * db.COMPARISON_LOOKBACK_DAYS
     db.remove_comparison_player(c, "p0")
-    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS - 1
-    assert db.add_comparison_player(c, "again", "Again", "EUW") is True  # slot freed
+    assert len(db.list_comparison_players(c)) == 24
     c.close()
 
 
