@@ -504,10 +504,11 @@ function gameMetricsPanel(entryId, game) {
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
   }</div>` : "";
-  return `${weaksideControl(entryId, game)}${laneResultControl(entryId, game)}${
+  // laneResultControl already carries the Side picker — don't add a second one
+  return `${laneResultControl(entryId, game)}${
     metrics}${runes}${
     recordingSection(game.match_id, game.puuid)}${
-    reflectionSection(game.match_id, game.puuid)}${
+    reflectionSection(game.match_id, game.puuid, game)}${
     clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
 
@@ -593,7 +594,7 @@ function laneCell(value, game, mark) {
 // sacrificial lane rather than the jungle-prioritised one. Detected from where
 // your jungler started (opposite half to your lane = strong side) and
 // overridable per game, mirroring the lane-result picker's Auto behaviour.
-const SIDE_WORD = { true: "Strongside", false: "Weakside", null: "unknown" };
+const SIDE_WORD = { true: "Strong Side", false: "Weak Side", null: "Undetermined" };
 const HALF_WORD = { top: "top side", bot: "bot side" };
 
 function sideWord(strong) {
@@ -606,8 +607,8 @@ function weaksideControl(entryId, game) {
       ? " selected" : ""}>${label}</option>`;
   return `<span class="filter-label">Side</span>
     <select class="game-weakside" data-entry="${entryId}" aria-label="Strongside or weakside">
-      ${opt("", `Auto — ${sideWord(game.auto_strongside)}`)}
-      ${opt("0", "Strongside")}${opt("1", "Weakside")}
+      ${opt("", `${sideWord(game.auto_strongside)} (Auto)`)}
+      ${opt("0", "Strong Side")}${opt("1", "Weak Side")}
     </select>`;
 }
 
@@ -627,6 +628,14 @@ function jungleSideHint(game) {
   return `<span class="muted">${escapeHtml(parts.join(" · "))}</span>`;
 }
 
+// what the lane column shows when nothing is set manually, so the Auto option
+// can name it instead of leaving you guessing (mirrors the Side picker)
+function autoLaneWord(game, mark) {
+  const flag = mark === 7 ? game.lane_adv_early : game.lane_adv_late;
+  if (flag == null) return "No data";
+  return flag >= 1 ? "Ahead" : "Behind";
+}
+
 function laneResultControl(entryId, game) {
   const select = (mark) => {
     const current = game[`lane_result_${mark}`];
@@ -634,7 +643,8 @@ function laneResultControl(entryId, game) {
       (current == null ? value === "" : current === value) ? " selected" : ""}>${label}</option>`;
     return `<select class="game-lane-result" data-entry="${entryId}" data-mark="${mark}"
         aria-label="Lane result at ${mark} minutes">
-        ${opt("", "Auto")}${opt("stomped", "Stomped loss")}${opt("lost", "Lost")}
+        ${opt("", `${autoLaneWord(game, mark)} (Auto)`)}
+        ${opt("stomped", "Stomped loss")}${opt("lost", "Lost")}
         ${opt("even", "Even")}${opt("won", "Won")}${opt("stomp", "Stomp win")}
       </select>`;
   };

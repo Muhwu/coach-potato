@@ -743,7 +743,7 @@ function renderRecent(recent) {
     if (vodOpen) {
       const rec = recordingSection(g.match_id, g.my_puuid);
       html += `<tr class="games-row"><td colspan="${colCount}">
-        <div class="vod-reflect">${reflectionSection(g.match_id, g.my_puuid)}</div>
+        <div class="vod-reflect">${reflectionSection(g.match_id, g.my_puuid, g)}</div>
         ${rec || `<p class="muted">No recording found for this game. Ascent recordings are
             matched by game id — press 🎬 in the header to re-scan.</p>`}
         <div class="vod-curve"><h5>Full-game curve</h5>${gameCurveSection(gkey)}</div>
@@ -915,7 +915,8 @@ function delta(current, previous, key, digits, suffix = "") {
   return `<span class="${cls}">${arrow} ${Math.abs(diff).toFixed(digits)}${suffix}</span>`;
 }
 
-const segmentUi = { expanded: new Set(), expandedGames: new Set(), cache: new Map(), segments: [] };
+const segmentUi = { expanded: new Set(), expandedGames: new Set(), cache: new Map(),
+                    vodOpen: new Set(), segments: [] };
 
 function segKey(segment) {
   return `${segment.from_ms}:${segment.to_ms}`;
@@ -1038,7 +1039,16 @@ async function toggleSegmentGames(segment) {
 function segmentGamesTable(games) {
   if (!games) return `<div class="muted">Loading…</div>`;
   if (!games.length) return `<div class="muted">No games in this period.</div>`;
-  const rows = games.map((g) => `<tr>
+  // same per-game VOD/reflection panel as Overview's Recent games — a game in
+  // a coaching period is exactly where you'd want the footage
+  const rows = games.map((g) => {
+    const gkey = `${g.match_id}:${g.my_puuid}`;
+    const open = segmentUi.vodOpen.has(gkey);
+    let html = `<tr>
+      <td><button class="preset seg-toggle seg-vod-toggle" data-gkey="${escapeHtml(gkey)}"
+        data-match="${escapeHtml(g.match_id)}" data-puuid="${escapeHtml(g.my_puuid)}"
+        aria-expanded="${open}" title="Reflection and recording for this game"
+        >${open ? "▾" : "▸"} 🎬</button></td>
       <td>${fmtDate(g.game_creation_ms)}</td>
       <td>${escapeHtml(g.account)}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
@@ -1050,9 +1060,19 @@ function segmentGamesTable(games) {
       <td>${fmtDuration(g.game_duration_s)}</td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
-    </tr>`).join("");
+    </tr>`;
+    if (open) {
+      const rec = recordingSection(g.match_id, g.my_puuid);
+      html += `<tr class="games-row"><td colspan="11">
+        <div class="vod-reflect">${reflectionSection(g.match_id, g.my_puuid, g)}</div>
+        ${rec || `<p class="muted">No recording found for this game. Ascent recordings are
+            matched by game id — press 🎬 in the header to re-scan.</p>`}
+      </td></tr>`;
+    }
+    return html;
+  }).join("");
   return `<table class="games-inner">
-    <thead><tr><th>Date</th><th>Account</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
+    <thead><tr><th></th><th>Date</th><th>Account</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
     <th>Result</th><th>K/D/A</th><th>CS/min</th><th>Length</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
@@ -1147,6 +1167,32 @@ function renderProgress(segments) {
       if (segment) toggleSegmentGames(segment);
     }));
   wirePromoteButtons(target);
+  target.querySelectorAll(".seg-vod-toggle").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const gkey = btn.dataset.gkey;
+      if (segmentUi.vodOpen.has(gkey)) {
+        segmentUi.vodOpen.delete(gkey);
+        renderProgress(segments);
+        return;
+      }
+      segmentUi.vodOpen.add(gkey);
+      renderProgress(segments);           // show "Loading…" straight away
+      await Promise.all([
+        ensureReflection(btn.dataset.match, btn.dataset.puuid),
+        ensureRecentRecording(btn.dataset.match, btn.dataset.puuid),
+      ]);
+      renderProgress(segments);
+    }));
+  wireReflectionSection(target, async (matchId, puuid) => {
+    reflectionUi.cache.delete(reflectionKey(matchId, puuid));
+    await ensureReflection(matchId, puuid);
+    renderProgress(segments);
+  }, () => renderProgress(segments));
+  wireRecordingSection(target, async (matchId, puuid) => {
+    recordingUi.cache.delete(recordingKey(matchId, puuid));
+    await ensureRecentRecording(matchId, puuid);
+    renderProgress(segments);
+  });
 }
 
 const sessionUi = { expanded: new Set(), editing: null, clips: new Map() };
@@ -1255,9 +1301,42 @@ function wireClipsSection(container, reload, rerender) {
 // A quick per-game tag/note, independent of matchup notes / block learnings /
 // sessions — a fast post-match reflection habit, not a full write-up.
 
-const REFLECTION_SUGGESTED_TAGS = [
-  "bad TP", "int death", "tilted", "good vision", "objective miss", "won lane lost game",
+// Suggestions, not defaults — they are offered, never pre-selected. The set is
+// picked from the game itself so the prompts are worth reading: a stomp and a
+// 12-death loss deserve different questions. `always` shows regardless.
+const REFLECTION_TAG_RULES = [
+  { tag: "Int death", when: (g) => g.deaths >= 6 },
+  { tag: "Died too much", when: (g) => g.deaths >= 4 && g.deaths < 6 },
+  { tag: "Tilted", when: (g) => g.deaths >= 6 || (!g.win && g.lost_streak) },
+  { tag: "Won lane, lost game", when: (g) => !g.win && g.lane_won },
+  { tag: "Lost lane, won game", when: (g) => g.win && g.lane_lost },
+  { tag: "Threw a lead", when: (g) => !g.win && g.lane_won },
+  { tag: "Bad TP", when: (g) => g.has_tp },
+  { tag: "Objective miss", when: (g) => !g.win },
+  { tag: "Good vision", when: (g) => g.win },
+  { tag: "Clean game", when: (g) => g.win && g.deaths <= 2 },
+  { tag: "Good macro", when: (g) => g.win },
+  { tag: "Wave management", always: true },
+  { tag: "Trading pattern", always: true },
 ];
+
+// game -> the handful of tags worth suggesting for it (capped so the row stays
+// scannable). `game` may be undefined where the caller has no stats to hand.
+function reflectionSuggestions(game) {
+  const g = game || {};
+  const facts = {
+    win: Boolean(g.win),
+    deaths: g.deaths ?? 0,
+    // Riot's binary laning flag at 14m, the same signal the lane column uses
+    lane_won: g.lane_adv_late != null && g.lane_adv_late >= 1,
+    lane_lost: g.lane_adv_late != null && g.lane_adv_late < 1,
+    has_tp: g.spell1 === 12 || g.spell2 === 12,   // 12 = Teleport
+    lost_streak: false,
+  };
+  const picked = REFLECTION_TAG_RULES
+    .filter((r) => r.always || r.when(facts)).map((r) => r.tag);
+  return [...new Set(picked)].slice(0, 6);
+}
 
 const reflectionUi = {
   cache: new Map(),        // "matchId:puuid" -> {tags, note} once fetched
@@ -1279,6 +1358,7 @@ const reflectionUi = {
 const SEEK_LEAD_MS = 5000;
 
 const recordingUi = {
+  listOpen: new Set(),     // recording uuids whose itemised event list is open
   cache: new Map(),          // "matchId:puuid" -> [recording, ...] once fetched
   recordedMatches: null,     // Set of match ids that have a recording, or null
   upload: { uuid: null, progress: 0, error: null, timer: null },
@@ -1584,8 +1664,9 @@ const RECORDING_MAP_MARKS = {
   inhibitor: ["rec-map-tower", 6],
   objective: ["rec-map-objective", 6],
 };
+// kills first, then deaths — reading your own outcomes before the map's
 const RECORDING_MAP_LEGEND = [
-  ["death", "Deaths"], ["kill", "Kills"], ["assist", "Assists"],
+  ["kill", "Kills"], ["death", "Deaths"], ["assist", "Assists"],
   ["tower", "Towers"], ["objective", "Objectives"],
 ];
 
@@ -1652,9 +1733,33 @@ function recordingSeekRow(r) {
     </button></li>`;
   }).join("");
 
+  // A timeline is the primary way in: every event placed where it happens in
+  // the video, click to jump. The itemised list is the same data read the slow
+  // way, so it's collapsed until asked for.
+  const span = (r.duration_s || 0) * 1000
+    || Math.max(...labelled.map((m) => m.video_ms), 1);
+  const ticks = labelled.map((m) => {
+    const pct = Math.min(100, Math.max(0, (m.video_ms / span) * 100));
+    const against = (m.detail || "").startsWith("-");
+    const cls = (RECORDING_MAP_MARKS[m.event_type] || ["", 0])[0];
+    return `<button type="button" class="recording-seek rt-mark ${cls}
+      ${against ? "recording-seek-against" : ""}" style="left:${pct.toFixed(2)}%"
+      data-uuid="${escapeHtml(r.uuid)}" data-ms="${m.video_ms}"
+      title="${escapeHtml(m.label)} @ ${fmtVideoTime(m.video_ms)} — click to jump"
+      aria-label="${escapeHtml(m.label)} at ${fmtVideoTime(m.video_ms)}"
+      >${RECORDING_MARK_GLYPHS[m.event_type] || "•"}</button>`;
+  }).join("");
+  const listOpen = recordingUi.listOpen.has(r.uuid);
   return `<div class="recording-marks">
-    <div class="view-toggle recording-mark-tabs" role="tablist">${tabs}</div>
-    <ul class="recording-mark-list">${rows}</ul>
+    <div class="recording-timeline" aria-label="Game events on the recording timeline">
+      <div class="rt-track"></div>
+      ${ticks}
+    </div>
+    <div class="rt-scale muted"><span>0:00</span><span>${fmtVideoTime(span)}</span></div>
+    <button type="button" class="preset recording-list-toggle" data-uuid="${escapeHtml(r.uuid)}"
+      aria-expanded="${listOpen}">${listOpen ? "▾" : "▸"} Event list (${labelled.length})</button>
+    ${listOpen ? `<div class="view-toggle recording-mark-tabs" role="tablist">${tabs}</div>
+    <ul class="recording-mark-list">${rows}</ul>` : ""}
   </div>`;
 }
 
@@ -1788,6 +1893,20 @@ function wireRecordingSection(container, reload) {
   };
   container.querySelectorAll(".recording-seek").forEach((btn) =>
     btn.addEventListener("click", () => seekTo(btn)));
+  container.querySelectorAll(".recording-list-toggle").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const uuid = btn.dataset.uuid;
+      if (recordingUi.listOpen.has(uuid)) recordingUi.listOpen.delete(uuid);
+      else recordingUi.listOpen.add(uuid);
+      const card = btn.closest(".recording-card");
+      const section = btn.closest(".recording-section");
+      const list = recordingUi.cache.get(
+        recordingKey(section.dataset.match, section.dataset.puuid)) || [];
+      const recording = list.find((x) => x.uuid === uuid);
+      if (!card || !recording) return;
+      card.querySelector(".recording-marks").outerHTML = recordingSeekRow(recording);
+      wireRecordingSection(card, reload);
+    }));
   container.querySelectorAll(".recording-mark-tab").forEach((tab) =>
     tab.addEventListener("click", () => {
       recordingUi.markTab.set(tab.dataset.uuid, tab.dataset.tab);
@@ -1949,7 +2068,7 @@ async function putReflection(matchId, puuid, fields) {
   });
 }
 
-function reflectionSection(matchId, puuid) {
+function reflectionSection(matchId, puuid, game) {
   const key = reflectionKey(matchId, puuid);
   const reflection = reflectionUi.cache.get(key);
   if (!reflection) {
@@ -1957,12 +2076,23 @@ function reflectionSection(matchId, puuid) {
       <h5>Reflection</h5><p class="muted">Loading…</p></div>`;
   }
   const tags = reflection.tags;
-  const allTags = [...REFLECTION_SUGGESTED_TAGS, ...tags.filter((t) => !REFLECTION_SUGGESTED_TAGS.includes(t))];
-  const chips = allTags.map((t) => {
-    const active = tags.includes(t);
-    return `<button type="button" class="chip reflection-tag ${active ? "chip-main" : "chip-inactive"}"
-      data-tag="${escapeHtml(t)}" aria-pressed="${active}">${escapeHtml(t)}</button>`;
-  }).join("");
+  // chosen tags and suggestions are separate rows: a suggestion sitting in the
+  // same row as your picks reads as already-chosen, which it isn't
+  const chosen = tags.length
+    ? tags.map((t) => `<button type="button" class="chip chip-main reflection-tag"
+        data-tag="${escapeHtml(t)}" aria-pressed="true"
+        title="Remove this tag">${escapeHtml(t)} ✕</button>`).join("")
+    : `<span class="muted reflection-empty">No tags on this game yet.</span>`;
+  const suggestions = reflectionSuggestions(game).filter((t) => !tags.includes(t));
+  const suggested = suggestions.length
+    ? `<div class="reflection-suggest">
+        <span class="muted reflection-suggest-label">Suggested for this game</span>
+        ${suggestions.map((t) => `<button type="button" class="chip chip-suggest reflection-tag"
+          data-tag="${escapeHtml(t)}" aria-pressed="false"
+          title="Add this tag">+ ${escapeHtml(t)}</button>`).join("")}
+      </div>`
+    : "";
+  const chips = chosen;
   const editing = reflectionUi.editingNote.has(key);
   const noteBody = editing
     ? `<div class="mu-notes">
@@ -1983,8 +2113,9 @@ function reflectionSection(matchId, puuid) {
     <h5>Reflection</h5>
     <div class="chip-box reflection-tags">
       ${chips}
-      <input type="text" class="chip-input reflection-tag-input" placeholder="+ custom tag (Enter)">
+      <input type="text" class="chip-input reflection-tag-input" placeholder="+ your own tag (Enter)">
     </div>
+    ${suggested}
     <span class="muted reflection-tag-status"></span>
     ${noteBody}
   </div>`;

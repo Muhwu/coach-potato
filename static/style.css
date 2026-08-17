@@ -1811,3 +1811,41 @@ footer {
   white-space: normal;
 }
 .recordings-pop.status-error { color: var(--critical); }
+
+/* Reflection tags: what you picked vs what's merely offered must not look the
+   same — suggestions used to sit in the same row and read as already chosen. */
+.chip-main { color: var(--text-primary); }   /* was inheriting a dim colour on dark */
+.chip-suggest {
+  background: transparent; border: 1px dashed var(--border);
+  color: var(--text-secondary); font-weight: 500;
+}
+.chip-suggest:hover {
+  border-style: solid; border-color: var(--series-1); color: var(--text-primary);
+  background: var(--accent-wash);
+}
+.reflection-suggest {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 6px;
+}
+.reflection-suggest-label { font-size: 11px; margin-right: 2px; }
+.reflection-empty { font-size: 12px; }
+
+/* Event timeline on a recording: every kill/death/objective placed where it
+   happens in the video, click to jump. Replaces the long list as the primary
+   way in — the list is still there, one click away. */
+.recording-timeline {
+  position: relative; height: 30px; margin: 10px 0 2px;
+}
+.rt-track {
+  position: absolute; top: 13px; left: 0; right: 0; height: 4px;
+  background: var(--grid); border-radius: 2px;
+}
+.rt-mark {
+  position: absolute; top: 4px; transform: translateX(-50%);
+  width: 20px; height: 22px; padding: 0; line-height: 22px; text-align: center;
+  border: none; background: none; cursor: pointer; font-size: 13px;
+  border-radius: 4px;
+}
+.rt-mark:hover { background: var(--accent-wash); transform: translateX(-50%) scale(1.25); }
+.rt-mark:focus-visible { outline: 2px solid var(--series-1); }
+.rt-scale { display: flex; justify-content: space-between; font-size: 11px; }
+.recording-list-toggle { margin-top: 8px; font-size: 12px; }
