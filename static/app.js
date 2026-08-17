@@ -1301,41 +1301,33 @@ function wireClipsSection(container, reload, rerender) {
 // A quick per-game tag/note, independent of matchup notes / block learnings /
 // sessions — a fast post-match reflection habit, not a full write-up.
 
-// Suggestions, not defaults — they are offered, never pre-selected. The set is
-// picked from the game itself so the prompts are worth reading: a stomp and a
-// 12-death loss deserve different questions. `always` shows regardless.
+// Suggestions, not analysis. Deliberately a SHORT list of things that are
+// plainly true from the game's own numbers — "won lane, lost game" is a fact,
+// "tilted" or "good macro" would be a guess dressed up as a read, and people
+// take whatever the app offers as a verdict. Anything subtler is what the
+// free-text tag box and the note are for.
 const REFLECTION_TAG_RULES = [
-  { tag: "Int death", when: (g) => g.deaths >= 6 },
-  { tag: "Died too much", when: (g) => g.deaths >= 4 && g.deaths < 6 },
-  { tag: "Tilted", when: (g) => g.deaths >= 6 || (!g.win && g.lost_streak) },
   { tag: "Won lane, lost game", when: (g) => !g.win && g.lane_won },
   { tag: "Lost lane, won game", when: (g) => g.win && g.lane_lost },
-  { tag: "Threw a lead", when: (g) => !g.win && g.lane_won },
-  { tag: "Bad TP", when: (g) => g.has_tp },
-  { tag: "Objective miss", when: (g) => !g.win },
-  { tag: "Good vision", when: (g) => g.win },
-  { tag: "Clean game", when: (g) => g.win && g.deaths <= 2 },
-  { tag: "Good macro", when: (g) => g.win },
-  { tag: "Wave management", always: true },
-  { tag: "Trading pattern", always: true },
+  { tag: "High deaths", when: (g) => g.deaths >= 8 },
+  { tag: "Deathless", when: (g) => g.deaths === 0 },
 ];
+const MAX_REFLECTION_SUGGESTIONS = 3;
 
-// game -> the handful of tags worth suggesting for it (capped so the row stays
-// scannable). `game` may be undefined where the caller has no stats to hand.
+// game -> the few tags worth offering for it. `game` may be undefined where
+// the caller has no stats to hand, in which case nothing is suggested rather
+// than a generic list nobody asked for.
 function reflectionSuggestions(game) {
-  const g = game || {};
+  if (!game) return [];
   const facts = {
-    win: Boolean(g.win),
-    deaths: g.deaths ?? 0,
-    // Riot's binary laning flag at 14m, the same signal the lane column uses
-    lane_won: g.lane_adv_late != null && g.lane_adv_late >= 1,
-    lane_lost: g.lane_adv_late != null && g.lane_adv_late < 1,
-    has_tp: g.spell1 === 12 || g.spell2 === 12,   // 12 = Teleport
-    lost_streak: false,
+    win: Boolean(game.win),
+    deaths: game.deaths ?? 0,
+    // Riot's binary laning flag at 14m — the same signal the lane column uses
+    lane_won: game.lane_adv_late != null && game.lane_adv_late >= 1,
+    lane_lost: game.lane_adv_late != null && game.lane_adv_late < 1,
   };
-  const picked = REFLECTION_TAG_RULES
-    .filter((r) => r.always || r.when(facts)).map((r) => r.tag);
-  return [...new Set(picked)].slice(0, 6);
+  return REFLECTION_TAG_RULES.filter((r) => r.when(facts))
+    .map((r) => r.tag).slice(0, MAX_REFLECTION_SUGGESTIONS);
 }
 
 const reflectionUi = {

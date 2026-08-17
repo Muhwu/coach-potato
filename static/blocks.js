@@ -947,6 +947,8 @@ function blockCard(block, isCurrent) {
         ${block.games.length ? `· ${wins}–${block.games.length - wins}` : ""}</span>
       <span class="session-actions block-head-right">
         ${seriesBubble}
+        ${isCurrent && !block.complete ? `<button class="preset block-add-game" type="button"
+          title="Add one of your recent games to this block">+ Game</button>` : ""}
         ${isCurrent && !block.complete && block.games.length ? `<button class="preset block-close"
           data-id="${block.id}" title="Close this block before it reaches ${blockState.blockSize} games">
           Close early</button>` : ""}
@@ -994,6 +996,8 @@ function renderBlocks() {
 
   // one shared game-sort across every block table (app.js helper)
   wireSortable(target, blockState.gameSort, BLOCK_GAME_COLS_ALL, () => renderBlocks());
+  target.querySelectorAll(".block-add-game").forEach((btn) =>
+    btn.addEventListener("click", openAddGameModal));
   target.querySelectorAll(".block-close").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("Close this block early? A closed block can't be reopened — "
@@ -1153,17 +1157,17 @@ function renderBlocks() {
 
 // ---------- picker ----------
 
-async function renderBlockPicker() {
-  const target = $("#block-picker");
+// games not already sitting in a block, newest first
+async function addableGames(limit = 10) {
   const games = await getJSON("/api/stats/games");
   const taken = new Set(blockState.blocks.flatMap(
     (b) => b.games.map((g) => `${g.match_id}:${g.puuid}`)));
-  const candidates = games.filter((g) => !taken.has(`${g.match_id}:${g.my_puuid}`)).slice(0, 10);
-  if (!candidates.length) {
-    target.innerHTML = `<div class="muted">No unassigned games found.</div>`;
-    return;
-  }
-  target.innerHTML = `<div class="table-wrap"><table>
+  return games.filter((g) => !taken.has(`${g.match_id}:${g.my_puuid}`)).slice(0, limit);
+}
+
+function addableGamesTable(candidates) {
+  if (!candidates.length) return `<div class="muted">No unassigned games found.</div>`;
+  return `<div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Account</th><th>Me</th><th>Opponent</th>
     <th>Result</th><th>K/D/A</th><th></th></tr></thead>
     <tbody>${candidates.map((g) => `<tr>
@@ -1175,11 +1179,47 @@ async function renderBlockPicker() {
       <td>${g.kills}/${g.deaths}/${g.assists}</td>
       <td><button class="preset picker-add" data-match="${g.match_id}" data-puuid="${g.my_puuid}">Add</button></td>
     </tr>`).join("")}</tbody></table></div>`;
+}
+
+function wireAddableGames(target, after) {
   target.querySelectorAll(".picker-add").forEach((btn) =>
     btn.addEventListener("click", async () => {
       await promoteGame(btn.dataset.match, btn.dataset.puuid, btn);
-      loadBlocks();
+      if (after) after();
     }));
+}
+
+async function renderBlockPicker() {
+  const target = $("#block-picker");
+  target.innerHTML = addableGamesTable(await addableGames());
+  wireAddableGames(target, () => loadBlocks());
+}
+
+// The picker lives at the bottom of the page, which is a long way down once
+// you have a few blocks — so the current block's header can open the same
+// list in a popup.
+async function openAddGameModal() {
+  const box = $("#modal-box");
+  $("#modal-overlay").classList.remove("hidden");
+  box.innerHTML = `<div class="addgame-modal">
+    <div class="section-head"><h3>Add a game to the current block</h3>
+      <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
+    </div>
+    <p class="muted">Loading…</p></div>`;
+  box.querySelector("#modal-close").addEventListener("click", closeModal);
+  let candidates;
+  try {
+    candidates = await addableGames();
+  } catch (e) {
+    box.querySelector(".addgame-modal p").textContent = "Failed to load recent games.";
+    return;
+  }
+  const body = box.querySelector(".addgame-modal");
+  body.querySelector("p").outerHTML = `<p class="muted">Your most recent games that
+    aren't in a block yet. Adding to a full block starts the next one.</p>
+    <div class="addgame-list">${addableGamesTable(candidates)}</div>`;
+  // keep the popup open so several games can go in one after another
+  wireAddableGames(body, () => loadBlocks());
 }
 
 // shared with match-list promote buttons in app.js

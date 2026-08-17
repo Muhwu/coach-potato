@@ -1849,3 +1849,8 @@ footer {
 .rt-mark:focus-visible { outline: 2px solid var(--series-1); }
 .rt-scale { display: flex; justify-content: space-between; font-size: 11px; }
 .recording-list-toggle { margin-top: 8px; font-size: 12px; }
+
+/* "+ Game" popup: the same candidate list as the picker at the foot of the
+   page, reachable from the current block's header when the page is long */
+.addgame-modal { min-width: min(760px, 92vw); max-width: 900px; }
+.addgame-list { max-height: 60vh; overflow-y: auto; margin-top: 8px; }

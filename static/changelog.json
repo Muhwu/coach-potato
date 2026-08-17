@@ -5,12 +5,13 @@
       "date": "2026-08-17",
       "items": [
         "Recordings get an event timeline: every kill, death, assist, structure and objective sits where it happens on the video — click one to jump straight there. The itemised list is still there behind an \"Event list\" toggle, collapsed by default",
-        "Reflection tags are now clearly suggestions, not pre-made choices: your chosen tags sit on their own row, and the offered ones appear under \"Suggested for this game\" — picked from how the game actually went (deaths, whether you won the lane, whether you threw a lead)",
+        "Reflection tags are suggestions, not analysis: your chosen tags sit on their own row, and at most three are offered under \"Suggested for this game\" — only things plainly true from the numbers (\"Won lane, lost game\", \"High deaths\"), never a guess at how you played. Everything else is what the free-text tag and the note are for",
         "Reflection tags read properly capitalised, and a tag you've picked no longer renders dark-on-dark",
         "The heatmap legend reads kills, deaths, assists, towers, objectives",
         "Recordings now show up on the games list under Coach → Coaching progress too, not just Overview and Blocks",
         "Fixed: a block game's expanded panel showed the Side picker twice",
-        "The Lane result and Side pickers now name what \"Auto\" resolves to — \"Ahead (Auto)\", \"Strong Side (Auto)\" — instead of just saying Auto"
+        "The Lane result and Side pickers now name what \"Auto\" resolves to — \"Ahead (Auto)\", \"Strong Side (Auto)\" — instead of just saying Auto",
+        "Blocks: the current block's header gets a \"+ Game\" button opening the recent-games list in a popup — the picker at the foot of the page is a long scroll away once you have a few blocks"
       ]
     },
     {
