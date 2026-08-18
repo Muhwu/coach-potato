@@ -943,6 +943,9 @@ function blockCard(block, isCurrent) {
       ${isCurrent ? `<span class="block-badge">active</span>` : ""}
       ${block.closed ? `<span class="block-badge block-closed"
         title="Closed before reaching ${blockState.blockSize} games">closed early</span>` : ""}
+      ${!block.closed && block.complete && block.games.length < blockState.blockSize
+        ? `<span class="block-badge block-closed"
+            title="Starting a new series finished this block where it stood, so the next game starts clean under the new series">finished with series</span>` : ""}
       <span class="muted">${block.games.length}/${blockState.blockSize} games
         ${block.games.length ? `· ${wins}–${block.games.length - wins}` : ""}</span>
       <span class="session-actions block-head-right">
@@ -992,7 +995,8 @@ function renderBlocks() {
     return;
   }
   target.innerHTML = blockState.blocks
-    .map((b) => blockCard(b, b.id === currentId && !b.closed)).join("");
+    // active = where the next game would land: newest, not closed, not finalized
+    .map((b) => blockCard(b, b.id === currentId && !b.closed && !b.complete)).join("");
 
   // one shared game-sort across every block table (app.js helper)
   wireSortable(target, blockState.gameSort, BLOCK_GAME_COLS_ALL, () => renderBlocks());

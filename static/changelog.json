@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.54.1",
+      "date": "2026-08-18",
+      "items": [
+        "Fixed: a block that a new series had already finished still showed the \"active\" badge, so it looked open while offering no Close early — it now reads \"finished with series\", and \"active\" is reserved for the block your next game actually lands in (a full block no longer claims it either)"
+      ]
+    },
+    {
       "version": "1.54.0",
       "date": "2026-08-17",
       "items": [
