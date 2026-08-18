@@ -11,6 +11,7 @@
         "Ascent VOD integration: link your local recordings to games, jump straight to a death, and chapter them automatically. Uploading to YouTube is optional — install requirements-youtube.txt for one-click upload, or use the manual path that opens the file for you. Thanks to @bs1phc",
         "Research players moved out of Settings into their own view under Prepare, and the top bar became a rounded card with roomier nav. Thanks to @bs1phc",
         "The cap on research players is gone — add as many as you want to compare yourself against (crawling each one still takes a while, since Riot's API is rate limited)",
+        "Research players: one ↻ Refresh all button fetches new games for everyone in the list, one after another in the background, and each player takes a short note beside their name (what they main, why you're watching them)",
         "Fixed: hiding Series, Champion pool or Tier list in Settings → Visible tabs failed the whole save with an error",
         "Settings: fixed a broken Recordings & YouTube / Backup section — the merge had left two overlapping copies of the backup controls, so half the page rendered wrong and the second Import button did nothing",
         "The YouTube upload button only appears once upload is actually set up; otherwise a small ℹ explains how to enable it and takes you to Settings",

@@ -1676,50 +1676,87 @@ def _comparison_games(conn, puuid):
                         (puuid,)).fetchone()["c"]
 
 
-def _run_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
-    """Background worker: pull up to COMPARISON_FETCH_TARGET of a comparison
-    player's games (by count, no time window) into the db. has_participant skip
-    means repeated runs walk further back, deepening history."""
+def _fetch_comparison_player(player, api_key, prefix=""):
+    """Pull up to COMPARISON_FETCH_TARGET of ONE comparison player's games (by
+    count, no time window) into the db. has_participant skip means repeated
+    runs walk further back, deepening history. `prefix` labels the status
+    messages when this is one player of several. Returns the new-match count;
+    raises on failure, which the worker below turns into a status."""
     from .crawler import Crawler
     from .riot_client import RateLimiter, RiotClient
+    puuid = player["puuid"]
+    client = RiotClient(api_key, platform=player["platform"], limiter=RateLimiter())
+    conn = db.connect(get_db_path())
     try:
-        client = RiotClient(api_key, platform=platform, limiter=RateLimiter())
-        conn = db.connect(get_db_path())
-        try:
-            crawler = Crawler(client, conn,
-                              status_cb=lambda m: COMPARISON_CRAWL.__setitem__("message", m))
-            res = crawler.crawl_player(game_name, tag_line, limit=COMPARISON_FETCH_TARGET,
-                                       is_tracked=False,  # since_s omitted -> by count
-                                       # fetch timelines so the comparison shows each
-                                       # player's lane Δ @14m (costs ~2x the API calls;
-                                       # deliberately re-enabled — lane Δ is wanted here)
-                                       fetch_timeline=True)
-            COMPARISON_CRAWL["new_matches"] = res["new_matches"]
-            # fill lane Δ on any of this/other comparison players' older games
-            # that were stored before timelines were fetched (has_timeline=0).
-            crawler.backfill_lane_deltas()
-            # this client is on the player's region, so it can fill loadout
-            # (spells + items) on their already-stored matches that crawl_player
-            # skipped (has_participant) — the global backfill can't cross region.
-            crawler.backfill_items_for_player(puuid)
-            crawler.backfill_timeline_items_for_player(puuid)  # start buy + build order (timeline)
-            COMPARISON_CRAWL["message"] = f"done — {_comparison_games(conn, puuid)} games stored"
-        finally:
-            conn.close()
-        COMPARISON_CRAWL["error"] = None
-    except Exception as exc:  # surfaced via the status field
-        COMPARISON_CRAWL["error"] = str(exc)
-        COMPARISON_CRAWL["message"] = "failed"
+        crawler = Crawler(client, conn,
+                          status_cb=lambda m: COMPARISON_CRAWL.__setitem__("message", prefix + m))
+        res = crawler.crawl_player(player["game_name"], player["tag_line"],
+                                   limit=COMPARISON_FETCH_TARGET,
+                                   is_tracked=False,  # since_s omitted -> by count
+                                   # fetch timelines so the comparison shows each
+                                   # player's lane Δ @14m (costs ~2x the API calls;
+                                   # deliberately re-enabled — lane Δ is wanted here)
+                                   fetch_timeline=True)
+        # fill lane Δ on any of this/other comparison players' older games
+        # that were stored before timelines were fetched (has_timeline=0).
+        crawler.backfill_lane_deltas()
+        # this client is on the player's region, so it can fill loadout
+        # (spells + items) on their already-stored matches that crawl_player
+        # skipped (has_participant) — the global backfill can't cross region.
+        crawler.backfill_items_for_player(puuid)
+        crawler.backfill_timeline_items_for_player(puuid)  # start buy + build order (timeline)
+        COMPARISON_CRAWL["message"] = f"{prefix}done — {_comparison_games(conn, puuid)} games stored"
+        return res["new_matches"]
+    finally:
+        conn.close()
+
+
+def _run_comparison_crawl(players, api_key):
+    """Background worker: fetch each of `players` IN TURN. Sequential on
+    purpose — every player gets their own region-scoped client with its own
+    rate limiter, so running two at once would drive Riot's shared per-key
+    limit twice as hard as either limiter knows about. One player failing
+    (expired key aside, usually a bad region) doesn't abandon the rest; the
+    failures are collected and reported together at the end."""
+    failures = []
+    total = len(players)
+    try:
+        for i, player in enumerate(players, 1):
+            label = f"{player['game_name']}#{player['tag_line']}"
+            prefix = f"({i}/{total}) {label} — " if total > 1 else ""
+            COMPARISON_CRAWL.update({"puuid": player["puuid"],
+                                     "message": f"{prefix}fetching games…"})
+            try:
+                COMPARISON_CRAWL["new_matches"] += _fetch_comparison_player(
+                    player, api_key, prefix)
+            except Exception as exc:  # surfaced via the status field
+                failures.append(f"{label}: {exc}")
+        COMPARISON_CRAWL["error"] = "; ".join(failures) or None
+        if len(failures) == total:
+            COMPARISON_CRAWL["message"] = "failed"
+        elif total > 1:
+            done = total - len(failures)
+            COMPARISON_CRAWL["message"] = (
+                f"done — refreshed {done} of {total} players, "
+                f"{COMPARISON_CRAWL['new_matches']} new games")
     finally:
         COMPARISON_CRAWL["running"] = False
 
 
-def _start_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
-    COMPARISON_CRAWL.update({"running": True, "puuid": puuid, "message": "fetching games…",
-                             "new_matches": 0, "error": None})
-    threading.Thread(target=_run_comparison_crawl,
-                     args=(puuid, game_name, tag_line, platform, api_key),
+def _start_comparison_crawl(players, api_key):
+    """Kick off the worker for one or more players (each a row from
+    db.list_comparison_players, with `platform` already resolved)."""
+    COMPARISON_CRAWL.update({"running": True, "puuid": players[0]["puuid"],
+                             "message": "fetching games…", "new_matches": 0, "error": None})
+    threading.Thread(target=_run_comparison_crawl, args=(players, api_key),
                      daemon=True).start()
+
+
+def _comparison_platform(row, settings):
+    """A comparison player's own server, falling back to yours if it's unset
+    (rows predating the platform column) or no longer a known platform."""
+    platform = (row.get("platform") or settings["platform"]).strip().lower()
+    return platform if platform in PLATFORM_ROUTING else settings["platform"]
 
 
 @app.get("/api/comparison-players")
@@ -1772,8 +1809,32 @@ def api_add_comparison_player(body: dict):
         db.add_comparison_player(conn, puuid, game_name, tag_line, platform=platform)
     finally:
         conn.close()
-    _start_comparison_crawl(puuid, game_name, tag_line, platform, settings["riot_api_key"])
+    _start_comparison_crawl([{"puuid": puuid, "game_name": game_name, "tag_line": tag_line,
+                              "platform": platform}], settings["riot_api_key"])
     return {"puuid": puuid, "game_name": game_name, "tag_line": tag_line, "started": True}
+
+
+@app.post("/api/comparison-players/refresh-all")
+def api_comparison_refresh_all():
+    """Fetch new games for EVERY research player, one after another in one
+    background job — the alternative is clicking "Fetch more" down the list and
+    waiting for each to finish, since only one Riot job may run at a time."""
+    if _riot_job_running():
+        raise HTTPException(409, "a data fetch is already running — wait for it to finish")
+    conn = get_conn()
+    try:
+        settings = config.resolve_settings(conn)
+        players = db.list_comparison_players(conn)
+    finally:
+        conn.close()
+    if not settings["configured"]:
+        raise HTTPException(400, "not configured — set your API key in Settings")
+    if not players:
+        raise HTTPException(400, "no research players to refresh")
+    _start_comparison_crawl(
+        [{**p, "platform": _comparison_platform(p, settings)} for p in players],
+        settings["riot_api_key"])
+    return {"started": True, "players": len(players)}
 
 
 @app.post("/api/comparison-players/{puuid}/fetch-more")
@@ -1790,25 +1851,41 @@ def api_comparison_fetch_more(puuid: str):
             raise HTTPException(400, "not configured — set your API key in Settings")
     finally:
         conn.close()
-    platform = (row["platform"] or settings["platform"]).strip().lower()
-    if platform not in PLATFORM_ROUTING:
-        platform = settings["platform"]
-    _start_comparison_crawl(puuid, row["game_name"], row["tag_line"], platform,
+    _start_comparison_crawl([{**row, "platform": _comparison_platform(row, settings)}],
                             settings["riot_api_key"])
     return {"puuid": puuid, "started": True}
 
 
+MAX_COMPARISON_NOTE = 200  # a label beside the name, not a write-up
+
+
 @app.patch("/api/comparison-players/{puuid}")
 def api_patch_comparison_player(puuid: str, body: dict):
-    enabled = body.get("enabled")
-    if not isinstance(enabled, bool):
+    """Partial update: `enabled` and `note` are written independently, so
+    toggling the checkbox never clobbers a note being edited, or vice versa."""
+    enabled, note = body.get("enabled"), body.get("note")
+    if "enabled" in body and not isinstance(enabled, bool):
         raise HTTPException(400, "enabled must be a boolean")
+    if "note" in body:
+        if not isinstance(note, str):
+            raise HTTPException(400, "note must be a string")
+        note = note.strip()
+        if len(note) > MAX_COMPARISON_NOTE:
+            raise HTTPException(400, f"note must be at most {MAX_COMPARISON_NOTE} characters")
+    if "enabled" not in body and "note" not in body:
+        raise HTTPException(400, "nothing to update — pass enabled and/or note")
+    written = {"puuid": puuid}
     conn = get_conn()
     try:
-        db.set_comparison_enabled(conn, puuid, enabled)
+        if "enabled" in body:
+            db.set_comparison_enabled(conn, puuid, enabled)
+            written["enabled"] = enabled
+        if "note" in body:
+            db.set_comparison_note(conn, puuid, note)
+            written["note"] = note
     finally:
         conn.close()
-    return {"puuid": puuid, "enabled": enabled}
+    return written
 
 
 @app.delete("/api/comparison-players/{puuid}")

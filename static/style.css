@@ -1445,6 +1445,9 @@ footer {
 .comparison-name .muted { font-weight: 400; }
 .comparison-games { margin-left: auto; }
 .comparison-player .cmp-more { font-size: 12px; padding: 2px 8px; }
+/* the per-player note sits right after the name, and grows into whatever room
+   the row has left before the games count is pushed to the right */
+.comparison-player .cmp-note { flex: 1 1 120px; max-width: 260px; font-size: 12px; }
 
 /* ---- rune analysis (Matchup guide) ---- */
 .rune-analysis { margin-top: 8px; }
