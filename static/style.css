@@ -1858,7 +1858,13 @@ footer {
 /* Coaching progress is one table: each period row is its coaching session, so
    the log and the segment table stopped being two lists of the same sessions.
    The filters sit inside the panel because that table is all they filter. */
-.progress-filters { margin: 0 0 12px; padding: 0; }
+/* keeps .filter-row's own padding — only the top margin goes, since this row
+   now sits directly under the panel heading rather than floating on the page */
+.progress-filters { margin: 0 0 12px; }
+/* .filter-row is align-items:flex-end so labels line up with their inputs; a
+   bare note like "Selected accounts · all roles" has no input to sit under and
+   would hang off the bottom edge */
+.progress-filters > span { align-self: center; }
 .progress-hint { margin-top: 10px; font-size: 12px; }
 /* a session's own record, above the metrics its period produced */
 .seg-session { margin-bottom: 14px; }

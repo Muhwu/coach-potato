@@ -916,7 +916,10 @@ function delta(current, previous, key, digits, suffix = "") {
 }
 
 const segmentUi = { expanded: new Set(), expandedGames: new Set(), cache: new Map(),
-                    vodOpen: new Set(), segments: [] };
+                    vodOpen: new Set(), segments: [],
+                    // display order only — deltas are always read against the
+                    // chronologically previous period, whichever way it's shown
+                    order: localStorage.getItem("cp-progress-order") || "asc" };
 
 function segKey(segment) {
   return `${segment.from_ms}:${segment.to_ms}`;
@@ -1146,6 +1149,16 @@ function sessionRecordPanel(segment) {
   </div>`;
 }
 
+function syncProgressOrderButton() {
+  const btn = $("#progress-order");
+  if (!btn) return;
+  const newestFirst = segmentUi.order === "desc";
+  btn.textContent = newestFirst ? "↓ Newest first" : "↑ Oldest first";
+  btn.title = newestFirst
+    ? "Newest session at the top — click for oldest first"
+    : "Oldest session at the top (Baseline leads) — click for newest first";
+}
+
 function renderProgress(segments) {
   segmentUi.segments = segments;
   const target = $("#progress-table");
@@ -1188,12 +1201,14 @@ function renderProgress(segments) {
         ${sessionRecordPanel(segment)}${segmentMetricsPanel(segment)}</td></tr>`;
     }
     return html;
-  }).join("");
+  });
+  if (segmentUi.order === "desc") rows.reverse();   // newest session on top
+  const body = rows.join("");
   const headers = { winrate: ' class="wr-col"' };
   target.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>Period</th>` +
     visible.map((c) => `<th${headers[c.key] || ""}>${c.label}</th>`).join("") +
-    `</tr></thead><tbody>${rows}</tbody></table></div>`;
+    `</tr></thead><tbody>${body}</tbody></table></div>`;
   target.querySelectorAll(".seg-session-edit").forEach((btn) =>
     btn.addEventListener("click", () => {
       const seg = segments.find((x) => x.session_id === +btn.dataset.id);
@@ -3083,6 +3098,13 @@ function wireProgress() {
   });
   document.querySelectorAll(".session-add-btn").forEach((btn) =>
     btn.addEventListener("click", () => openSessionModal()));
+  syncProgressOrderButton();
+  $("#progress-order").addEventListener("click", () => {
+    segmentUi.order = segmentUi.order === "asc" ? "desc" : "asc";
+    localStorage.setItem("cp-progress-order", segmentUi.order);
+    syncProgressOrderButton();
+    renderProgress(segmentUi.segments);
+  });
 }
 
 // ---------- patch notes ----------

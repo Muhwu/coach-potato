@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.55.1",
+      "date": "2026-08-20",
+      "items": [
+        "Coaching progress: the filter row lost its padding when it moved inside the panel (Champion was hugging the edge), and the \"Selected accounts · all roles\" note sat on the bottom edge instead of centred — both fixed",
+        "Sort the coaching periods oldest-first or newest-first with the new ↑/↓ button; the choice is remembered, and the ▲/▼ comparisons still read against the previous period either way"
+      ]
+    },
+    {
       "version": "1.55.0",
       "date": "2026-08-19",
       "items": [
