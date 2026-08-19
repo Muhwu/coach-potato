@@ -1085,7 +1085,11 @@ async function toggleSegment(segment) {
     return;
   }
   segmentUi.expanded.add(key);
-  await ensureSegmentMetrics(segment);
+  renderProgress(segmentUi.segments);       // show "Loading…" straight away
+  await Promise.all([
+    ensureSegmentMetrics(segment),
+    segment.session_id ? ensureSessionClips(segment.session_id) : Promise.resolve(),
+  ]);
   renderProgress(segmentUi.segments);
 }
 
@@ -1117,12 +1121,37 @@ function progressVisibleCols() {
   return progressAllCols().filter((c) => vis.has(c.key));
 }
 
+// A period row IS its coaching session, so expanding one leads with that
+// session's own record — notes, coach, clips — before the numbers that followed
+// it. Baseline predates coaching and anchors to no session: it keeps its stats
+// row (it's the reference everything else is read against) but has no record.
+function sessionRecordPanel(segment) {
+  if (!segment.session_id) {
+    return `<p class="muted seg-session-empty">The 30 days before your first
+      session — the reference the rest is measured against.</p>`;
+  }
+  const notes = segment.notes
+    ? `<div class="md-body">${renderNotes(segment.notes)}</div>`
+    : `<p class="muted">No notes for this session yet.</p>`;
+  return `<div class="seg-session">
+    <div class="learnings-head">
+      <h4>Session notes</h4>
+      <button class="preset icon-btn seg-session-edit" data-id="${segment.session_id}"
+        title="Edit this session" aria-label="Edit this session">✎</button>
+      <button class="preset icon-btn seg-session-delete" data-id="${segment.session_id}"
+        title="Delete this session" aria-label="Delete this session">🗑</button>
+    </div>
+    ${notes}
+    ${clipsSection("session", segment.session_id, sessionUi.clips.get(segment.session_id))}
+  </div>`;
+}
+
 function renderProgress(segments) {
   segmentUi.segments = segments;
   const target = $("#progress-table");
   if (!segments.length) {
     target.innerHTML = `<div class="table-wrap"><div class="empty">
-      No coaching sessions yet — add your first one below.</div></div>`;
+      No coaching sessions yet — add your first one with "+ Session" above.</div></div>`;
     return;
   }
   const visible = progressVisibleCols();
@@ -1147,10 +1176,16 @@ function renderProgress(segments) {
     let html = `<tr${empty ? ' class="muted"' : ""}>
       <td class="period-cell"><div class="period-wrap">
         <button class="preset seg-toggle" data-i="${i}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"}</button>
-        <div class="period-text"><strong>${segment.label}</strong><br><span class="muted period-sub">${fmtSegmentDates(segment)}${segment.note ? " · " + escapeHtml(segment.note) : ""}</span></div>
+        <div class="period-text"><strong>${segment.label}</strong>${segment.session_id
+            ? `<button class="preset icon-btn seg-session-edit" data-id="${segment.session_id}"
+                 title="Edit this session" aria-label="Edit this session">✎</button>` : ""}
+          ${segment.coach ? `<span class="chip chip-plain session-coach"
+            title="Coached by ${escapeHtml(segment.coach)}">🎓 ${escapeHtml(segment.coach)}</span>` : ""}
+          <br><span class="muted period-sub">${fmtSegmentDates(segment)}${segment.note ? " · " + escapeHtml(segment.note) : ""}</span></div>
       </div></td>` + visible.map((c) => (c.cell ? c.cell(segment) : cells[c.key])).join("") + `</tr>`;
     if (expanded) {
-      html += `<tr class="games-row"><td colspan="${visible.length + 1}">${segmentMetricsPanel(segment)}</td></tr>`;
+      html += `<tr class="games-row"><td colspan="${visible.length + 1}">
+        ${sessionRecordPanel(segment)}${segmentMetricsPanel(segment)}</td></tr>`;
     }
     return html;
   }).join("");
@@ -1159,6 +1194,25 @@ function renderProgress(segments) {
     <thead><tr><th>Period</th>` +
     visible.map((c) => `<th${headers[c.key] || ""}>${c.label}</th>`).join("") +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;
+  target.querySelectorAll(".seg-session-edit").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const seg = segments.find((x) => x.session_id === +btn.dataset.id);
+      if (seg) {
+        openSessionModal({ id: seg.session_id, session_date: seg.session_date,
+                           title: seg.session_title, coach: seg.coach, notes: seg.notes });
+      }
+    }));
+  target.querySelectorAll(".seg-session-delete").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this coaching session? Its notes and clips go with it.")) return;
+      await fetch(`/api/sessions/${btn.dataset.id}`, { method: "DELETE" });
+      loadProgress();
+    }));
+  wireClipsSection(target, async (ownerType, ownerId) => {
+    sessionUi.clips.delete(+ownerId);
+    await ensureSessionClips(+ownerId);
+    renderProgress(segmentUi.segments);
+  }, () => renderProgress(segmentUi.segments));
   target.querySelectorAll(".seg-toggle").forEach((btn) =>
     btn.addEventListener("click", () => toggleSegment(segments[+btn.dataset.i])));
   target.querySelectorAll(".games-toggle").forEach((btn) =>
@@ -1195,8 +1249,7 @@ function renderProgress(segments) {
   });
 }
 
-const sessionUi = { expanded: new Set(), clips: new Map(),
-                    tab: null, coaches: [], modal: null };
+const sessionUi = { clips: new Map(), coaches: [], modal: null };
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g,
@@ -2191,14 +2244,6 @@ function wireReflectionSection(container, reload, rerender) {
 
 // ---------- coaching sessions: panes + the add/edit popup ----------
 
-function setProgressTab(tab) {
-  sessionUi.tab = tab === "sessions" ? "sessions" : "progress";
-  $("#progress-pane").classList.toggle("hidden", sessionUi.tab !== "progress");
-  $("#sessions-pane").classList.toggle("hidden", sessionUi.tab !== "sessions");
-  document.querySelectorAll("#progress-tabs button[data-ptab]").forEach((btn) =>
-    btn.classList.toggle("active", btn.dataset.ptab === sessionUi.tab));
-}
-
 async function ensureCoaches() {
   try {
     sessionUi.coaches = (await getJSON("/api/coaches")).coaches || [];
@@ -2317,75 +2362,9 @@ function wireSessionModal() {
   });
 }
 
-function sessionCard(s) {
-  const expanded = sessionUi.expanded.has(s.id);
-  let body = "";
-  if (expanded) {
-    body = `<div class="session-body md-body">${renderNotes(s.notes)}</div>`;
-  }
-  const clips = expanded
-    ? clipsSection("session", s.id, sessionUi.clips.get(s.id)) : "";
-  return `<div class="session-card">
-    <div class="session-head">
-      <button class="preset session-toggle" data-id="${s.id}" aria-expanded="${expanded}">
-        ${expanded ? "▾" : "▸"}</button>
-      <span class="session-date">${s.session_date}</span>
-      <span class="session-title">${s.title ? escapeHtml(s.title) : "<span class='muted'>untitled</span>"}</span>
-      ${s.coach ? `<span class="chip chip-plain session-coach"
-        title="Coached by ${escapeHtml(s.coach)}">🎓 ${escapeHtml(s.coach)}</span>` : ""}
-      <span class="session-actions">
-        <button class="preset icon-btn session-edit" data-id="${s.id}" title="Edit session" aria-label="Edit session">✎</button>
-        <button class="preset icon-btn session-delete" data-id="${s.id}" title="Delete session" aria-label="Delete session">🗑</button>
-      </span>
-    </div>
-    ${body}
-    ${clips}
-  </div>`;
-}
-
 async function ensureSessionClips(id) {
   if (sessionUi.clips.has(id)) return;
   sessionUi.clips.set(id, await getJSON(`/api/clips?owner_type=session&owner_id=${id}`));
-}
-
-function renderSessions(sessionRows) {
-  const target = $("#session-list");
-  if (!sessionRows.length) {
-    target.innerHTML = `<div class="muted">No sessions recorded.</div>`;
-    return;
-  }
-  target.innerHTML = sessionRows.map(sessionCard).join("");
-  target.querySelectorAll(".session-toggle").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const id = +btn.dataset.id;
-      if (sessionUi.expanded.has(id)) {
-        sessionUi.expanded.delete(id);
-        renderSessions(sessionRows);
-        return;
-      }
-      sessionUi.expanded.add(id);
-      renderSessions(sessionRows); // show "Loading…" immediately
-      await ensureSessionClips(id);
-      renderSessions(sessionRows);
-    }));
-  target.querySelectorAll(".session-edit").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      // the popup is the one editor now — it's the only place the Coach field
-      // exists, and older sessions are backfilled through exactly this path
-      const session = sessionRows.find((x) => x.id === +btn.dataset.id);
-      if (session) openSessionModal(session);
-    }));
-  target.querySelectorAll(".session-delete").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      if (!confirm("Delete this coaching session?")) return;
-      await fetch(`/api/sessions/${btn.dataset.id}`, { method: "DELETE" });
-      loadProgress();
-    }));
-  wireClipsSection(target, async (ownerType, ownerId) => {
-    sessionUi.clips.delete(+ownerId);
-    await ensureSessionClips(+ownerId);
-    renderSessions(sessionRows);
-  }, () => renderSessions(sessionRows));
 }
 
 async function unionFilterOptions() {
@@ -2417,11 +2396,7 @@ async function loadProgress() {
   // winrate in percentage points for delta display
   segments.forEach((s) => { s.winrate_pp = s.winrate == null ? null : 100 * s.winrate; });
   segmentUi.cache.clear(); // filters or data changed; refetch game lists on expand
-  // first visit this session lands on the configured tab; after that, whichever
-  // one the user last switched to stays put across reloads of the data
-  if (sessionUi.tab === null) setProgressTab(state.progressDefaultTab || "progress");
   renderProgress(segments);
-  renderSessions(sessionRows);
   // re-hydrate anything the user had expanded so panels don't stick on "Loading…"
   let rehydrated = false;
   for (const segment of segments) {
@@ -2835,7 +2810,6 @@ async function initSettings() {
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-block-series").checked = Boolean(data.block_series_enabled);
   $("#setting-date-format").value = data.date_format || "iso";
-  $("#setting-progress-tab").value = data.progress_default_tab || "progress";
   $("#setting-main-role").innerHTML = roleSettingOptions(data.main_role || "");
   $("#setting-secondary-role").innerHTML = roleSettingOptions(data.secondary_role || "");
   $("#setting-runes-mode").value = data.runes_mode || "matchup";
@@ -3024,7 +2998,6 @@ async function initSettings() {
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         block_series_enabled: $("#setting-block-series").checked,
         date_format: $("#setting-date-format").value,
-        progress_default_tab: $("#setting-progress-tab").value,
         main_role: $("#setting-main-role").value,
         secondary_role: $("#setting-secondary-role").value,
         runes_mode: $("#setting-runes-mode").value,
@@ -3110,10 +3083,6 @@ function wireProgress() {
   });
   document.querySelectorAll(".session-add-btn").forEach((btn) =>
     btn.addEventListener("click", () => openSessionModal()));
-  $("#progress-tabs").addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-ptab]");
-    if (btn) setProgressTab(btn.dataset.ptab);
-  });
 }
 
 // ---------- patch notes ----------
@@ -3379,7 +3348,6 @@ async function init(firstLoad = true) {
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
     state.dateFormat = settings.date_format || "iso";
-    state.progressDefaultTab = settings.progress_default_tab || "progress";
     state.runesMode = settings.runes_mode || "matchup";
     state.enableComparison = Boolean(settings.enable_player_comparison);
     applyComparisonEnabled();

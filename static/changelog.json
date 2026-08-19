@@ -4,8 +4,9 @@
       "version": "1.55.0",
       "date": "2026-08-19",
       "items": [
-        "Coaching progress is split into two tabs — Progress and Sessions — so a long session log no longer sits under the segment table. Which one opens by default is a setting (Settings → Interface)",
-        "Adding a session is a popup now, reachable from both tabs instead of a form buried under the whole session list. Editing uses the same popup, with the notes as a full Markdown editor",
+        "Coaching progress is one page again, and one table: each row is the stretch after a coaching session, so expanding it shows that session's notes, coach and clips right above the metrics that followed. No more two lists of the same sessions, and no third row of tabs",
+        "The Baseline row stays as your pre-coaching reference, and the champion/queue/side filters moved inside the panel they actually filter",
+        "Adding a session is a popup, reachable from the panel header instead of a form buried under the session list. Editing uses the same popup, with the notes as a full Markdown editor",
         "Sessions can record who coached them. The field is optional, can be filled in on older sessions afterwards, and remembers coaches you've used so you can pick them again — removing one from those suggestions never changes the sessions that already name them"
       ]
     },

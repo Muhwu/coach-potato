@@ -1855,11 +1855,18 @@ footer {
 .addgame-modal { min-width: min(760px, 92vw); max-width: 900px; }
 .addgame-list { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
 
-/* Coaching progress: Progress / Sessions panes. The session log used to sit
-   under the segment table with its add form below it, so adding a session
-   meant scrolling past every session you'd ever had. */
-.progress-tabs { margin-bottom: 12px; }
-.progress-tabs button { font-size: 13px; padding: 5px 16px; }
+/* Coaching progress is one table: each period row is its coaching session, so
+   the log and the segment table stopped being two lists of the same sessions.
+   The filters sit inside the panel because that table is all they filter. */
+.progress-filters { margin: 0 0 12px; padding: 0; }
+.progress-hint { margin-top: 10px; font-size: 12px; }
+/* a session's own record, above the metrics its period produced */
+.seg-session { margin-bottom: 14px; }
+.seg-session .learnings-head { margin-bottom: 4px; }
+.seg-session-empty { margin: 0 0 12px; }
+.period-text .session-coach { margin-left: 6px; font-size: 11px; }
+.period-text .seg-session-edit { margin-left: 4px; opacity: 0.6; }
+.period-text .seg-session-edit:hover { opacity: 1; }
 
 /* add/edit session popup */
 .session-modal { min-width: min(680px, 92vw); max-width: 780px; }

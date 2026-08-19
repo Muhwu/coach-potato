@@ -188,8 +188,6 @@ def _extra_settings(conn):
         "date_format": stored.get("date_format") or "iso",
         "runes_mode": stored.get("runes_mode") or "matchup",
         "enable_player_comparison": stored.get("enable_player_comparison") == "1",
-        # which Coaching-progress tab opens by default: "progress" or "sessions"
-        "progress_default_tab": stored.get("progress_default_tab") or "progress",
         "main_role": stored.get("main_role") or "",         # team_position or ""
         "secondary_role": stored.get("secondary_role") or "",
         "ascent_db_path": stored.get("ascent_db_path") or "",
@@ -314,9 +312,6 @@ def api_put_settings(body: dict):
     enable_comparison = body.get("enable_player_comparison", False)
     if not isinstance(enable_comparison, bool):
         raise HTTPException(400, "enable_player_comparison must be a boolean")
-    progress_tab = body.get("progress_default_tab") or "progress"
-    if progress_tab not in ("progress", "sessions"):
-        raise HTTPException(400, "progress_default_tab must be progress or sessions")
     valid_roles = ("", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
     main_role = body.get("main_role", "") or ""
     secondary_role = body.get("secondary_role", "") or ""
@@ -352,7 +347,6 @@ def api_put_settings(body: dict):
             "date_format": date_format,
             "runes_mode": runes_mode,
             "enable_player_comparison": "1" if enable_comparison else "0",
-            "progress_default_tab": progress_tab,
             "main_role": main_role,
             "secondary_role": secondary_role,
             "ascent_db_path": ascent_db_path,

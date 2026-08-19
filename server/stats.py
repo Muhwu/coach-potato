@@ -381,9 +381,22 @@ def progress_segments(conn, puuids, sessions, champion=None, queues=None,
     bounds = [date_ms(s["session_date"]) for s in ordered]
     day_ms = 86_400_000
     segments = [
+        # kept visible as the "before any coaching" reference; it anchors to no
+        # session, so it carries no notes/coach
         {"label": "Baseline", "note": "", "from_ms": bounds[0] - baseline_days * day_ms,
-         "to_ms": bounds[0], "start_ranks": None},
+         "to_ms": bounds[0], "start_ranks": None, "session_id": None,
+         "session_date": "", "session_title": "", "coach": "", "notes": ""},
     ]
+    def anchored(session):
+        """The session a period runs FROM — the row is "what happened after
+        this session", so the row carries that session's own record."""
+        keys = session.keys() if hasattr(session, "keys") else session
+        return {"session_id": session["id"] if "id" in keys else None,
+                "session_date": session["session_date"],
+                "session_title": session["title"],
+                "coach": session["coach"] if "coach" in keys else "",
+                "notes": session["notes"] if "notes" in keys else ""}
+
     for i in range(len(ordered) - 1):
         segments.append({
             "label": f"{ordered[i]['session_date']} → {ordered[i + 1]['session_date']}",
@@ -391,6 +404,7 @@ def progress_segments(conn, puuids, sessions, champion=None, queues=None,
             "from_ms": bounds[i],
             "to_ms": bounds[i + 1],
             "start_ranks": session_ranks(ordered[i]),
+            **anchored(ordered[i]),
         })
     segments.append({
         "label": f"Since {ordered[-1]['session_date']}",
@@ -398,6 +412,7 @@ def progress_segments(conn, puuids, sessions, champion=None, queues=None,
         "from_ms": bounds[-1],
         "to_ms": now_ms,
         "start_ranks": session_ranks(ordered[-1]),
+        **anchored(ordered[-1]),
     })
 
     results = []

@@ -145,10 +145,15 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
 - Sessions have `title`, optional `coach`, and Markdown `notes` (legacy `note`
   column auto-migrates in `db._migrate`; `coach` is an additive column).
-  The Coaching-progress view is two panes — Progress (segment table) and
-  Sessions (the log) — switched by `#progress-tabs`/`setProgressTab`, opening on
-  the `progress_default_tab` setting ("progress"/"sessions") and then staying
-  wherever the user last put it. Adding AND editing a session both go through
+  The Coaching-progress view is ONE table, not a table plus a session log:
+  `stats.progress_segments` attaches the anchoring session (`session_id`,
+  `session_date`, `session_title`, `coach`, `notes`) to each period, so a row
+  IS the session it follows and expanding it shows that session's notes/clips
+  (`sessionRecordPanel`) above the period's metrics. The Baseline row stays
+  visible as the pre-coaching reference and anchors to no session
+  (`session_id: None`), so it carries stats but no record. Filters live inside
+  the panel header — they only filter that table. Adding AND editing a session
+  both go through
   one popup (`openSessionModal`/`renderSessionModal`, the shared
   `#modal-overlay` shell); there is no inline session editor any more, which is
   why `coach` is backfillable on old sessions. The `coaches` table is ONLY the

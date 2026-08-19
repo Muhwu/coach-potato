@@ -2018,11 +2018,25 @@ def test_session_export_names_the_coach(client):
     assert "Coach: LS" in text and "- freeze" in text
 
 
-def test_progress_default_tab_setting(client):
-    base = client.get("/api/settings").json()
-    assert base["progress_default_tab"] == "progress"
-    # saving settings at all needs a key + account present in the payload
-    base = {**base, "riot_api_key": "RGAPI-x", "accounts": ["Me#EUW"]}
-    assert client.put("/api/settings", json={**base, "progress_default_tab": "sessions"}).status_code == 200
-    assert client.get("/api/settings").json()["progress_default_tab"] == "sessions"
-    assert client.put("/api/settings", json={**base, "progress_default_tab": "nope"}).status_code == 400
+
+
+def test_progress_rows_carry_their_coaching_session(client):
+    """Each period row IS the session it follows, so the table can show that
+    session's notes/coach without a second list of the same sessions."""
+    client.post("/api/sessions", json={
+        "date": "2023-11-15", "title": "waves", "coach": "LS", "notes": "- freeze"})
+    client.post("/api/sessions", json={"date": "2023-11-16", "title": "trading"})
+    segments = client.get("/api/stats/progress").json()
+    labels = [s["label"] for s in segments]
+    assert labels[0] == "Baseline"           # kept visible as the reference
+    assert segments[0]["session_id"] is None  # ...and anchors to no session
+    assert segments[0]["notes"] == "" and segments[0]["coach"] == ""
+
+    between = segments[1]
+    assert between["session_id"] is not None
+    assert between["session_title"] == "waves"
+    assert between["coach"] == "LS"
+    assert between["notes"] == "- freeze"
+    assert between["session_date"] == "2023-11-15"
+    # the last row anchors to the most recent session
+    assert segments[-1]["session_title"] == "trading"
