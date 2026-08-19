@@ -1195,7 +1195,8 @@ function renderProgress(segments) {
   });
 }
 
-const sessionUi = { expanded: new Set(), editing: null, clips: new Map() };
+const sessionUi = { expanded: new Set(), clips: new Map(),
+                    tab: null, coaches: [], modal: null };
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g,
@@ -2188,32 +2189,150 @@ function wireReflectionSection(container, reload, rerender) {
     }));
 }
 
+// ---------- coaching sessions: panes + the add/edit popup ----------
+
+function setProgressTab(tab) {
+  sessionUi.tab = tab === "sessions" ? "sessions" : "progress";
+  $("#progress-pane").classList.toggle("hidden", sessionUi.tab !== "progress");
+  $("#sessions-pane").classList.toggle("hidden", sessionUi.tab !== "sessions");
+  document.querySelectorAll("#progress-tabs button[data-ptab]").forEach((btn) =>
+    btn.classList.toggle("active", btn.dataset.ptab === sessionUi.tab));
+}
+
+async function ensureCoaches() {
+  try {
+    sessionUi.coaches = (await getJSON("/api/coaches")).coaches || [];
+  } catch { sessionUi.coaches = []; }
+  return sessionUi.coaches;
+}
+
+// `session` = editing an existing one; omitted = adding a new one
+function openSessionModal(session) {
+  sessionUi.modal = session
+    ? { id: session.id, date: session.session_date, title: session.title,
+        coach: session.coach || "", notes: session.notes || "" }
+    : { id: null, date: new Date().toISOString().slice(0, 10),
+        title: "", coach: "", notes: "" };
+  $("#modal-overlay").classList.remove("hidden");
+  renderSessionModal();
+  ensureCoaches().then(renderSessionModal);   // suggestions arrive when they do
+}
+
+function renderSessionModal() {
+  const m = sessionUi.modal;
+  if (!m) return;
+  // Suggestions are an autocomplete, not the record: the ✕ only stops offering
+  // a name, it never touches the sessions that already name them.
+  const chips = sessionUi.coaches.length
+    ? `<div class="coach-chips">${sessionUi.coaches.map((name) => `
+        <span class="chip ${name === m.coach ? "chip-main" : "chip-plain"}">
+          <button type="button" class="coach-pick" data-name="${escapeHtml(name)}"
+            title="Use this coach">${escapeHtml(name)}</button>
+          <button type="button" class="chip-x coach-forget" data-name="${escapeHtml(name)}"
+            title="Stop suggesting ${escapeHtml(name)} (sessions keep it)"
+            aria-label="Stop suggesting ${escapeHtml(name)}">×</button>
+        </span>`).join("")}</div>`
+    : "";
+  $("#modal-box").innerHTML = `<div class="session-modal">
+    <div class="section-head">
+      <h3>${m.id ? "Edit session" : "New coaching session"}</h3>
+      <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
+    </div>
+    <div class="session-modal-row">
+      <div class="filter-group">
+        <label class="filter-label" for="sm-date">Date</label>
+        <input type="date" id="sm-date" value="${escapeHtml(m.date)}" ${m.id ? "disabled" : ""}>
+      </div>
+      <div class="filter-group" style="flex:1">
+        <label class="filter-label" for="sm-title">Title</label>
+        <input type="text" id="sm-title" value="${escapeHtml(m.title)}"
+          placeholder="e.g. wave management" style="width:100%">
+      </div>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="sm-coach">Coach <span class="muted">(optional)</span></label>
+      <input type="text" id="sm-coach" value="${escapeHtml(m.coach)}"
+        placeholder="who ran this session" style="width:100%">
+      ${chips}
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="sm-notes">Notes (Markdown)</label>
+      <textarea id="sm-notes" rows="12"
+        placeholder="What was covered, what to work on…">${escapeHtml(m.notes)}</textarea>
+    </div>
+    <div class="session-actions">
+      <button class="btn-primary" id="sm-save">${m.id ? "Save session" : "Add session"}</button>
+      <button class="preset" id="sm-cancel">Cancel</button>
+      <span class="muted" id="sm-status"></span>
+    </div>
+  </div>`;
+  wireSessionModal();
+}
+
+function readSessionModal() {
+  const m = sessionUi.modal;
+  m.title = $("#sm-title").value;
+  m.coach = $("#sm-coach").value;
+  m.notes = $("#sm-notes").value;
+  if (!m.id) m.date = $("#sm-date").value;
+}
+
+function wireSessionModal() {
+  const box = $("#modal-box");
+  box.querySelector("#modal-close").addEventListener("click", closeModal);
+  box.querySelector("#sm-cancel").addEventListener("click", closeModal);
+  box.querySelectorAll(".coach-pick").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      readSessionModal();
+      sessionUi.modal.coach = btn.dataset.name;
+      renderSessionModal();
+    }));
+  box.querySelectorAll(".coach-forget").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      readSessionModal();
+      await fetch(`/api/coaches/${encodeURIComponent(btn.dataset.name)}`, { method: "DELETE" });
+      await ensureCoaches();
+      renderSessionModal();
+    }));
+  box.querySelector("#sm-save").addEventListener("click", async () => {
+    readSessionModal();
+    const m = sessionUi.modal;
+    const status = $("#sm-status");
+    status.textContent = "";
+    const response = m.id
+      ? await fetch(`/api/sessions/${m.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: m.title, coach: m.coach, notes: m.notes }) })
+      : await fetch("/api/sessions", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: m.date, title: m.title, coach: m.coach, notes: m.notes }) });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      status.textContent = body.detail || `error ${response.status}`;
+      return;   // keep what they typed
+    }
+    sessionUi.modal = null;
+    closeModal();
+    loadProgress();
+  });
+}
+
 function sessionCard(s) {
   const expanded = sessionUi.expanded.has(s.id);
-  const editing = sessionUi.editing === s.id;
   let body = "";
-  if (editing) {
-    body = `<div class="session-body">
-      <label class="filter-label" for="edit-title-${s.id}">Title</label>
-      <input type="text" id="edit-title-${s.id}" value="${escapeHtml(s.title)}" style="width:100%">
-      <label class="filter-label" for="edit-notes-${s.id}">Notes (Markdown)</label>
-      <textarea id="edit-notes-${s.id}" rows="10">${escapeHtml(s.notes)}</textarea>
-      <div class="session-actions">
-        <button class="preset session-save" data-id="${s.id}">Save</button>
-        <button class="preset session-cancel">Cancel</button>
-      </div>
-    </div>`;
-  } else if (expanded) {
+  if (expanded) {
     body = `<div class="session-body md-body">${renderNotes(s.notes)}</div>`;
   }
-  const clips = (expanded || editing)
+  const clips = expanded
     ? clipsSection("session", s.id, sessionUi.clips.get(s.id)) : "";
   return `<div class="session-card">
     <div class="session-head">
       <button class="preset session-toggle" data-id="${s.id}" aria-expanded="${expanded}">
-        ${expanded || editing ? "▾" : "▸"}</button>
+        ${expanded ? "▾" : "▸"}</button>
       <span class="session-date">${s.session_date}</span>
       <span class="session-title">${s.title ? escapeHtml(s.title) : "<span class='muted'>untitled</span>"}</span>
+      ${s.coach ? `<span class="chip chip-plain session-coach"
+        title="Coached by ${escapeHtml(s.coach)}">🎓 ${escapeHtml(s.coach)}</span>` : ""}
       <span class="session-actions">
         <button class="preset icon-btn session-edit" data-id="${s.id}" title="Edit session" aria-label="Edit session">✎</button>
         <button class="preset icon-btn session-delete" data-id="${s.id}" title="Delete session" aria-label="Delete session">🗑</button>
@@ -2241,7 +2360,6 @@ function renderSessions(sessionRows) {
       const id = +btn.dataset.id;
       if (sessionUi.expanded.has(id)) {
         sessionUi.expanded.delete(id);
-        if (sessionUi.editing === id) sessionUi.editing = null;
         renderSessions(sessionRows);
         return;
       }
@@ -2251,34 +2369,11 @@ function renderSessions(sessionRows) {
       renderSessions(sessionRows);
     }));
   target.querySelectorAll(".session-edit").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const id = +btn.dataset.id;
-      sessionUi.editing = id;
-      sessionUi.expanded.add(id);
-      renderSessions(sessionRows);
-      await ensureSessionClips(id);
-      renderSessions(sessionRows);
-    }));
-  target.querySelectorAll(".session-cancel").forEach((btn) =>
     btn.addEventListener("click", () => {
-      sessionUi.editing = null;
-      renderSessions(sessionRows);
-    }));
-  target.querySelectorAll(".session-save").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const id = +btn.dataset.id;
-      const response = await fetch(`/api/sessions/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: $(`#edit-title-${id}`).value,
-          notes: $(`#edit-notes-${id}`).value,
-        }),
-      });
-      if (response.ok) {
-        sessionUi.editing = null;
-        loadProgress(); // titles appear in the segment table too
-      }
+      // the popup is the one editor now — it's the only place the Coach field
+      // exists, and older sessions are backfilled through exactly this path
+      const session = sessionRows.find((x) => x.id === +btn.dataset.id);
+      if (session) openSessionModal(session);
     }));
   target.querySelectorAll(".session-delete").forEach((btn) =>
     btn.addEventListener("click", async () => {
@@ -2322,6 +2417,9 @@ async function loadProgress() {
   // winrate in percentage points for delta display
   segments.forEach((s) => { s.winrate_pp = s.winrate == null ? null : 100 * s.winrate; });
   segmentUi.cache.clear(); // filters or data changed; refetch game lists on expand
+  // first visit this session lands on the configured tab; after that, whichever
+  // one the user last switched to stays put across reloads of the data
+  if (sessionUi.tab === null) setProgressTab(state.progressDefaultTab || "progress");
   renderProgress(segments);
   renderSessions(sessionRows);
   // re-hydrate anything the user had expanded so panels don't stick on "Loading…"
@@ -2737,6 +2835,7 @@ async function initSettings() {
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-block-series").checked = Boolean(data.block_series_enabled);
   $("#setting-date-format").value = data.date_format || "iso";
+  $("#setting-progress-tab").value = data.progress_default_tab || "progress";
   $("#setting-main-role").innerHTML = roleSettingOptions(data.main_role || "");
   $("#setting-secondary-role").innerHTML = roleSettingOptions(data.secondary_role || "");
   $("#setting-runes-mode").value = data.runes_mode || "matchup";
@@ -2925,6 +3024,7 @@ async function initSettings() {
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         block_series_enabled: $("#setting-block-series").checked,
         date_format: $("#setting-date-format").value,
+        progress_default_tab: $("#setting-progress-tab").value,
         main_role: $("#setting-main-role").value,
         secondary_role: $("#setting-secondary-role").value,
         runes_mode: $("#setting-runes-mode").value,
@@ -3008,23 +3108,11 @@ function wireProgress() {
   $("#progress-side").addEventListener("change", (e) => {
     state.progressSide = e.target.value; loadProgress();
   });
-  $("#session-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const errorEl = $("#session-error");
-    errorEl.textContent = "";
-    const response = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: $("#session-date").value, title: $("#session-title").value }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      errorEl.textContent = body.detail || `error ${response.status}`;
-      return;
-    }
-    $("#session-date").value = "";
-    $("#session-title").value = "";
-    loadProgress();
+  document.querySelectorAll(".session-add-btn").forEach((btn) =>
+    btn.addEventListener("click", () => openSessionModal()));
+  $("#progress-tabs").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-ptab]");
+    if (btn) setProgressTab(btn.dataset.ptab);
   });
 }
 
@@ -3291,6 +3379,7 @@ async function init(firstLoad = true) {
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
     state.dateFormat = settings.date_format || "iso";
+    state.progressDefaultTab = settings.progress_default_tab || "progress";
     state.runesMode = settings.runes_mode || "matchup";
     state.enableComparison = Boolean(settings.enable_player_comparison);
     applyComparisonEnabled();

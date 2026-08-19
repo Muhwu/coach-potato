@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.55.0",
+      "date": "2026-08-19",
+      "items": [
+        "Coaching progress is split into two tabs — Progress and Sessions — so a long session log no longer sits under the segment table. Which one opens by default is a setting (Settings → Interface)",
+        "Adding a session is a popup now, reachable from both tabs instead of a form buried under the whole session list. Editing uses the same popup, with the notes as a full Markdown editor",
+        "Sessions can record who coached them. The field is optional, can be filled in on older sessions afterwards, and remembers coaches you've used so you can pick them again — removing one from those suggestions never changes the sessions that already name them"
+      ]
+    },
+    {
       "version": "1.54.1",
       "date": "2026-08-18",
       "items": [

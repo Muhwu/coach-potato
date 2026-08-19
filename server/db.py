@@ -70,9 +70,18 @@ CREATE TABLE IF NOT EXISTS coaching_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_date TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL DEFAULT '',
+    coach TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     start_ranks TEXT,
     created_at_ms INTEGER
+);
+
+-- The autocomplete list for the session "Coach" field, maintained separately
+-- from the sessions themselves: removing a name here only stops suggesting it,
+-- it never edits the sessions that recorded it.
+CREATE TABLE IF NOT EXISTS coaches (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    added_at_ms INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS participant_metrics (
@@ -327,6 +336,7 @@ def connect(db_path) -> sqlite3.Connection:
     conn.executescript(SCHEMA.format(metric_columns=metric_columns))
     seed_rank_history(conn)
     seed_block_series(conn)
+    seed_coaches(conn)
     return conn
 
 
@@ -342,6 +352,8 @@ def _migrate(conn):
                 "ALTER TABLE coaching_sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
     if session_columns and "start_ranks" not in session_columns:
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN start_ranks TEXT")
+    if session_columns and "coach" not in session_columns:  # who coached it
+        conn.execute("ALTER TABLE coaching_sessions ADD COLUMN coach TEXT NOT NULL DEFAULT ''")
     series_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_series)")}
     if series_columns:
         if "goals" not in series_columns:  # Markdown series goals
@@ -1079,18 +1091,18 @@ def tracked_ranks(conn):
     ]
 
 
-def add_session(conn, session_date, title="", notes=""):
+def add_session(conn, session_date, title="", notes="", coach=""):
     with conn:
         cursor = conn.execute(
             """INSERT INTO coaching_sessions
-               (session_date, title, notes, start_ranks, created_at_ms)
-               VALUES (?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
-            (session_date, title, notes, json.dumps(tracked_ranks(conn))),
+               (session_date, title, coach, notes, start_ranks, created_at_ms)
+               VALUES (?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
+            (session_date, title, coach, notes, json.dumps(tracked_ranks(conn))),
         )
     return cursor.lastrowid
 
 
-def update_session(conn, session_id, title=None, notes=None):
+def update_session(conn, session_id, title=None, notes=None, coach=None):
     """Update the given fields (None = leave unchanged). False if id missing."""
     sets, params = [], []
     if title is not None:
@@ -1099,6 +1111,9 @@ def update_session(conn, session_id, title=None, notes=None):
     if notes is not None:
         sets.append("notes=?")
         params.append(notes)
+    if coach is not None:
+        sets.append("coach=?")
+        params.append(coach)
     if not sets:
         return False
     with conn:
@@ -1113,6 +1128,49 @@ def list_sessions(conn):
     return conn.execute(
         "SELECT * FROM coaching_sessions ORDER BY session_date"
     ).fetchall()
+
+
+def list_coaches(conn):
+    """Names offered as suggestions on the session Coach field, A-Z."""
+    return [r["name"] for r in conn.execute(
+        "SELECT name FROM coaches ORDER BY name COLLATE NOCASE")]
+
+
+def add_coach(conn, name):
+    """Remember a coach for future suggestions (idempotent, case-insensitive)."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO coaches (name, added_at_ms) VALUES (?, {_now_expr()})
+                ON CONFLICT(name) DO NOTHING""", (name,))
+    return cursor.rowcount > 0
+
+
+def remove_coach(conn, name):
+    """Stop suggesting a coach. Sessions that recorded them are untouched — that
+    history is theirs. Removing also ends the automatic seeding below: from the
+    first removal on, the list is yours to curate and nothing re-adds a name you
+    took out."""
+    with conn:
+        cursor = conn.execute("DELETE FROM coaches WHERE name=?", ((name or "").strip(),))
+    if cursor.rowcount:
+        set_settings(conn, {"coaches_curated": "1"})
+    return cursor.rowcount > 0
+
+
+def seed_coaches(conn):
+    """Backfill the suggestion list from coaches already recorded on sessions —
+    on upgrade, and for anything that arrives outside the app (a restored
+    backup). Stops for good the first time the user removes a suggestion, so a
+    curated list is never undone by an old session still naming someone."""
+    if get_settings(conn).get("coaches_curated") == "1":
+        return
+    names = [r["coach"] for r in conn.execute(
+        "SELECT DISTINCT coach FROM coaching_sessions WHERE TRIM(coach) != ''")]
+    for name in names:
+        add_coach(conn, name)
 
 
 def delete_session(conn, session_id):

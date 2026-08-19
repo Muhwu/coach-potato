@@ -1055,3 +1055,57 @@ def test_block_series_closing_notes_column_added_to_existing_db(tmp_path):
     row = next(r for r in db.list_block_series(c) if r["id"] == sid)
     assert (row["title"], row["goals"], row["closing_notes"]) == ("kept", "kept goals", "")
     c.close()
+
+
+def test_session_coach_is_optional_and_editable(conn):
+    sid = db.add_session(conn, "2026-08-01", "waves", notes="n")
+    assert db.list_sessions(conn)[0]["coach"] == ""      # optional, never NULL
+    assert db.update_session(conn, sid, coach="LS") is True   # backfilled later
+    assert db.list_sessions(conn)[0]["coach"] == "LS"
+    # editing the coach alone must not disturb the rest
+    assert db.list_sessions(conn)[0]["title"] == "waves"
+    assert db.list_sessions(conn)[0]["notes"] == "n"
+
+
+def test_removing_a_coach_suggestion_keeps_it_on_the_sessions(conn):
+    db.add_session(conn, "2026-08-01", "waves", coach="LS")
+    db.add_coach(conn, "LS")
+    db.add_coach(conn, "ls")            # case-insensitive: same coach
+    assert db.list_coaches(conn) == ["LS"]
+    assert db.remove_coach(conn, "LS") is True
+    assert db.list_coaches(conn) == []
+    # the session still records who coached it — the list is only autocomplete
+    assert db.list_sessions(conn)[0]["coach"] == "LS"
+    assert db.remove_coach(conn, "LS") is False
+
+
+def test_coach_suggestions_backfill_from_sessions_until_you_curate(tmp_path):
+    path = tmp_path / "s.sqlite"
+    c = db.connect(path)
+    db.add_session(c, "2026-08-01", "waves", coach="LS")
+    c.close()
+    # a later connect backfills the suggestion list from existing sessions —
+    # this is what upgrades (and restored backups) rely on
+    c = db.connect(path)
+    assert db.list_coaches(c) == ["LS"]
+    assert db.remove_coach(c, "LS") is True
+    c.close()
+    # once removed, nothing re-adds it: the session still names LS, but the
+    # suggestion list is the user's to curate from that point on
+    c = db.connect(path)
+    assert db.list_coaches(c) == []
+    assert db.list_sessions(c)[0]["coach"] == "LS"
+    c.close()
+
+
+def test_coach_column_added_to_an_existing_db(tmp_path):
+    path = tmp_path / "old.sqlite"
+    c = db.connect(path)
+    db.add_session(c, "2026-08-01", "kept", notes="kept notes")
+    c.execute("ALTER TABLE coaching_sessions DROP COLUMN coach")
+    c.commit()
+    c.close()
+    c = db.connect(path)   # upgrade re-adds it, session content survives
+    row = db.list_sessions(c)[0]
+    assert (row["title"], row["notes"], row["coach"]) == ("kept", "kept notes", "")
+    c.close()

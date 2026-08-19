@@ -64,54 +64,56 @@
 </div>
 
 <div id="progress-view" class="hidden">
-  <section class="filter-row" aria-label="Progress filters">
-    <div class="filter-group">
-      <label class="filter-label" for="progress-champion">Champion</label>
-      <select id="progress-champion"><option value="">All</option></select>
-    </div>
-    <div class="filter-group">
-      <label class="filter-label" for="progress-queue">Queue</label>
-      <select id="progress-queue"><option value="">All</option></select>
-    </div>
-    <div class="filter-group">
-      <label class="filter-label" for="progress-side">Side</label>
-      <select id="progress-side"><option value="">All</option><option value="blue">Blue</option><option value="red">Red</option></select>
-    </div>
-    <span class="muted">Selected accounts · all roles</span>
-    <span id="progress-cols" style="margin-left:auto"></span>
-  </section>
+  <!-- two panes: the segment table and the session log. They used to be stacked,
+       which put the add-session form below a long list of sessions. -->
+  <div class="view-toggle progress-tabs" id="progress-tabs" role="tablist">
+    <button type="button" role="tab" data-ptab="progress">Progress</button>
+    <button type="button" role="tab" data-ptab="sessions">Sessions</button>
+  </div>
 
-  <section class="panel">
-    <div class="section-head">
-      <h2>Progress between coaching sessions</h2>
-      <div class="head-actions">
-        <button id="progress-compare" class="preset hidden" type="button"
-          title="Compare your totals with other players">⧉ Compare players</button>
-      </div>
-    </div>
-    <div id="progress-table"></div>
-  </section>
-
-  <section class="panel">
-    <div class="section-head">
-      <h2>Coaching sessions</h2>
-      <a class="preset" href="/api/sessions/export.md" download>Export all (.md)</a>
-    </div>
-    <div id="session-list"></div>
-    <form id="session-form" class="filter-row" style="margin-top:10px">
+  <div id="progress-pane">
+    <section class="filter-row" aria-label="Progress filters">
       <div class="filter-group">
-        <label class="filter-label" for="session-date">Date</label>
-        <input type="date" id="session-date" required>
+        <label class="filter-label" for="progress-champion">Champion</label>
+        <select id="progress-champion"><option value="">All</option></select>
       </div>
-      <div class="filter-group" style="flex:1">
-        <label class="filter-label" for="session-title">Title</label>
-        <input type="text" id="session-title" placeholder="e.g. wave management" style="width:100%">
+      <div class="filter-group">
+        <label class="filter-label" for="progress-queue">Queue</label>
+        <select id="progress-queue"><option value="">All</option></select>
       </div>
-      <button type="submit" class="preset">Add session</button>
-      <span id="session-error" class="muted"></span>
-    </form>
-    <p class="muted">Add full notes by expanding a session and clicking edit — Markdown supported.</p>
-  </section>
+      <div class="filter-group">
+        <label class="filter-label" for="progress-side">Side</label>
+        <select id="progress-side"><option value="">All</option><option value="blue">Blue</option><option value="red">Red</option></select>
+      </div>
+      <span class="muted">Selected accounts · all roles</span>
+      <span id="progress-cols" style="margin-left:auto"></span>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Progress between coaching sessions</h2>
+        <div class="head-actions">
+          <button id="progress-compare" class="preset hidden" type="button"
+            title="Compare your totals with other players">⧉ Compare players</button>
+          <button class="preset session-add-btn" type="button">+ Add session</button>
+        </div>
+      </div>
+      <div id="progress-table"></div>
+    </section>
+  </div>
+
+  <div id="sessions-pane" class="hidden">
+    <section class="panel">
+      <div class="section-head">
+        <h2>Coaching sessions</h2>
+        <div class="head-actions">
+          <a class="preset" href="/api/sessions/export.md" download>Export all (.md)</a>
+          <button class="preset session-add-btn" type="button">+ Add session</button>
+        </div>
+      </div>
+      <div id="session-list"></div>
+    </section>
+  </div>
 </div>
 
 <div id="update-banner" class="welcome-banner hidden"></div>
@@ -224,6 +226,14 @@
     <div class="settings-field">
       <p class="muted">The champion pool moved to its own view — Coach →
         <button id="settings-pool-link" class="linkish" type="button">Champion pool</button>.</p>
+    </div>
+
+    <div class="settings-field">
+      <label class="filter-label" for="setting-progress-tab">Coaching progress opens on</label>
+      <select id="setting-progress-tab" style="max-width:16em">
+        <option value="progress">Progress</option>
+        <option value="sessions">Sessions</option>
+      </select>
     </div>
 
     <h3 class="settings-group-head">Playbook</h3>

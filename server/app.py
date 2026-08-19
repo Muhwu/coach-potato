@@ -188,6 +188,8 @@ def _extra_settings(conn):
         "date_format": stored.get("date_format") or "iso",
         "runes_mode": stored.get("runes_mode") or "matchup",
         "enable_player_comparison": stored.get("enable_player_comparison") == "1",
+        # which Coaching-progress tab opens by default: "progress" or "sessions"
+        "progress_default_tab": stored.get("progress_default_tab") or "progress",
         "main_role": stored.get("main_role") or "",         # team_position or ""
         "secondary_role": stored.get("secondary_role") or "",
         "ascent_db_path": stored.get("ascent_db_path") or "",
@@ -312,6 +314,9 @@ def api_put_settings(body: dict):
     enable_comparison = body.get("enable_player_comparison", False)
     if not isinstance(enable_comparison, bool):
         raise HTTPException(400, "enable_player_comparison must be a boolean")
+    progress_tab = body.get("progress_default_tab") or "progress"
+    if progress_tab not in ("progress", "sessions"):
+        raise HTTPException(400, "progress_default_tab must be progress or sessions")
     valid_roles = ("", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
     main_role = body.get("main_role", "") or ""
     secondary_role = body.get("secondary_role", "") or ""
@@ -347,6 +352,7 @@ def api_put_settings(body: dict):
             "date_format": date_format,
             "runes_mode": runes_mode,
             "enable_player_comparison": "1" if enable_comparison else "0",
+            "progress_default_tab": progress_tab,
             "main_role": main_role,
             "secondary_role": secondary_role,
             "ascent_db_path": ascent_db_path,
@@ -519,9 +525,12 @@ def api_add_session(body: dict):
         raise HTTPException(400, "date must be YYYY-MM-DD")
     conn = get_conn()
     try:
+        coach = (body.get("coach") or "").strip()
         session_id = db.add_session(conn, date_str,
                                     title=(body.get("title") or "").strip(),
-                                    notes=body.get("notes") or "")
+                                    notes=body.get("notes") or "",
+                                    coach=coach)
+        db.add_coach(conn, coach)  # remember it for the next session's suggestions
         return {"id": session_id}
     except sqlite3.IntegrityError:
         raise HTTPException(409, f"a session on {date_str} already exists")
@@ -531,15 +540,45 @@ def api_add_session(body: dict):
 
 @app.patch("/api/sessions/{session_id}")
 def api_update_session(session_id: int, body: dict):
+    """Partial update — `coach` is editable so older sessions can be backfilled
+    with who ran them."""
     title = body.get("title")
     notes = body.get("notes")
-    if title is None and notes is None:
-        raise HTTPException(400, "provide title and/or notes")
+    coach = body.get("coach")
+    if title is None and notes is None and coach is None:
+        raise HTTPException(400, "provide title, notes and/or coach")
+    if coach is not None:
+        coach = str(coach).strip()
     conn = get_conn()
     try:
-        if not db.update_session(conn, session_id, title=title, notes=notes):
+        if not db.update_session(conn, session_id, title=title, notes=notes, coach=coach):
             raise HTTPException(404, "no such session")
+        if coach:
+            db.add_coach(conn, coach)
         return {"updated": True}
+    finally:
+        conn.close()
+
+
+@app.get("/api/coaches")
+def api_coaches():
+    """Names suggested on the session Coach field."""
+    conn = get_conn()
+    try:
+        return {"coaches": db.list_coaches(conn)}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/coaches/{name}")
+def api_remove_coach(name: str):
+    """Stop suggesting this coach. Sessions that name them keep it — this list
+    is only an autocomplete, never the record of who coached what."""
+    conn = get_conn()
+    try:
+        if not db.remove_coach(conn, name):
+            raise HTTPException(404, "no such coach")
+        return {"removed": True}
     finally:
         conn.close()
 
@@ -555,6 +594,8 @@ def api_export_sessions():
     for row in reversed(rows):  # newest first
         title = row["title"] or "Session"
         parts.append(f"\n## {row['session_date']} — {title}\n")
+        if row["coach"]:
+            parts.append(f"\n*Coach: {row['coach']}*\n")
         if row["notes"]:
             parts.append(f"\n{row['notes']}\n")
     return Response(

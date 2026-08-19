@@ -143,8 +143,19 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   init and again after a settings save, so it applies without a reload.
   Session CRUD at `/api/sessions`;
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
-- Sessions have `title` + Markdown `notes` (legacy `note` column auto-migrates
-  in `db._migrate`). `PATCH /api/sessions/{id}` edits them;
+- Sessions have `title`, optional `coach`, and Markdown `notes` (legacy `note`
+  column auto-migrates in `db._migrate`; `coach` is an additive column).
+  The Coaching-progress view is two panes — Progress (segment table) and
+  Sessions (the log) — switched by `#progress-tabs`/`setProgressTab`, opening on
+  the `progress_default_tab` setting ("progress"/"sessions") and then staying
+  wherever the user last put it. Adding AND editing a session both go through
+  one popup (`openSessionModal`/`renderSessionModal`, the shared
+  `#modal-overlay` shell); there is no inline session editor any more, which is
+  why `coach` is backfillable on old sessions. The `coaches` table is ONLY the
+  autocomplete list: `db.remove_coach` stops suggesting a name and never edits
+  the sessions that recorded it, and it sets `coaches_curated=1` so
+  `db.seed_coaches` (which backfills the list from existing sessions on connect,
+  for upgrades and restored backups) stops re-adding what you removed. `PATCH /api/sessions/{id}` edits them;
   `GET /api/sessions/export.md` produces the all-sessions Markdown export.
   Markdown renders client-side via vendored `static/vendor/marked.min.js`
   (no CDN at runtime; update by re-downloading from jsdelivr). A session

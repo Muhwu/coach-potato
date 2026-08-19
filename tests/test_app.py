@@ -1980,3 +1980,49 @@ def test_comparison_includes_enabled_players_alongside_you(client):
     # a player with no crawled games still gets a zeroed row, not a missing one
     assert body["players"][0]["scoped"]["games"] == 0
     assert body["you"]["scoped"]["games"] == 3
+
+
+def test_session_coach_round_trip_and_suggestions(client):
+    assert client.post("/api/sessions", json={
+        "date": "2026-08-01", "title": "waves", "coach": " LS "}).status_code == 200
+    session = client.get("/api/sessions").json()[0]
+    assert session["coach"] == "LS"                      # trimmed
+    assert client.get("/api/coaches").json()["coaches"] == ["LS"]
+
+    # a coach can be backfilled onto an older session, and joins the list
+    client.post("/api/sessions", json={"date": "2026-08-08"})
+    older = [s for s in client.get("/api/sessions").json() if s["session_date"] == "2026-08-08"][0]
+    assert older["coach"] == ""
+    assert client.patch(f"/api/sessions/{older['id']}",
+                        json={"coach": "Coach Curtis"}).status_code == 200
+    assert client.get("/api/coaches").json()["coaches"] == ["Coach Curtis", "LS"]
+    # and editing the coach alone leaves title/notes alone
+    assert [s for s in client.get("/api/sessions").json()
+            if s["session_date"] == "2026-08-01"][0]["title"] == "waves"
+
+
+def test_forgetting_a_coach_only_stops_the_suggestion(client):
+    client.post("/api/sessions", json={"date": "2026-08-01", "coach": "LS"})
+    assert client.delete("/api/coaches/LS").status_code == 200
+    assert client.get("/api/coaches").json()["coaches"] == []
+    # the session that recorded them is untouched — this list is autocomplete,
+    # not the record of who coached what
+    assert client.get("/api/sessions").json()[0]["coach"] == "LS"
+    assert client.delete("/api/coaches/LS").status_code == 404
+
+
+def test_session_export_names_the_coach(client):
+    client.post("/api/sessions", json={
+        "date": "2026-08-01", "title": "waves", "coach": "LS", "notes": "- freeze"})
+    text = client.get("/api/sessions/export.md").text
+    assert "Coach: LS" in text and "- freeze" in text
+
+
+def test_progress_default_tab_setting(client):
+    base = client.get("/api/settings").json()
+    assert base["progress_default_tab"] == "progress"
+    # saving settings at all needs a key + account present in the payload
+    base = {**base, "riot_api_key": "RGAPI-x", "accounts": ["Me#EUW"]}
+    assert client.put("/api/settings", json={**base, "progress_default_tab": "sessions"}).status_code == 200
+    assert client.get("/api/settings").json()["progress_default_tab"] == "sessions"
+    assert client.put("/api/settings", json={**base, "progress_default_tab": "nope"}).status_code == 400

@@ -1854,3 +1854,23 @@ footer {
    page, reachable from the current block's header when the page is long */
 .addgame-modal { min-width: min(760px, 92vw); max-width: 900px; }
 .addgame-list { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+
+/* Coaching progress: Progress / Sessions panes. The session log used to sit
+   under the segment table with its add form below it, so adding a session
+   meant scrolling past every session you'd ever had. */
+.progress-tabs { margin-bottom: 12px; }
+.progress-tabs button { font-size: 13px; padding: 5px 16px; }
+
+/* add/edit session popup */
+.session-modal { min-width: min(680px, 92vw); max-width: 780px; }
+.session-modal .session-modal-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.session-modal .filter-group { margin-bottom: 12px; }
+.session-modal textarea { width: 100%; font-family: inherit; }
+.session-modal .session-actions { margin-top: 4px; }
+/* remembered coaches: click the name to use it, × to stop suggesting it */
+.coach-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.coach-chips .chip { padding-right: 4px; }
+.coach-pick { border: none; background: none; padding: 0; font: inherit; cursor: pointer; color: inherit; }
+.coach-forget { opacity: 0.55; }
+.coach-forget:hover { opacity: 1; color: var(--critical); }
+.session-coach { font-weight: 500; }
