@@ -376,7 +376,10 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   Player comparison ("you vs them") is scoped, NOT matchup-only:
   `GET /api/comparison?scope=matchup|champion|overall` returns `you` (all
   tracked puuids aggregated, so it matches how coaching progress treats you)
-  plus one entry per enabled comparison player, every side built by the same
+  plus one entry per enabled comparison player (there is NO cap on how many —
+  `MAX_COMPARISON_PLAYERS` was removed in v1.57.0; the compare window's grid was
+  the only reason for it, and crawling each player is what actually costs time),
+  every side built by the same
   `stats.comparison_entry` so the two are measured identically. Each entry is
   `{scoped, overall, recent}` — `overall` is the champion baseline and is None
   unless the scope is a matchup. `openComparison({my, opp, scope})` in guide.js
@@ -441,6 +444,14 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   session; sections append at the bottom in creation order, no drag-reorder;
   editing a section force-expands it and keeps it expanded after save) in
   `macros.js`.
+- Research (comparison) players carry a free-text `note` (200 chars, validated
+  server-side, escaped on render) shown beside the name; `db.add_comparison_player`
+  refreshes name/server on a re-add but deliberately leaves `note` alone. `POST
+  /api/comparison-players/refresh-all` fetches every player in ONE background job,
+  sequentially — each player gets a region-scoped client with its own rate
+  limiter, so parallel fetches would exceed Riot's per-key limit without either
+  limiter seeing it — and it goes through the same `_riot_job_running()` guard as
+  the crawl and the timeline backfill.
 - **Ascent VOD integration** — `server/recordings.py` imports local recordings
   from Ascent's own sqlite db (`%LOCALAPPDATA%\Ascent\recordings.db`, path
   overridable via the `ascent_db_path` setting). Ascent stores `game_match_id`
