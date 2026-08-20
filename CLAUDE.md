@@ -20,6 +20,16 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
 
 ## Gotchas that matter here
 
+- **The db is copied aside before a new version migrates it**
+  (`db.backup_before_upgrade`, called from `db.connect` BEFORE `_migrate`).
+  It compares `settings.app_version` — read through a separate read-only
+  connection so nothing is touched first — against `config.app_version()`, and
+  on a change writes `<db_dir>/backups/lol-<oldversion>-<stamp>.sqlite` via
+  sqlite's own backup API (so a populated WAL comes too), keeping the newest
+  `db.KEEP_BACKUPS`. The version is stamped only AFTER the migrations succeed,
+  so a crash mid-upgrade means the next launch backs up again rather than
+  overwriting the good copy. Fresh installs back up nothing.
+
 - **Runtime settings live in the db `settings` table** (Settings view /
   `/api/settings`), with `.env` as read-through fallback for dev
   (`config.resolve_settings`; tests monkeypatch `config.ENV_FALLBACK_ROOT`).

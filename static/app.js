@@ -902,6 +902,16 @@ async function refresh() {
 
 // ---------- coaching progress ----------
 
+// The row's heading: the session's own title, or a stand-in built from its
+// date. The bold line used to be the raw date range, which the line under it
+// then repeated — so the title (the only thing that says what the session was
+// about) was buried at the end of a muted subtitle.
+function periodTitle(segment) {
+  if (segment.session_title) return segment.session_title;
+  if (segment.session_date) return `Coaching session, ${fmtDate(segment.from_ms)}`;
+  return segment.label;            // Baseline — not a session at all
+}
+
 function fmtSegmentDates(segment) {
   return `${fmtDate(segment.from_ms)} – ${fmtDate(segment.to_ms)}`;
 }
@@ -1149,15 +1159,6 @@ function sessionRecordPanel(segment) {
   </div>`;
 }
 
-function syncProgressOrderButton() {
-  const btn = $("#progress-order");
-  if (!btn) return;
-  const newestFirst = segmentUi.order === "desc";
-  btn.textContent = newestFirst ? "↓ Newest first" : "↑ Oldest first";
-  btn.title = newestFirst
-    ? "Newest session at the top — click for oldest first"
-    : "Oldest session at the top (Baseline leads) — click for newest first";
-}
 
 function renderProgress(segments) {
   segmentUi.segments = segments;
@@ -1189,12 +1190,17 @@ function renderProgress(segments) {
     let html = `<tr${empty ? ' class="muted"' : ""}>
       <td class="period-cell"><div class="period-wrap">
         <button class="preset seg-toggle" data-i="${i}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"}</button>
-        <div class="period-text"><strong>${segment.label}</strong>${segment.session_id
+        <div class="period-text">
+          <span class="period-title" title="${escapeHtml(periodTitle(segment))}"
+            >${escapeHtml(periodTitle(segment))}</span>${segment.session_id
             ? `<button class="preset icon-btn seg-session-edit" data-id="${segment.session_id}"
                  title="Edit this session" aria-label="Edit this session">✎</button>` : ""}
           ${segment.coach ? `<span class="chip chip-plain session-coach"
             title="Coached by ${escapeHtml(segment.coach)}">🎓 ${escapeHtml(segment.coach)}</span>` : ""}
-          <br><span class="muted period-sub">${fmtSegmentDates(segment)}${segment.note ? " · " + escapeHtml(segment.note) : ""}</span></div>
+          ${segment.link ? `<a class="preset icon-btn session-link" href="${escapeHtml(segment.link)}"
+             target="_blank" rel="noopener noreferrer"
+             title="Open the session recording">🔗</a>` : ""}
+          <br><span class="muted period-sub">${fmtSegmentDates(segment)}</span></div>
       </div></td>` + visible.map((c) => (c.cell ? c.cell(segment) : cells[c.key])).join("") + `</tr>`;
     if (expanded) {
       html += `<tr class="games-row"><td colspan="${visible.length + 1}">
@@ -1205,10 +1211,21 @@ function renderProgress(segments) {
   if (segmentUi.order === "desc") rows.reverse();   // newest session on top
   const body = rows.join("");
   const headers = { winrate: ' class="wr-col"' };
+  const orderArrow = segmentUi.order === "desc" ? "↓" : "↑";
+  const orderTitle = segmentUi.order === "desc"
+    ? "Newest first — click for oldest first"
+    : "Oldest first — click for newest first";
   target.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Period</th>` +
+    <thead><tr><th class="period-th">Period
+      <button type="button" id="progress-order" class="period-order"
+        title="${orderTitle}" aria-label="${orderTitle}">${orderArrow}</button></th>` +
     visible.map((c) => `<th${headers[c.key] || ""}>${c.label}</th>`).join("") +
     `</tr></thead><tbody>${body}</tbody></table></div>`;
+  target.querySelector("#progress-order").addEventListener("click", () => {
+    segmentUi.order = segmentUi.order === "asc" ? "desc" : "asc";
+    localStorage.setItem("cp-progress-order", segmentUi.order);
+    renderProgress(segmentUi.segments);
+  });
   target.querySelectorAll(".seg-session-edit").forEach((btn) =>
     btn.addEventListener("click", () => {
       const seg = segments.find((x) => x.session_id === +btn.dataset.id);
@@ -2270,9 +2287,9 @@ async function ensureCoaches() {
 function openSessionModal(session) {
   sessionUi.modal = session
     ? { id: session.id, date: session.session_date, title: session.title,
-        coach: session.coach || "", notes: session.notes || "" }
+        coach: session.coach || "", link: session.link || "", notes: session.notes || "" }
     : { id: null, date: new Date().toISOString().slice(0, 10),
-        title: "", coach: "", notes: "" };
+        title: "", coach: "", link: "", notes: "" };
   $("#modal-overlay").classList.remove("hidden");
   renderSessionModal();
   ensureCoaches().then(renderSessionModal);   // suggestions arrive when they do
@@ -2284,46 +2301,53 @@ function renderSessionModal() {
   // Suggestions are an autocomplete, not the record: the ✕ only stops offering
   // a name, it never touches the sessions that already name them.
   const chips = sessionUi.coaches.length
-    ? `<div class="coach-chips">${sessionUi.coaches.map((name) => `
-        <span class="chip ${name === m.coach ? "chip-main" : "chip-plain"}">
+    ? `<div class="coach-chips">
+        <span class="muted coach-chips-label">Previously:</span>
+        ${sessionUi.coaches.map((name) => `
+        <span class="chip coach-chip ${name === m.coach ? "chip-main" : "chip-plain"}">
           <button type="button" class="coach-pick" data-name="${escapeHtml(name)}"
             title="Use this coach">${escapeHtml(name)}</button>
-          <button type="button" class="chip-x coach-forget" data-name="${escapeHtml(name)}"
+          <button type="button" class="coach-forget" data-name="${escapeHtml(name)}"
             title="Stop suggesting ${escapeHtml(name)} (sessions keep it)"
             aria-label="Stop suggesting ${escapeHtml(name)}">×</button>
         </span>`).join("")}</div>`
     : "";
   $("#modal-box").innerHTML = `<div class="session-modal">
     <div class="section-head">
-      <h3>${m.id ? "Edit session" : "New coaching session"}</h3>
+      <h3>${m.id ? "Edit coaching session" : "New coaching session"}</h3>
       <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
     </div>
-    <div class="session-modal-row">
-      <div class="filter-group">
-        <label class="filter-label" for="sm-date">Date</label>
-        <input type="date" id="sm-date" value="${escapeHtml(m.date)}" ${m.id ? "disabled" : ""}>
+    <div class="sm-grid">
+      <label class="filter-label" for="sm-date">Date</label>
+      <input type="date" id="sm-date" class="sm-date" value="${escapeHtml(m.date)}"
+        ${m.id ? "disabled title='A session is keyed by its date'" : ""}>
+
+      <label class="filter-label" for="sm-title">Title</label>
+      <input type="text" id="sm-title" value="${escapeHtml(m.title)}"
+        placeholder="e.g. wave management">
+
+      <label class="filter-label" for="sm-coach">Coach</label>
+      <div class="sm-coach-field">
+        <input type="text" id="sm-coach" class="sm-coach" value="${escapeHtml(m.coach)}"
+          placeholder="optional">
+        ${chips}
       </div>
-      <div class="filter-group" style="flex:1">
-        <label class="filter-label" for="sm-title">Title</label>
-        <input type="text" id="sm-title" value="${escapeHtml(m.title)}"
-          placeholder="e.g. wave management" style="width:100%">
+
+      <label class="filter-label" for="sm-link">Recording</label>
+      <input type="url" id="sm-link" value="${escapeHtml(m.link || "")}"
+        placeholder="optional — link to the VOD (weteachleague, YouTube…)">
+
+      <label class="filter-label" for="sm-notes">Notes</label>
+      <div class="sm-notes-field">
+        <textarea id="sm-notes" rows="12"
+          placeholder="What was covered, what to work on…">${escapeHtml(m.notes)}</textarea>
+        <span class="muted sm-hint">Markdown supported</span>
       </div>
     </div>
-    <div class="filter-group">
-      <label class="filter-label" for="sm-coach">Coach <span class="muted">(optional)</span></label>
-      <input type="text" id="sm-coach" value="${escapeHtml(m.coach)}"
-        placeholder="who ran this session" style="width:100%">
-      ${chips}
-    </div>
-    <div class="filter-group">
-      <label class="filter-label" for="sm-notes">Notes (Markdown)</label>
-      <textarea id="sm-notes" rows="12"
-        placeholder="What was covered, what to work on…">${escapeHtml(m.notes)}</textarea>
-    </div>
-    <div class="session-actions">
-      <button class="btn-primary" id="sm-save">${m.id ? "Save session" : "Add session"}</button>
-      <button class="preset" id="sm-cancel">Cancel</button>
+    <div class="sm-actions">
       <span class="muted" id="sm-status"></span>
+      <button class="preset" id="sm-cancel">Cancel</button>
+      <button class="btn-primary" id="sm-save">${m.id ? "Save session" : "Add session"}</button>
     </div>
   </div>`;
   wireSessionModal();
@@ -2333,6 +2357,7 @@ function readSessionModal() {
   const m = sessionUi.modal;
   m.title = $("#sm-title").value;
   m.coach = $("#sm-coach").value;
+  m.link = $("#sm-link").value;
   m.notes = $("#sm-notes").value;
   if (!m.id) m.date = $("#sm-date").value;
 }
@@ -2340,6 +2365,15 @@ function readSessionModal() {
 function wireSessionModal() {
   const box = $("#modal-box");
   box.querySelector("#modal-close").addEventListener("click", closeModal);
+  const date = box.querySelector("#sm-date");
+  if (date && !date.disabled) {
+    // clicking the field pops the calendar, not just the little icon…
+    date.addEventListener("focus", () => { try { date.showPicker(); } catch { /* unsupported */ } });
+    date.addEventListener("click", () => { try { date.showPicker(); } catch { /* unsupported */ } });
+    // …and once a date is chosen the cursor lands where you'd type next
+    date.addEventListener("change", () => box.querySelector("#sm-title").focus());
+    if (!sessionUi.modal.id) requestAnimationFrame(() => date.focus());
+  }
   box.querySelector("#sm-cancel").addEventListener("click", closeModal);
   box.querySelectorAll(".coach-pick").forEach((btn) =>
     btn.addEventListener("click", () => {
@@ -2362,10 +2396,12 @@ function wireSessionModal() {
     const response = m.id
       ? await fetch(`/api/sessions/${m.id}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: m.title, coach: m.coach, notes: m.notes }) })
+          body: JSON.stringify({ title: m.title, coach: m.coach, link: m.link,
+                                 notes: m.notes }) })
       : await fetch("/api/sessions", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date: m.date, title: m.title, coach: m.coach, notes: m.notes }) });
+          body: JSON.stringify({ date: m.date, title: m.title, coach: m.coach,
+                                 link: m.link, notes: m.notes }) });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       status.textContent = body.detail || `error ${response.status}`;
@@ -3098,13 +3134,7 @@ function wireProgress() {
   });
   document.querySelectorAll(".session-add-btn").forEach((btn) =>
     btn.addEventListener("click", () => openSessionModal()));
-  syncProgressOrderButton();
-  $("#progress-order").addEventListener("click", () => {
-    segmentUi.order = segmentUi.order === "asc" ? "desc" : "asc";
-    localStorage.setItem("cp-progress-order", segmentUi.order);
-    syncProgressOrderButton();
-    renderProgress(segmentUi.segments);
-  });
+
 }
 
 // ---------- patch notes ----------

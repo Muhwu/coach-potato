@@ -1874,16 +1874,57 @@ footer {
 .period-text .seg-session-edit { margin-left: 4px; opacity: 0.6; }
 .period-text .seg-session-edit:hover { opacity: 1; }
 
-/* add/edit session popup */
-.session-modal { min-width: min(680px, 92vw); max-width: 780px; }
-.session-modal .session-modal-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-.session-modal .filter-group { margin-bottom: 12px; }
-.session-modal textarea { width: 100%; font-family: inherit; }
-.session-modal .session-actions { margin-top: 4px; }
+/* add/edit session popup: a label column and a field column, so every input
+   starts on the same line and each one is only as wide as its content needs */
+.session-modal { min-width: min(640px, 92vw); max-width: 720px; }
+.sm-grid {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 12px 14px; align-items: center; margin-bottom: 16px;
+}
+.sm-grid > .filter-label { margin: 0; text-align: right; white-space: nowrap; }
+.sm-grid input[type="text"], .sm-grid input[type="url"], .sm-grid textarea {
+  width: 100%; font: inherit;
+}
+.sm-grid .sm-date { width: max-content; }        /* a date is a fixed width */
+.sm-grid .sm-coach { max-width: 20em; }          /* a name, not a paragraph */
+.sm-grid textarea { resize: vertical; min-height: 160px; }
+.sm-coach-field, .sm-notes-field { display: flex; flex-direction: column; gap: 6px; }
+.sm-hint { font-size: 11px; }
+.sm-actions {
+  display: flex; align-items: center; gap: 10px;
+  padding-top: 12px; border-top: 1px solid var(--grid);
+}
+.sm-actions .muted { margin-right: auto; }       /* status left, buttons right */
+
 /* remembered coaches: click the name to use it, × to stop suggesting it */
-.coach-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.coach-chips .chip { padding-right: 4px; }
+.coach-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.coach-chips-label { font-size: 11px; }
+.coach-chip { padding: 2px 4px 2px 9px; gap: 2px; }
 .coach-pick { border: none; background: none; padding: 0; font: inherit; cursor: pointer; color: inherit; }
-.coach-forget { opacity: 0.55; }
-.coach-forget:hover { opacity: 1; color: var(--critical); }
+.coach-forget {
+  border: none; background: none; cursor: pointer; font: inherit; line-height: 1;
+  padding: 0 3px; border-radius: 50%; color: var(--text-secondary); opacity: 0.6;
+}
+.coach-forget:hover { opacity: 1; color: var(--critical); background: var(--accent-wash); }
 .session-coach { font-weight: 500; }
+
+/* sort control lives on the column it sorts */
+.period-th { white-space: nowrap; }
+.period-order {
+  border: none; background: none; cursor: pointer; font: inherit; font-size: 13px;
+  color: var(--text-secondary); padding: 0 2px; margin-left: 4px; border-radius: 4px;
+}
+.period-order:hover { color: var(--series-1); background: var(--accent-wash); }
+/* a period leads with its session's title; long ones truncate and show in full
+   on hover rather than pushing the stats columns off */
+.period-title {
+  font-weight: 650; display: inline-block; max-width: 22em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+}
+.session-link { text-decoration: none; }
+/* learnings: click the rendered notes to edit, click away to save */
+.learnings-display { cursor: text; }
+.learnings-display:hover { outline: 1px dashed var(--border); outline-offset: 4px; }
+.learnings-hint { font-size: 11px; margin-left: auto; }
+.block-learnings { width: 100%; font: inherit; resize: vertical; }

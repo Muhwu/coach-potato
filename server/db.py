@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS coaching_sessions (
     session_date TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL DEFAULT '',
     coach TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     start_ranks TEXT,
     created_at_ms INTEGER
@@ -324,9 +325,79 @@ CREATE TABLE IF NOT EXISTS crawl_state (
 """
 
 
+KEEP_BACKUPS = 5
+
+
+def backup_dir(db_path):
+    return Path(db_path).parent / "backups"
+
+
+def _stored_app_version(db_path):
+    """The app version that last opened this database, read WITHOUT migrating
+    it — the whole point is to look before we touch anything."""
+    try:
+        probe = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = probe.execute(
+            "SELECT value FROM settings WHERE key='app_version'").fetchone()
+        return row[0] if row else ""      # "" = an older db, before stamping
+    except sqlite3.Error:                  # no settings table yet
+        return ""
+    finally:
+        probe.close()
+
+
+def backup_before_upgrade(db_path, version):
+    """Copy the database aside when a new version opens it for the first time,
+    BEFORE any migration runs. Migrations here are additive and tested, but
+    they're also the one thing that touches years of hand-written notes with no
+    undo — a copy costs a few MB and makes a bad upgrade recoverable.
+
+    Uses sqlite's own backup API rather than copying the file, so a populated
+    WAL comes along too. Returns the backup path, or None when there was
+    nothing to back up (fresh install / same version)."""
+    db_path = Path(db_path)
+    if not db_path.exists() or db_path.stat().st_size == 0:
+        return None                        # fresh install: nothing to lose
+    previous = _stored_app_version(db_path)
+    if previous == version:
+        return None                        # already running this version
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_dir = backup_dir(db_path)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / f"{db_path.stem}-{previous or 'pre'}-{stamp}.sqlite"
+    source = sqlite3.connect(db_path)
+    try:
+        dest = sqlite3.connect(target)
+        try:
+            source.backup(dest)            # consistent copy, WAL included
+        finally:
+            dest.close()
+    finally:
+        source.close()
+    _prune_backups(out_dir, db_path.stem)
+    return target
+
+
+def _prune_backups(out_dir, stem):
+    """Keep the newest KEEP_BACKUPS; they're full copies and add up."""
+    backups = sorted(out_dir.glob(f"{stem}-*.sqlite"),
+                     key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in backups[KEEP_BACKUPS:]:
+        try:
+            old.unlink()
+        except OSError:                    # locked/removed underneath us
+            pass
+
+
 def connect(db_path) -> sqlite3.Connection:
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    from .config import app_version        # local: config imports nothing here
+    version = app_version()
+    backup_before_upgrade(db_path, version)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -337,6 +408,9 @@ def connect(db_path) -> sqlite3.Connection:
     seed_rank_history(conn)
     seed_block_series(conn)
     seed_coaches(conn)
+    # stamp only after the migrations succeeded, so a crash mid-upgrade leaves
+    # the old version recorded and the next launch backs up again
+    set_settings(conn, {"app_version": version})
     return conn
 
 
@@ -354,6 +428,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN start_ranks TEXT")
     if session_columns and "coach" not in session_columns:  # who coached it
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN coach TEXT NOT NULL DEFAULT ''")
+    if session_columns and "link" not in session_columns:  # where the VOD lives
+        conn.execute("ALTER TABLE coaching_sessions ADD COLUMN link TEXT NOT NULL DEFAULT ''")
     series_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_series)")}
     if series_columns:
         if "goals" not in series_columns:  # Markdown series goals
@@ -1091,18 +1167,18 @@ def tracked_ranks(conn):
     ]
 
 
-def add_session(conn, session_date, title="", notes="", coach=""):
+def add_session(conn, session_date, title="", notes="", coach="", link=""):
     with conn:
         cursor = conn.execute(
             """INSERT INTO coaching_sessions
-               (session_date, title, coach, notes, start_ranks, created_at_ms)
-               VALUES (?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
-            (session_date, title, coach, notes, json.dumps(tracked_ranks(conn))),
+               (session_date, title, coach, link, notes, start_ranks, created_at_ms)
+               VALUES (?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
+            (session_date, title, coach, link, notes, json.dumps(tracked_ranks(conn))),
         )
     return cursor.lastrowid
 
 
-def update_session(conn, session_id, title=None, notes=None, coach=None):
+def update_session(conn, session_id, title=None, notes=None, coach=None, link=None):
     """Update the given fields (None = leave unchanged). False if id missing."""
     sets, params = [], []
     if title is not None:
@@ -1114,6 +1190,9 @@ def update_session(conn, session_id, title=None, notes=None, coach=None):
     if coach is not None:
         sets.append("coach=?")
         params.append(coach)
+    if link is not None:
+        sets.append("link=?")
+        params.append(link)
     if not sets:
         return False
     with conn:

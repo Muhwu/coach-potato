@@ -1109,3 +1109,51 @@ def test_coach_column_added_to_an_existing_db(tmp_path):
     row = db.list_sessions(c)[0]
     assert (row["title"], row["notes"], row["coach"]) == ("kept", "kept notes", "")
     c.close()
+
+
+def _versions(monkeypatch, version):
+    """Pretend the app is at `version` for the next db.connect()."""
+    from server import config
+    monkeypatch.setattr(config, "app_version", lambda: version)
+
+
+def test_upgrading_backs_the_database_up_before_migrating(tmp_path, monkeypatch):
+    path = tmp_path / "lol.sqlite"
+    _versions(monkeypatch, "1.0.0")
+    c = db.connect(path)
+    db.add_session(c, "2026-08-01", "waves", notes="hand-written notes")
+    c.close()
+    assert list(db.backup_dir(path).glob("*.sqlite")) == []   # same version, no copy
+
+    _versions(monkeypatch, "1.1.0")          # a new version opens it
+    c = db.connect(path)
+    c.close()
+    backups = list(db.backup_dir(path).glob("*.sqlite"))
+    assert len(backups) == 1
+    assert "1.0.0" in backups[0].name        # named for the version it came from
+    # the copy is a real, readable database with the notes intact
+    old = db.connect(backups[0])
+    assert old.execute("SELECT notes FROM coaching_sessions").fetchone()[0] == "hand-written notes"
+    old.close()
+
+    _versions(monkeypatch, "1.1.0")          # reopening the same version: no new copy
+    c = db.connect(path)
+    c.close()
+    assert len(list(db.backup_dir(path).glob("*.sqlite"))) == 1
+
+
+def test_no_backup_for_a_fresh_install(tmp_path, monkeypatch):
+    _versions(monkeypatch, "2.0.0")
+    c = db.connect(tmp_path / "new.sqlite")
+    c.close()
+    assert not db.backup_dir(tmp_path / "new.sqlite").exists()
+
+
+def test_only_the_newest_backups_are_kept(tmp_path, monkeypatch):
+    path = tmp_path / "lol.sqlite"
+    _versions(monkeypatch, "1.0.0")
+    db.connect(path).close()
+    for i in range(db.KEEP_BACKUPS + 3):
+        _versions(monkeypatch, f"1.{i + 1}.0")
+        db.connect(path).close()
+    assert len(list(db.backup_dir(path).glob("*.sqlite"))) == db.KEEP_BACKUPS

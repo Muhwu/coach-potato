@@ -904,15 +904,20 @@ function blockCard(block, isCurrent) {
   const wins = block.games.filter((g) => g.win).length;
   const collapsed = blockState.collapsed.has(block.id);
   const editing = blockState.editingLearnings === block.id;
+  // Click to edit, blur to save — same as a game's notes. There are no Save/
+  // Cancel buttons because there is nothing to lose: leaving the field IS the
+  // save, and Esc abandons the edit. (Before this, anything that re-rendered
+  // the view while the editor was open threw the draft away.)
   let learnings;
   if (editing) {
     learnings = `<div class="session-body">
-      <label class="filter-label" for="block-learnings-${block.id}">Learnings (Markdown)</label>
-      <textarea id="block-learnings-${block.id}" rows="8">${escapeHtml(block.learnings)}</textarea>
-      <div class="session-actions">
-        <button class="preset learnings-save" data-id="${block.id}">Save</button>
-        <button class="preset learnings-cancel">Cancel</button>
-      </div></div>`;
+      <div class="learnings-head">
+        <h4>Learnings</h4>
+        <span class="muted learnings-hint">Markdown · click away to save · Esc to cancel</span>
+      </div>
+      <textarea class="block-learnings" id="block-learnings-${block.id}"
+        data-id="${block.id}" rows="8">${escapeHtml(block.learnings)}</textarea>
+    </div>`;
   } else {
     learnings = `<div class="session-body">
       <div class="learnings-head">
@@ -920,7 +925,8 @@ function blockCard(block, isCurrent) {
         <button class="preset icon-btn learnings-edit" data-id="${block.id}"
           title="Edit learnings" aria-label="Edit learnings">✎</button>
       </div>
-      <div class="md-body">${block.learnings
+      <div class="md-body learnings-display" data-id="${block.id}" title="Click to edit">${
+        block.learnings
         ? renderNotes(block.learnings)
         : `<p class="muted">No learnings recorded yet.</p>`}</div>
     </div>`;
@@ -1038,22 +1044,39 @@ function renderBlocks() {
       blockState.editingLearnings = +btn.dataset.id;
       renderBlocks();
     }));
-  target.querySelectorAll(".learnings-cancel").forEach((btn) =>
-    btn.addEventListener("click", () => {
+  target.querySelectorAll(".learnings-display").forEach((el) =>
+    el.addEventListener("click", () => {
+      blockState.editingLearnings = +el.dataset.id;
+      renderBlocks();
+      const input = target.querySelector(`.block-learnings[data-id="${el.dataset.id}"]`);
+      if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }));
+  target.querySelectorAll(".block-learnings").forEach((input) => {
+    let cancelled = false;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { cancelled = true; input.blur(); }
+      // Enter must stay a newline here — learnings are paragraphs, not a
+      // one-liner like a game note
+    });
+    input.addEventListener("blur", async () => {
+      const id = +input.dataset.id;
+      if (!cancelled) {
+        await fetch(`/api/blocks/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ learnings: input.value }),
+        });
+        const block = blockState.blocks.find((b) => b.id === id);
+        if (block) block.learnings = input.value;
+      }
+      cancelled = false;
       blockState.editingLearnings = null;
       renderBlocks();
-    }));
-  target.querySelectorAll(".learnings-save").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const id = +btn.dataset.id;
-      await fetch(`/api/blocks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ learnings: $(`#block-learnings-${id}`).value }),
-      });
-      blockState.editingLearnings = null;
-      loadBlocks();
-    }));
+    });
+  });
   target.querySelectorAll(".notes-display").forEach((el) =>
     el.addEventListener("click", () => {
       blockState.editingNotes = +el.dataset.entry;

@@ -1,6 +1,18 @@
 {
   "entries": [
     {
+      "version": "1.56.0",
+      "date": "2026-08-21",
+      "items": [
+        "Your database is now copied aside before a new version migrates it, so a bad upgrade can't take your notes with it. Copies land in a backups/ folder next to the database (newest five kept) and are taken before any migration runs",
+        "A coaching session can hold a link to its recording — paste the weteachleague/YouTube URL in the session popup and a 🔗 appears on its row",
+        "Block learnings save when you click away, like game notes do: click the text to edit, click out to save, Esc to cancel. No more Save/Cancel buttons, and no more losing what you typed when the view refreshes underneath you",
+        "The session popup got a styling pass — aligned label/field grid, sensibly sized inputs, tidier coach chips — and the date field opens a calendar and jumps to the title once you pick a day",
+        "Coaching periods lead with the session's title (or its date when untitled) instead of repeating the date range twice; long titles truncate and show in full on hover",
+        "Sorting moved onto the Period column as an ↑/↓ you click, and the header buttons slimmed down to ⧉ Compare, a 📤 export icon and 🎓 + Session"
+      ]
+    },
+    {
       "version": "1.55.1",
       "date": "2026-08-20",
       "items": [

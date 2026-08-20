@@ -523,7 +523,8 @@ def api_add_session(body: dict):
         session_id = db.add_session(conn, date_str,
                                     title=(body.get("title") or "").strip(),
                                     notes=body.get("notes") or "",
-                                    coach=coach)
+                                    coach=coach,
+                                    link=_clean_session_link(body.get("link")))
         db.add_coach(conn, coach)  # remember it for the next session's suggestions
         return {"id": session_id}
     except sqlite3.IntegrityError:
@@ -539,19 +540,35 @@ def api_update_session(session_id: int, body: dict):
     title = body.get("title")
     notes = body.get("notes")
     coach = body.get("coach")
-    if title is None and notes is None and coach is None:
-        raise HTTPException(400, "provide title, notes and/or coach")
+    link = body.get("link")
+    if title is None and notes is None and coach is None and link is None:
+        raise HTTPException(400, "provide title, notes, coach and/or link")
     if coach is not None:
         coach = str(coach).strip()
+    if link is not None:
+        link = _clean_session_link(link)
     conn = get_conn()
     try:
-        if not db.update_session(conn, session_id, title=title, notes=notes, coach=coach):
+        if not db.update_session(conn, session_id, title=title, notes=notes,
+                                 coach=coach, link=link):
             raise HTTPException(404, "no such session")
         if coach:
             db.add_coach(conn, coach)
         return {"updated": True}
     finally:
         conn.close()
+
+
+def _clean_session_link(value):
+    """Where the coach posted the VOD (weteachleague, YouTube, a Drive link…).
+    Only the scheme is constrained — an http(s) URL is the one thing that can
+    be opened safely from a link; javascript:/data: are refused outright."""
+    link = str(value or "").strip()
+    if not link:
+        return ""
+    if not re.match(r"^https?://", link, re.I):
+        raise HTTPException(400, "link must start with http:// or https://")
+    return link
 
 
 @app.get("/api/coaches")
@@ -590,6 +607,8 @@ def api_export_sessions():
         parts.append(f"\n## {row['session_date']} — {title}\n")
         if row["coach"]:
             parts.append(f"\n*Coach: {row['coach']}*\n")
+        if row["link"]:
+            parts.append(f"\n[Session recording]({row['link']})\n")
         if row["notes"]:
             parts.append(f"\n{row['notes']}\n")
     return Response(

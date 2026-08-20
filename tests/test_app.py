@@ -2040,3 +2040,25 @@ def test_progress_rows_carry_their_coaching_session(client):
     assert between["session_date"] == "2023-11-15"
     # the last row anchors to the most recent session
     assert segments[-1]["session_title"] == "trading"
+
+
+def test_session_link_is_optional_and_validated(client):
+    client.post("/api/sessions", json={"date": "2026-08-01", "title": "waves"})
+    session = client.get("/api/sessions").json()[0]
+    assert session["link"] == ""
+    # a coach's VOD lives on some site — store it, don't interpret it
+    assert client.patch(f"/api/sessions/{session['id']}",
+                        json={"link": "https://weteachleague.com/vod/123"}).status_code == 200
+    assert client.get("/api/sessions").json()[0]["link"] == "https://weteachleague.com/vod/123"
+    # only http(s): a link is something the UI will open
+    assert client.patch(f"/api/sessions/{session['id']}",
+                        json={"link": "javascript:alert(1)"}).status_code == 400
+    assert client.patch(f"/api/sessions/{session['id']}",
+                        json={"link": "weteachleague.com/vod"}).status_code == 400
+    # clearing it is allowed
+    assert client.patch(f"/api/sessions/{session['id']}", json={"link": ""}).status_code == 200
+    assert client.get("/api/sessions").json()[0]["link"] == ""
+    # and it reaches the progress rows + export
+    client.patch(f"/api/sessions/{session['id']}", json={"link": "https://youtu.be/x"})
+    assert client.get("/api/stats/progress").json()[-1]["link"] == "https://youtu.be/x"
+    assert "https://youtu.be/x" in client.get("/api/sessions/export.md").text
