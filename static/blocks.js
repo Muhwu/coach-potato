@@ -1039,21 +1039,19 @@ function renderBlocks() {
       })));
   target.querySelectorAll(".series-open").forEach((btn) =>
     btn.addEventListener("click", () => openSeriesModal(+btn.dataset.series)));
+  const openLearnings = (id) => {
+    blockState.editingLearnings = +id;
+    renderBlocks();
+    const input = target.querySelector(`.block-learnings[data-id="${id}"]`);
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  };
   target.querySelectorAll(".learnings-edit").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      blockState.editingLearnings = +btn.dataset.id;
-      renderBlocks();
-    }));
+    btn.addEventListener("click", () => openLearnings(btn.dataset.id)));
   target.querySelectorAll(".learnings-display").forEach((el) =>
-    el.addEventListener("click", () => {
-      blockState.editingLearnings = +el.dataset.id;
-      renderBlocks();
-      const input = target.querySelector(`.block-learnings[data-id="${el.dataset.id}"]`);
-      if (input) {
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
-      }
-    }));
+    el.addEventListener("click", () => openLearnings(el.dataset.id)));
   target.querySelectorAll(".block-learnings").forEach((input) => {
     let cancelled = false;
     input.addEventListener("keydown", (e) => {

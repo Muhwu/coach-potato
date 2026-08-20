@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.56.2",
+      "date": "2026-08-21",
+      "items": [
+        "Fixed: the ✎ on a block's learnings opened the editor without putting the cursor in it — it now focuses the text like clicking the notes does"
+      ]
+    },
+    {
       "version": "1.56.1",
       "date": "2026-08-21",
       "items": [
