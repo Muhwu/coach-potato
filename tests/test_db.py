@@ -741,19 +741,63 @@ def test_champion_notes_gains_runes_column_on_upgrade(tmp_path):
     c.close()
 
 
-def test_comparison_players_crud_and_limit(tmp_path):
+def test_comparison_players_crud_is_uncapped(tmp_path):
     c = db.connect(tmp_path / "cp.sqlite")
-    for i in range(db.MAX_COMPARISON_PLAYERS):
+    for i in range(25):  # no cap on how many players you can compare against
         assert db.add_comparison_player(c, f"p{i}", f"Name{i}", "EUW") is True
-    # one past the max is rejected
-    assert db.add_comparison_player(c, "over", "TooMany", "EUW") is False
-    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS
+    assert len(db.list_comparison_players(c)) == 25
+    # re-adding a known puuid refreshes it rather than duplicating
+    assert db.add_comparison_player(c, "p0", "Renamed", "EUW") is True
+    assert len(db.list_comparison_players(c)) == 25
+    assert db.list_comparison_players(c)[0]["game_name"] == "Renamed"
     db.set_comparison_enabled(c, "p0", False)
     assert "p0" not in db.comparison_puuids(c, enabled_only=True)
     assert db.bump_comparison_lookback(c, "p1") == 2 * db.COMPARISON_LOOKBACK_DAYS
     db.remove_comparison_player(c, "p0")
-    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS - 1
-    assert db.add_comparison_player(c, "again", "Again", "EUW") is True  # slot freed
+    assert len(db.list_comparison_players(c)) == 24
+    c.close()
+
+
+def test_comparison_player_note_survives_a_re_add(tmp_path):
+    """The note is yours, not Riot's: re-adding a known player (which refreshes
+    their display name/server) must not wipe what you wrote about them."""
+    c = db.connect(tmp_path / "cp.sqlite")
+    db.add_comparison_player(c, "p1", "Rival", "EUW", "euw1")
+    assert db.list_comparison_players(c)[0]["note"] == ""  # blank until set
+    db.set_comparison_note(c, "p1", "challenger Gwen, watch the level 6 all-in")
+    db.add_comparison_player(c, "p1", "Renamed", "EUW", "euw1")
+    row = db.list_comparison_players(c)[0]
+    assert row["game_name"] == "Renamed"
+    assert row["note"] == "challenger Gwen, watch the level 6 all-in"
+    db.set_comparison_note(c, "unknown-puuid", "no-op")  # must not raise
+    c.close()
+
+
+def test_comparison_players_gains_the_note_column_on_upgrade(tmp_path):
+    """Upgrading a db whose comparison_players predates the note column must
+    add it additively and keep the players already in there."""
+    path = tmp_path / "old.sqlite"
+    raw = sqlite3.connect(path)
+    raw.execute("""CREATE TABLE comparison_players (
+        puuid TEXT PRIMARY KEY,
+        game_name TEXT NOT NULL DEFAULT '',
+        tag_line TEXT NOT NULL DEFAULT '',
+        platform TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        lookback_days INTEGER NOT NULL DEFAULT 60,
+        sort INTEGER NOT NULL DEFAULT 0,
+        added_at_ms INTEGER
+    )""")
+    raw.execute("INSERT INTO comparison_players (puuid, game_name, tag_line) "
+                "VALUES ('p1', 'Rival', 'EUW')")
+    raw.commit()
+    raw.close()
+    c = db.connect(path)
+    assert db.list_comparison_players(c) == [dict(
+        puuid="p1", game_name="Rival", tag_line="EUW", platform="", note="",
+        enabled=1, lookback_days=60, sort=0, added_at_ms=None)]
+    db.set_comparison_note(c, "p1", "smurf account")
+    assert db.list_comparison_players(c)[0]["note"] == "smurf account"
     c.close()
 
 

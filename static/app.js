@@ -2736,6 +2736,7 @@ async function initPlayers() {
   if (playersUi.wired) return;
   playersUi.wired = true;
   $("#comparison-add").addEventListener("click", addComparisonPlayer);
+  $("#comparison-refresh-all").addEventListener("click", refreshAllComparisonPlayers);
   $("#comparison-add-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addComparisonPlayer(); }
   });
@@ -2748,8 +2749,12 @@ async function loadComparisonPlayers() {
   let data;
   try { data = await getJSON("/api/comparison-players"); }
   catch { list.innerHTML = ""; return; }
-  state.comparisonMax = data.max;
-  renderComparisonPlayers(data.players || [], data.fetching || {});
+  // a poll landing mid-edit must not blow away a half-typed note (the list is
+  // re-rendered wholesale); skip this cycle, the next one repaints it
+  const active = document.activeElement;
+  if (!(active && active.classList && active.classList.contains("cmp-note"))) {
+    renderComparisonPlayers(data.players || [], data.fetching || {});
+  }
   // a background fetch is running — poll until it finishes, updating counts
   const status = $("#comparison-status");
   if (data.fetching && data.fetching.running) {
@@ -2766,7 +2771,6 @@ async function loadComparisonPlayers() {
 function renderComparisonPlayers(players, fetching = {}) {
   const list = $("#comparison-players-list");
   if (!list) return;
-  const max = state.comparisonMax || 5;
   const busy = Boolean(fetching.running);
   list.innerHTML = players.length
     ? players.map((p) => `
@@ -2774,17 +2778,27 @@ function renderComparisonPlayers(players, fetching = {}) {
         <label class="comparison-enable" title="Show this player in the guide comparison">
           <input type="checkbox" class="cmp-enable" ${p.enabled ? "checked" : ""}></label>
         <span class="comparison-name">${escapeHtml(p.game_name)}<span class="muted">#${escapeHtml(p.tag_line)}</span></span>
+        <input class="chip-input cmp-note" type="text" maxlength="200" value="${escapeHtml(p.note || "")}"
+          placeholder="note…" spellcheck="false" autocomplete="off"
+          title="Your note about this player — what they main, why you're watching them">
         <span class="muted comparison-games">${p.platform ? (PLATFORM_LABELS[p.platform] || p.platform.toUpperCase()) + " · " : ""}${p.games} game${p.games === 1 ? "" : "s"}${busy && fetching.puuid === p.puuid ? " · fetching…" : ""}</span>
         <button class="preset cmp-more" type="button" ${busy ? "disabled" : ""}
           title="Fetch &amp; store more of this player's games (deeper history)">Fetch more</button>
         <button class="preset icon-btn cmp-remove" type="button" title="Remove">✕</button>
       </div>`).join("")
-    : `<p class="muted">No comparison players yet — add up to ${max}.</p>`;
-  $("#comparison-add-input").disabled = busy || players.length >= max;
-  $("#comparison-add").disabled = busy || players.length >= max;
+    : `<p class="muted">No comparison players yet — add as many as you like.</p>`;
+  $("#comparison-add-input").disabled = busy;
+  $("#comparison-add").disabled = busy;
+  $("#comparison-refresh-all").disabled = busy || !players.length;
   list.querySelectorAll(".cmp-enable").forEach((cb) =>
     cb.addEventListener("change", () =>
       toggleComparisonPlayer(cb.closest(".comparison-player").dataset.puuid, cb.checked)));
+  list.querySelectorAll(".cmp-note").forEach((input) => {
+    // change fires on blur and on Enter, so one listener covers both
+    input.addEventListener("change", () =>
+      setComparisonNote(input.closest(".comparison-player").dataset.puuid, input.value));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); });
+  });
   list.querySelectorAll(".cmp-more").forEach((btn) =>
     btn.addEventListener("click", () =>
       comparisonFetchMore(btn.closest(".comparison-player").dataset.puuid, btn)));
@@ -2828,6 +2842,34 @@ async function toggleComparisonPlayer(puuid, enabled) {
     method: "PATCH", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
   });
+}
+
+async function setComparisonNote(puuid, note) {
+  const status = $("#comparison-status");
+  const res = await fetch(`/api/comparison-players/${encodeURIComponent(puuid)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    status.textContent = body.detail || `note not saved — error ${res.status}`;
+  }
+}
+
+// every player in one background job — one at a time server-side, since only
+// one Riot fetch may run at a time
+async function refreshAllComparisonPlayers() {
+  const status = $("#comparison-status");
+  const count = document.querySelectorAll("#comparison-players-list .comparison-player").length;
+  if (!count) return;
+  if (!confirm(`Fetch new games for all ${count} research player${count === 1 ? "" : "s"}? `
+             + "Riot's API is rate limited, so this runs in the background and can take a while."))
+    return;
+  status.textContent = "starting…";
+  const res = await fetch("/api/comparison-players/refresh-all", { method: "POST" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) status.textContent = body.detail || `error ${res.status}`;
+  loadComparisonPlayers(); // background fetch started — poll for progress
 }
 
 async function removeComparisonPlayer(puuid) {

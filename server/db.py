@@ -300,6 +300,7 @@ CREATE TABLE IF NOT EXISTS comparison_players (
     game_name TEXT NOT NULL DEFAULT '',
     tag_line TEXT NOT NULL DEFAULT '',
     platform TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     lookback_days INTEGER NOT NULL DEFAULT 60,
     sort INTEGER NOT NULL DEFAULT 0,
@@ -520,6 +521,8 @@ def _migrate(conn):
     cp_columns = {r["name"] for r in conn.execute("PRAGMA table_info(comparison_players)")}
     if cp_columns and "platform" not in cp_columns:  # per-player server added later
         conn.execute("ALTER TABLE comparison_players ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
+    if cp_columns and "note" not in cp_columns:  # per-player note added later
+        conn.execute("ALTER TABLE comparison_players ADD COLUMN note TEXT NOT NULL DEFAULT ''")
     matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
     if matchup_notes_columns and "my_champion" not in matchup_notes_columns:
         # Pre-v1.14.0 shapes had opp_champion as the sole PK (no per-champion
@@ -657,21 +660,20 @@ def delete_account_data(conn, puuid):
         conn.execute("DELETE FROM players WHERE puuid=?", (puuid,))
 
 
-# ---------- comparison ("research") players: up to N others to compare
+# ---------- comparison ("research") players: any number of others to compare
 # yourself against in the Matchup guide. Stored in their own table (separate
 # from tracked `players`) so each can be enabled/disabled independently, on or
 # off as you see fit, without touching your own tracked stats. Their match
 # data still lands in matches/participants like anyone else; this table just
 # records who they are and whether each is currently active. ----------
 
-MAX_COMPARISON_PLAYERS = 6  # 3 + 3 in the comparison window's 3-per-row grid
 COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
 
 
 def list_comparison_players(conn):
     return [dict(r) for r in conn.execute(
-        "SELECT puuid, game_name, tag_line, platform, enabled, lookback_days, sort, added_at_ms "
-        "FROM comparison_players ORDER BY sort, added_at_ms")]
+        "SELECT puuid, game_name, tag_line, platform, note, enabled, lookback_days, sort, "
+        "added_at_ms FROM comparison_players ORDER BY sort, added_at_ms")]
 
 
 def comparison_puuids(conn, enabled_only=False):
@@ -682,13 +684,11 @@ def comparison_puuids(conn, enabled_only=False):
 
 
 def add_comparison_player(conn, puuid, game_name, tag_line, platform=""):
-    """Insert a comparison player (enabled by default). Returns False without
-    inserting if the max is already reached (unless this puuid is already one,
-    in which case it's a no-op refresh of the display name/server). `platform`
-    is the player's server (they may be on a different region than you)."""
-    existing = {r["puuid"] for r in conn.execute("SELECT puuid FROM comparison_players")}
-    if puuid not in existing and len(existing) >= MAX_COMPARISON_PLAYERS:
-        return False
+    """Insert a comparison player (enabled by default); there is no cap on how
+    many you can add. An already-known puuid is a no-op refresh of the display
+    name/server — it deliberately leaves `note` alone, since that's yours, not
+    Riot's. `platform` is the player's server (they may be on a different
+    region than you). Returns True."""
     nxt = conn.execute(
         "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM comparison_players").fetchone()["n"]
     with conn:
@@ -712,6 +712,13 @@ def set_comparison_enabled(conn, puuid, enabled):
     with conn:
         conn.execute("UPDATE comparison_players SET enabled=? WHERE puuid=?",
                      (1 if enabled else 0, puuid))
+
+
+def set_comparison_note(conn, puuid, note):
+    """Set the free-text note shown beside a comparison player's name (why
+    you're watching them, what they main, ...). Unknown puuid = no-op."""
+    with conn:
+        conn.execute("UPDATE comparison_players SET note=? WHERE puuid=?", (note, puuid))
 
 
 def bump_comparison_lookback(conn, puuid, extra_days=COMPARISON_LOOKBACK_DAYS):

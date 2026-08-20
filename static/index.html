@@ -230,7 +230,7 @@
     <h3 class="settings-group-head">Research &amp; comparison</h3>
     <div class="settings-field">
       <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
-      <p class="muted">Add up to five other players (looked up via the Riot API) to
+      <p class="muted">Add any number of other players (looked up via the Riot API) to
         compare yourself against in a matchup — their stats, runes and recent games
         show side by side with yours from Matchups, My champions, Coaching progress
         and the Playbook, for theorycrafting runes
@@ -581,6 +581,10 @@
     turn it on in <button id="players-settings-link" class="linkish" type="button">Settings</button>
     to add players.</div>
   <div id="players-card">
+    <div class="key-row" style="justify-content:flex-end">
+      <button id="comparison-refresh-all" class="preset" type="button"
+        title="Fetch new games for every player below, one after another">↻ Refresh all</button>
+    </div>
     <div id="comparison-players-list"></div>
     <div class="key-row" style="margin-top:6px; flex-wrap:wrap">
       <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"

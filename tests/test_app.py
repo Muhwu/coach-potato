@@ -813,7 +813,7 @@ def test_comparison_players_and_settings(client):
     assert r.json()["enable_player_comparison"] is True
     # comparison endpoints without any players
     body = client.get("/api/comparison-players").json()
-    assert body["players"] == [] and body["max"] == db.MAX_COMPARISON_PLAYERS
+    assert body["players"] == [] and body["max"] is None  # uncapped
     assert body["fetching"]["running"] is False  # background-fetch status
     # comparison off -> empty player list even if some exist
     client.put("/api/settings", json={**base, "enable_player_comparison": False})
@@ -823,6 +823,52 @@ def test_comparison_players_and_settings(client):
     assert body["you"]["scoped"] is not None  # your own column stays either way
     # PATCH validates the enabled flag
     assert client.patch("/api/comparison-players/xyz", json={"enabled": "no"}).status_code == 400
+
+
+def test_comparison_player_note_is_a_partial_patch(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.add_comparison_player(conn, "rival-1", "Rival", "EUW", "euw1")
+    conn.close()
+    assert client.get("/api/comparison-players").json()["players"][0]["note"] == ""
+    r = client.patch("/api/comparison-players/rival-1", json={"note": "  Gwen one-trick  "})
+    assert r.status_code == 200 and r.json() == {"puuid": "rival-1", "note": "Gwen one-trick"}
+    # a note-only patch leaves `enabled` alone, and vice versa
+    assert client.patch("/api/comparison-players/rival-1",
+                        json={"enabled": False}).status_code == 200
+    player = client.get("/api/comparison-players").json()["players"][0]
+    assert player["note"] == "Gwen one-trick" and player["enabled"] is False
+    assert client.patch("/api/comparison-players/rival-1", json={"note": 7}).status_code == 400
+    assert client.patch("/api/comparison-players/rival-1",
+                        json={"note": "x" * 201}).status_code == 400
+    assert client.patch("/api/comparison-players/rival-1", json={}).status_code == 400
+
+
+def test_comparison_refresh_all_starts_one_job_for_every_player(client, monkeypatch):
+    import os
+    started = []
+    monkeypatch.setattr(app_module, "_start_comparison_crawl",
+                        lambda players, key: started.append((players, key)))
+    # nothing to refresh yet
+    assert client.post("/api/comparison-players/refresh-all").status_code == 400
+    client.put("/api/settings", json={"riot_api_key": "k", "accounts": ["A#B"],
+                                      "platform": "euw1"})
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.add_comparison_player(conn, "rival-1", "Rival", "EUW", "euw1")
+    db.add_comparison_player(conn, "rival-2", "Other", "NA", "")  # no server stored
+    conn.close()
+    r = client.post("/api/comparison-players/refresh-all")
+    assert r.status_code == 200 and r.json() == {"started": True, "players": 2}
+    players, key = started[-1]
+    assert key == "k"
+    assert [p["puuid"] for p in players] == ["rival-1", "rival-2"]
+    # each player's own server, falling back to yours when they have none
+    assert [p["platform"] for p in players] == ["euw1", "euw1"]
+    # one Riot job at a time — a running crawl blocks the refresh
+    monkeypatch.setitem(app_module.CRAWL_STATE, "running", True)
+    assert client.post("/api/comparison-players/refresh-all").status_code == 409
+
+
 def test_reflection_endpoints(client):
     assert client.get("/api/reflections?match_id=EUW1_1&puuid=me").json() == {
         "tags": [], "note": ""}
