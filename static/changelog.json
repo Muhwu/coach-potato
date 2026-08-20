@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.56.1",
+      "date": "2026-08-21",
+      "items": [
+        "Icons across the app are a size larger — they were small enough to be fiddly",
+        "Text boxes and text areas everywhere now use the app's own field styling instead of the browser's bright white; the session popup was the most obvious offender",
+        "A coaching period puts its dates, coach chip and recording link together on one line under the title, and the edit/delete buttons moved into the expanded panel (right-aligned) so a long title can't push them onto their own line"
+      ]
+    },
+    {
       "version": "1.56.0",
       "date": "2026-08-21",
       "items": [

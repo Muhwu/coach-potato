@@ -1149,10 +1149,12 @@ function sessionRecordPanel(segment) {
   return `<div class="seg-session">
     <div class="learnings-head">
       <h4>Session notes</h4>
-      <button class="preset icon-btn seg-session-edit" data-id="${segment.session_id}"
-        title="Edit this session" aria-label="Edit this session">✎</button>
-      <button class="preset icon-btn seg-session-delete" data-id="${segment.session_id}"
-        title="Delete this session" aria-label="Delete this session">🗑</button>
+      <span class="seg-session-actions">
+        <button class="preset icon-btn seg-session-edit" data-id="${segment.session_id}"
+          title="Edit this session" aria-label="Edit this session">✎</button>
+        <button class="preset icon-btn seg-session-delete" data-id="${segment.session_id}"
+          title="Delete this session" aria-label="Delete this session">🗑</button>
+      </span>
     </div>
     ${notes}
     ${clipsSection("session", segment.session_id, sessionUi.clips.get(segment.session_id))}
@@ -1191,16 +1193,16 @@ function renderProgress(segments) {
       <td class="period-cell"><div class="period-wrap">
         <button class="preset seg-toggle" data-i="${i}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"}</button>
         <div class="period-text">
-          <span class="period-title" title="${escapeHtml(periodTitle(segment))}"
-            >${escapeHtml(periodTitle(segment))}</span>${segment.session_id
-            ? `<button class="preset icon-btn seg-session-edit" data-id="${segment.session_id}"
-                 title="Edit this session" aria-label="Edit this session">✎</button>` : ""}
-          ${segment.coach ? `<span class="chip chip-plain session-coach"
-            title="Coached by ${escapeHtml(segment.coach)}">🎓 ${escapeHtml(segment.coach)}</span>` : ""}
-          ${segment.link ? `<a class="preset icon-btn session-link" href="${escapeHtml(segment.link)}"
-             target="_blank" rel="noopener noreferrer"
-             title="Open the session recording">🔗</a>` : ""}
-          <br><span class="muted period-sub">${fmtSegmentDates(segment)}</span></div>
+          <div class="period-title" title="${escapeHtml(periodTitle(segment))}"
+            >${escapeHtml(periodTitle(segment))}</div>
+          <div class="period-meta">
+            <span class="muted period-sub">${fmtSegmentDates(segment)}</span>
+            ${segment.coach ? `<span class="chip chip-plain session-coach"
+              title="Coached by ${escapeHtml(segment.coach)}">🎓 ${escapeHtml(segment.coach)}</span>` : ""}
+            ${segment.link ? `<a class="session-link" href="${escapeHtml(segment.link)}"
+               target="_blank" rel="noopener noreferrer"
+               title="Open the session recording">🔗</a>` : ""}
+          </div></div>
       </div></td>` + visible.map((c) => (c.cell ? c.cell(segment) : cells[c.key])).join("") + `</tr>`;
     if (expanded) {
       html += `<tr class="games-row"><td colspan="${visible.length + 1}">

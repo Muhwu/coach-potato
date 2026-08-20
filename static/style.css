@@ -110,10 +110,10 @@ header {
   padding: 4px 10px;
   cursor: pointer;
   font: inherit;
-  font-size: 17px;
+  font-size: 19px;
   line-height: 1.2;
 }
-#nav-settings { font-size: 15px; padding: 4px 10px; }
+#nav-settings { font-size: 17px; padding: 4px 10px; }
 #nav-settings.active { background: var(--accent-wash); border-color: var(--series-1); }
 #crawl-btn:disabled { opacity: 0.55; cursor: default; }
 #crawl-indicator { display: inline-flex; align-items: center; gap: 6px; }
@@ -176,7 +176,9 @@ header {
   font-size: 13px;
 }
 .preset.active { background: var(--accent-wash); border-color: var(--series-1); font-weight: 600; }
-select, input[type="date"], input[type="number"] {
+select, textarea,
+input[type="date"], input[type="number"], input[type="text"],
+input[type="url"], input[type="search"], input[type="password"] {
   font: inherit;
   font-size: 13px;
   color: var(--text-primary);
@@ -257,7 +259,7 @@ select, input[type="date"], input[type="number"] {
 .nav-help-btn {
   width: 20px; height: 20px; padding: 0; border-radius: 50%;
   border: 1px solid var(--border); background: transparent;
-  color: var(--text-secondary); font: inherit; font-size: 12px; line-height: 1;
+  color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1;
   cursor: help;
 }
 .nav-help-btn:hover, .nav-help:focus-within .nav-help-btn {
@@ -335,7 +337,7 @@ th.wr-col, td.wr-col { text-align: center; }
 td.period-cell { white-space: normal; min-width: 220px; max-width: 360px; }
 .period-wrap { display: flex; align-items: flex-start; gap: 8px; }
 .period-text { min-width: 0; }
-.seg-toggle { flex: none; font-size: 15px; padding: 1px 7px; margin-top: 2px; }
+.seg-toggle { flex: none; font-size: 16px; padding: 1px 7px; margin-top: 2px; }
 /* Action cells (Runes / Curve / VOD / Reflect / + Block) hold a button that
    already carries its own padding, so the cell's 10px each side is doubled-up
    whitespace — ~20px per cell, which across five columns is what pushed the
@@ -566,7 +568,7 @@ td.notes-cell { text-align: left; white-space: normal; }
 }
 .game-notes:hover, .game-notes:focus { border-color: var(--border); background: var(--page); }
 .promote-btn { font-size: 15px; padding: 1px 7px; }
-.icon-btn { font-size: 17px; padding: 4px 11px; line-height: 1.25; }
+.icon-btn { font-size: 19px; padding: 4px 11px; line-height: 1.25; }
 .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .col-menu a, .col-menu button {
   display: block;
@@ -712,7 +714,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
   padding: 0 0 0 2px;
   line-height: 1;
 }
@@ -1372,7 +1374,7 @@ footer {
 .guide-build { margin: 8px 0; }
 .guide-build h5 { margin: 0 0 2px; font-size: 12px; color: var(--text-secondary); }
 .guide-build-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.icon-btn-sm { font-size: 12px; padding: 1px 7px; line-height: 1.4; }
+.icon-btn-sm { font-size: 14px; padding: 1px 7px; line-height: 1.4; }
 .cd-haste { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .cd-haste-row, .cd-haste-head {
   display: grid; grid-template-columns: 1fr 62px 62px 32px;
@@ -1870,9 +1872,16 @@ footer {
 .seg-session { margin-bottom: 14px; }
 .seg-session .learnings-head { margin-bottom: 4px; }
 .seg-session-empty { margin: 0 0 12px; }
-.period-text .session-coach { margin-left: 6px; font-size: 11px; }
-.period-text .seg-session-edit { margin-left: 4px; opacity: 0.6; }
-.period-text .seg-session-edit:hover { opacity: 1; }
+/* a period reads title-then-context: the dates, who coached it and the VOD sit
+   together on one quiet line under the title, rather than trailing the title
+   and wrapping once it gets long */
+.period-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.period-meta .period-sub { font-size: 12px; }
+.period-meta .session-coach { font-size: 11px; padding: 1px 8px; }
+.period-meta .session-link { text-decoration: none; font-size: 14px; line-height: 1; }
+.period-meta .session-link:hover { filter: brightness(1.2); }
+/* session actions sit at the right edge of the expanded panel */
+.seg-session-actions { margin-left: auto; display: flex; gap: 4px; }
 
 /* add/edit session popup: a label column and a field column, so every input
    starts on the same line and each one is only as wide as its content needs */
@@ -1918,9 +1927,8 @@ footer {
 /* a period leads with its session's title; long ones truncate and show in full
    on hover rather than pushing the stats columns off */
 .period-title {
-  font-weight: 650; display: inline-block; max-width: 22em;
+  font-weight: 650; max-width: 26em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  vertical-align: bottom;
 }
 .session-link { text-decoration: none; }
 /* learnings: click the rendered notes to edit, click away to save */
