@@ -222,3 +222,40 @@ def test_is_playable_knows_which_containers_a_browser_can_play():
 def test_media_type_falls_back_to_mp4_for_unknown_containers():
     assert obs.media_type("a.mp4") == "video/mp4"
     assert obs.media_type("a.weird").startswith("video/")
+
+
+def profile_response(request_id, value):
+    return response(request_id, {"parameterValue": value})
+
+
+def test_record_format_reads_simple_output_mode():
+    client = connected(profile_response("1", "Simple"), profile_response("2", "MKV"))
+    assert client.record_format() == "mkv"
+    categories = [m["d"]["requestData"]["parameterCategory"]
+                  for m in client._socket.sent if m["op"] == obs.OP_REQUEST]
+    assert categories == ["Output", "SimpleOutput"]
+
+
+def test_record_format_reads_advanced_output_mode():
+    client = connected(profile_response("1", "Advanced"), profile_response("2", "mp4"))
+    assert client.record_format() == "mp4"
+    categories = [m["d"]["requestData"]["parameterCategory"]
+                  for m in client._socket.sent if m["op"] == obs.OP_REQUEST]
+    assert categories == ["Output", "AdvOut"]
+
+
+def test_record_format_is_blank_when_the_profile_cannot_be_read():
+    # an OBS refusing GetProfileParameter must not break the Record button
+    client = connected(response("1", ok=False, comment="unknown request"))
+    assert client.record_format() == ""
+
+
+def test_format_playable_knows_the_fragmented_variants():
+    assert obs.format_playable("mp4")
+    assert obs.format_playable("fragmented_mp4")
+    assert obs.format_playable("hybrid_mp4")
+    assert obs.format_playable("mov") and obs.format_playable("webm")
+    assert obs.format_playable("")      # unknown = no warning, not a warning
+    assert not obs.format_playable("mkv")
+    assert not obs.format_playable("flv")
+    assert not obs.format_playable("mpegts")

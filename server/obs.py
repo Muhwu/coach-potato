@@ -181,6 +181,26 @@ class ObsClient:
             "duration_ms": int(data.get("outputDuration") or 0),
         }
 
+    def record_format(self):
+        """The container OBS would record into, e.g. 'mkv', 'mp4',
+        'fragmented_mp4' — read from the profile the same way OBS's own
+        Settings dialog stores it (Simple and Advanced output modes keep it
+        under different categories). '' when the profile can't be read; the
+        caller treats that as "don't know", never as an error."""
+        try:
+            mode = (self.request("GetProfileParameter", {
+                "parameterCategory": "Output", "parameterName": "Mode",
+            }) or {}).get("parameterValue") or ""
+            category = "AdvOut" if mode == "Advanced" else "SimpleOutput"
+            value = (self.request("GetProfileParameter", {
+                "parameterCategory": category, "parameterName": "RecFormat",
+            }) or {}).get("parameterValue") or ""
+            return value.lower()
+        except ObsConnectionError:
+            raise
+        except ObsError:
+            return ""
+
     def start_record(self):
         if self.record_status()["recording"]:
             raise ObsError("OBS is already recording — stop that recording first.")
@@ -250,6 +270,16 @@ def playable_path(path):
 
 def is_playable(path):
     return bool(path) and Path(path).suffix.lower() in PLAYABLE_EXTENSIONS
+
+
+def format_playable(record_format):
+    """Whether a profile RecFormat value produces a browser-playable file.
+    'fragmented_mp4'/'hybrid_mp4' still write .mp4, hence substring matching;
+    unknown/'' counts as playable — the warning is for a format we KNOW is
+    unplayable, not for one we couldn't read."""
+    if not record_format:
+        return True
+    return any(fmt in record_format.lower() for fmt in ("mp4", "mov", "webm", "m4v"))
 
 
 def media_type(path):

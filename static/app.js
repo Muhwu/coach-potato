@@ -1436,6 +1436,30 @@ function fmtSessionClock(ms) {
     : `${minutes}:${seconds}`;
 }
 
+// Preflight for both Record buttons: if OBS is set to a container no browser
+// plays (its default .mkv), warn BEFORE the session is recorded, while
+// switching OBS to mp4 still costs nothing. Any failure to answer — OBS
+// unreachable, older OBS — skips the warning rather than blocking the start;
+// the start call itself will surface a real connection error.
+async function srecConfirmFormat() {
+  let preflight;
+  try {
+    const response = await fetch("/api/obs/record-format");
+    if (!response.ok) return true;
+    preflight = await response.json();
+  } catch {
+    return true;
+  }
+  if (preflight.playable) return true;
+  return confirm(
+    `OBS is set to record .${preflight.format}, which can't be played back in the app `
+    + `(bookmarks still work).
+
+`
+    + `To watch the session here, cancel and set OBS's Settings → Output → `
+    + `Recording Format to mp4 first — or press OK to record anyway.`);
+}
+
 async function ensureSessionRecordings(sessionId) {
   if (srecUi.cache.has(sessionId)) return;
   const body = await getJSON(`/api/sessions/${sessionId}/recordings`);
@@ -1646,6 +1670,7 @@ function wireSessionRecordingSection(container, reload, rerender) {
   container.querySelectorAll(".srec-start").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const sessionId = sessionOf(btn);
+      if (!await srecConfirmFormat()) return;
       const started = await call(btn, `/api/sessions/${sessionId}/recordings/start`,
                                  postJSON({}), "starting OBS…");
       if (!started) return;
@@ -1866,8 +1891,12 @@ async function testObsConnection() {
     return;
   }
   const where = body.record_directory ? ` — recording to ${body.record_directory}` : "";
+  const fmt = body.record_format
+    ? ` as .${body.record_format}${body.format_playable
+        ? "" : " (browsers can't play this — set OBS to mp4 for in-app playback)"}`
+    : "";
   status.textContent = `Connected to OBS ${body.obs_version}${
-    body.recording ? " (recording now)" : ""}${where}`;
+    body.recording ? " (recording now)" : ""}${where}${fmt}`;
 }
 
 async function syncRecordings() {
@@ -2823,6 +2852,8 @@ function wireSessionModal() {
   });
   const saveRecord = box.querySelector("#sm-save-record");
   if (saveRecord) saveRecord.addEventListener("click", async () => {
+    // format check comes first: cancelling here must leave no session behind
+    if (!await srecConfirmFormat()) return;
     const sessionId = await saveSession();
     if (sessionId === null) return;
     // the session exists either way now — a failed OBS start must not strand

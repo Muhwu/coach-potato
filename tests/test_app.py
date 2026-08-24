@@ -2141,10 +2141,20 @@ class StubObs:
     def version(self):
         return {"obs_version": "30.1.2", "websocket_version": "5.4.2"}
 
+    record_fmt = "mkv"  # OBS's default
+
     def request(self, request_type, data=None):
         if request_type == "GetRecordDirectory":
             return {"recordDirectory": "C:/vods"}
+        if request_type == "GetProfileParameter":
+            if data and data.get("parameterName") == "Mode":
+                return {"parameterValue": "Simple"}
+            return {"parameterValue": self.record_fmt}
         return {}
+
+    def record_format(self):
+        from server.obs import ObsClient
+        return ObsClient.record_format(self)
 
     def close(self):
         self.closed = True
@@ -2500,3 +2510,20 @@ def test_backup_carries_session_recordings_and_their_bookmarks(client, fake_obs,
     restored = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"]
     assert restored[0]["label"] == "VOD review"
     assert [m["offset_ms"] for m in restored[0]["marks"]] == [754_000]
+
+
+def test_record_format_preflight_reports_playability(client, fake_obs):
+    body = client.get("/api/obs/record-format").json()
+    assert body == {"format": "mkv", "playable": False}
+    fake_obs.record_fmt = "Fragmented_MP4"
+    assert client.get("/api/obs/record-format").json() == {
+        "format": "fragmented_mp4", "playable": True}
+    fake_obs.unreachable = True
+    app_module.OBS_CONN.update(client=None, key=None)
+    assert client.get("/api/obs/record-format").status_code == 502
+
+
+def test_obs_test_endpoint_includes_the_record_format(client, fake_obs):
+    body = client.post("/api/obs/test").json()
+    assert body["record_format"] == "mkv"
+    assert body["format_playable"] is False

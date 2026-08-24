@@ -3090,6 +3090,21 @@ def api_obs_status():
         conn.close()
 
 
+@app.get("/api/obs/record-format")
+def api_obs_record_format():
+    """Preflight for the Record button: what container OBS would record into,
+    and whether the app could play it back. The UI warns BEFORE starting when
+    the answer is a format no browser plays (OBS's default .mkv), so the user
+    can switch OBS to mp4 first instead of finding out after the session."""
+    conn = get_conn()
+    try:
+        record_format = _obs_request(conn, lambda c: c.record_format())
+        return {"format": record_format,
+                "playable": obs.format_playable(record_format)}
+    finally:
+        conn.close()
+
+
 @app.post("/api/obs/test")
 def api_obs_test(body: dict = None):
     """Settings' "Test connection" button. Takes the values currently typed into
@@ -3117,6 +3132,8 @@ def api_obs_test(body: dict = None):
                     client.request("GetRecordDirectory") or {}).get("recordDirectory", "")
             except obs.ObsError:
                 info["record_directory"] = ""
+            info["record_format"] = client.record_format()
+            info["format_playable"] = obs.format_playable(info["record_format"])
             return info
         return {"connected": True, **_obs_request(conn, probe, settings)}
     finally:
