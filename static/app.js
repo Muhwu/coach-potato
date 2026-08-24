@@ -1207,6 +1207,8 @@ function renderProgress(segments) {
             <span class="muted period-sub">${fmtSegmentDates(segment)}</span>
             ${segment.coach ? `<span class="chip chip-plain session-coach"
               title="Coached by ${escapeHtml(segment.coach)}">🎓 ${escapeHtml(segment.coach)}</span>` : ""}
+            ${segment.category ? `<span class="chip chip-plain session-coach"
+              title="Session category">🏷 ${escapeHtml(segment.category)}</span>` : ""}
             ${segment.link ? `<a class="session-link" href="${escapeHtml(segment.link)}"
                target="_blank" rel="noopener noreferrer"
                title="Open the session recording">🔗</a>` : ""}
@@ -1241,7 +1243,8 @@ function renderProgress(segments) {
       const seg = segments.find((x) => x.session_id === +btn.dataset.id);
       if (seg) {
         openSessionModal({ id: seg.session_id, session_date: seg.session_date,
-                           title: seg.session_title, coach: seg.coach, notes: seg.notes });
+                           title: seg.session_title, coach: seg.coach,
+                           category: seg.category, link: seg.link, notes: seg.notes });
       }
     }));
   target.querySelectorAll(".seg-session-delete").forEach((btn) =>
@@ -1299,7 +1302,7 @@ function renderProgress(segments) {
   });
 }
 
-const sessionUi = { clips: new Map(), coaches: [], modal: null };
+const sessionUi = { clips: new Map(), coaches: [], categories: [], modal: null };
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g,
@@ -2736,35 +2739,85 @@ async function ensureCoaches() {
   return sessionUi.coaches;
 }
 
+async function ensureCategories() {
+  try {
+    sessionUi.categories = (await getJSON("/api/session-categories")).categories || [];
+  } catch { sessionUi.categories = []; }
+  return sessionUi.categories;
+}
+
+// A dropdown over the known names plus a "+ New…" option that reveals a text
+// input — one builder for both the Coach and Category fields. A value the list
+// doesn't know (edited older session, pruned suggestion) is kept as its own
+// option rather than silently dropped.
+function suggestionSelect(key, names, current, addLabel) {
+  const options = [
+    `<option value="">\u2014</option>`,
+    ...(current && !names.includes(current)
+      ? [`<option value="${escapeHtml(current)}" selected>${escapeHtml(current)}</option>`]
+      : []),
+    ...names.map((name) => `<option value="${escapeHtml(name)}"
+        ${name === current ? "selected" : ""}>${escapeHtml(name)}</option>`),
+    `<option value="__new__">${addLabel}</option>`,
+  ].join("");
+  return `<div class="sm-suggest" data-key="${key}">
+    <div class="sm-suggest-row">
+      <select id="sm-${key}" class="sm-suggest-select">${options}</select>
+      <button type="button" class="preset icon-btn sm-suggest-forget"
+        title="Stop suggesting the selected name (sessions keep it)"
+        aria-label="Stop suggesting the selected name">\u00d7</button>
+    </div>
+    <input type="text" id="sm-${key}-new" class="sm-suggest-new hidden"
+      placeholder="name the new one — it's remembered for next time">
+  </div>`;
+}
+
+// what the field currently means: the new-name input while "+ New…" is open,
+// otherwise the dropdown's selection
+function suggestionValue(key) {
+  const fresh = $(`#sm-${key}-new`);
+  if (fresh && !fresh.classList.contains("hidden")) return fresh.value.trim();
+  const picked = $(`#sm-${key}`).value;
+  return picked === "__new__" ? "" : picked;
+}
+
+function wireSuggestionSelect(key, endpoint, reloadList) {
+  const select = $(`#sm-${key}`);
+  const fresh = $(`#sm-${key}-new`);
+  select.addEventListener("change", () => {
+    const wantsNew = select.value === "__new__";
+    fresh.classList.toggle("hidden", !wantsNew);
+    if (wantsNew) fresh.focus();
+  });
+  select.closest(".sm-suggest").querySelector(".sm-suggest-forget")
+    .addEventListener("click", async () => {
+      const name = select.value;
+      if (!name || name === "__new__") return;
+      readSessionModal();
+      await fetch(`${endpoint}/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (sessionUi.modal[key] === name) sessionUi.modal[key] = "";
+      await reloadList();
+      renderSessionModal();
+    });
+}
+
 // `session` = editing an existing one; omitted = adding a new one
 function openSessionModal(session) {
   sessionUi.modal = session
     ? { id: session.id, date: session.session_date, title: session.title,
-        coach: session.coach || "", link: session.link || "", notes: session.notes || "" }
+        coach: session.coach || "", category: session.category || "",
+        link: session.link || "", notes: session.notes || "" }
     : { id: null, date: new Date().toISOString().slice(0, 10),
-        title: "", coach: "", link: "", notes: "" };
+        title: "", coach: "", category: "", link: "", notes: "" };
   $("#modal-overlay").classList.remove("hidden");
   renderSessionModal();
-  ensureCoaches().then(renderSessionModal);   // suggestions arrive when they do
+  // suggestions arrive when they do; one re-render covers both dropdowns
+  Promise.all([ensureCoaches(), ensureCategories()]).then(renderSessionModal);
 }
 
 function renderSessionModal() {
   const m = sessionUi.modal;
   if (!m) return;
-  // Suggestions are an autocomplete, not the record: the ✕ only stops offering
-  // a name, it never touches the sessions that already name them.
-  const chips = sessionUi.coaches.length
-    ? `<div class="coach-chips">
-        <span class="muted coach-chips-label">Previously:</span>
-        ${sessionUi.coaches.map((name) => `
-        <span class="chip coach-chip ${name === m.coach ? "chip-main" : "chip-plain"}">
-          <button type="button" class="coach-pick" data-name="${escapeHtml(name)}"
-            title="Use this coach">${escapeHtml(name)}</button>
-          <button type="button" class="coach-forget" data-name="${escapeHtml(name)}"
-            title="Stop suggesting ${escapeHtml(name)} (sessions keep it)"
-            aria-label="Stop suggesting ${escapeHtml(name)}">×</button>
-        </span>`).join("")}</div>`
-    : "";
   $("#modal-box").innerHTML = `<div class="session-modal">
     <div class="section-head">
       <h3>${m.id ? "Edit coaching session" : "New coaching session"}</h3>
@@ -2780,11 +2833,11 @@ function renderSessionModal() {
         placeholder="e.g. wave management">
 
       <label class="filter-label" for="sm-coach">Coach</label>
-      <div class="sm-coach-field">
-        <input type="text" id="sm-coach" class="sm-coach" value="${escapeHtml(m.coach)}"
-          placeholder="optional">
-        ${chips}
-      </div>
+      ${suggestionSelect("coach", sessionUi.coaches, m.coach, "+ New coach\u2026")}
+
+      <label class="filter-label" for="sm-category">Category</label>
+      ${suggestionSelect("category", sessionUi.categories, m.category,
+                         "+ New category\u2026")}
 
       <label class="filter-label" for="sm-link">Recording</label>
       <input type="url" id="sm-link" value="${escapeHtml(m.link || "")}"
@@ -2811,7 +2864,8 @@ function renderSessionModal() {
 function readSessionModal() {
   const m = sessionUi.modal;
   m.title = $("#sm-title").value;
-  m.coach = $("#sm-coach").value;
+  m.coach = suggestionValue("coach");
+  m.category = suggestionValue("category");
   m.link = $("#sm-link").value;
   m.notes = $("#sm-notes").value;
   if (!m.id) m.date = $("#sm-date").value;
@@ -2830,19 +2884,8 @@ function wireSessionModal() {
     if (!sessionUi.modal.id) requestAnimationFrame(() => date.focus());
   }
   box.querySelector("#sm-cancel").addEventListener("click", closeModal);
-  box.querySelectorAll(".coach-pick").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      readSessionModal();
-      sessionUi.modal.coach = btn.dataset.name;
-      renderSessionModal();
-    }));
-  box.querySelectorAll(".coach-forget").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      readSessionModal();
-      await fetch(`/api/coaches/${encodeURIComponent(btn.dataset.name)}`, { method: "DELETE" });
-      await ensureCoaches();
-      renderSessionModal();
-    }));
+  wireSuggestionSelect("coach", "/api/coaches", ensureCoaches);
+  wireSuggestionSelect("category", "/api/session-categories", ensureCategories);
   const saveSession = async () => {
     readSessionModal();
     const m = sessionUi.modal;
@@ -2852,11 +2895,11 @@ function wireSessionModal() {
       ? await fetch(`/api/sessions/${m.id}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: m.title, coach: m.coach, link: m.link,
-                                 notes: m.notes }) })
+                                 category: m.category, notes: m.notes }) })
       : await fetch("/api/sessions", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ date: m.date, title: m.title, coach: m.coach,
-                                 link: m.link, notes: m.notes }) });
+                                 category: m.category, link: m.link, notes: m.notes }) });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       status.textContent = body.detail || `error ${response.status}`;

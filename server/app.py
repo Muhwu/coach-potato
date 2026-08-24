@@ -542,12 +542,15 @@ def api_add_session(body: dict):
     conn = get_conn()
     try:
         coach = (body.get("coach") or "").strip()
+        category = (body.get("category") or "").strip()
         session_id = db.add_session(conn, date_str,
                                     title=(body.get("title") or "").strip(),
                                     notes=body.get("notes") or "",
                                     coach=coach,
+                                    category=category,
                                     link=_clean_session_link(body.get("link")))
         db.add_coach(conn, coach)  # remember it for the next session's suggestions
+        db.add_session_category(conn, category)  # same deal for a new category
         return {"id": session_id}
     except sqlite3.IntegrityError:
         raise HTTPException(409, f"a session on {date_str} already exists")
@@ -562,20 +565,26 @@ def api_update_session(session_id: int, body: dict):
     title = body.get("title")
     notes = body.get("notes")
     coach = body.get("coach")
+    category = body.get("category")
     link = body.get("link")
-    if title is None and notes is None and coach is None and link is None:
-        raise HTTPException(400, "provide title, notes, coach and/or link")
+    if title is None and notes is None and coach is None and link is None \
+            and category is None:
+        raise HTTPException(400, "provide title, notes, coach, category and/or link")
     if coach is not None:
         coach = str(coach).strip()
+    if category is not None:
+        category = str(category).strip()
     if link is not None:
         link = _clean_session_link(link)
     conn = get_conn()
     try:
         if not db.update_session(conn, session_id, title=title, notes=notes,
-                                 coach=coach, link=link):
+                                 coach=coach, link=link, category=category):
             raise HTTPException(404, "no such session")
         if coach:
             db.add_coach(conn, coach)
+        if category:
+            db.add_session_category(conn, category)
         return {"updated": True}
     finally:
         conn.close()
@@ -616,6 +625,30 @@ def api_remove_coach(name: str):
         conn.close()
 
 
+@app.get("/api/session-categories")
+def api_session_categories():
+    """The Category pick-list: the seeded defaults (Theory / VOD review /
+    Live coaching) plus anything the user has typed into the field."""
+    conn = get_conn()
+    try:
+        return {"categories": db.list_session_categories(conn)}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/session-categories/{name}")
+def api_remove_session_category(name: str):
+    """Stop suggesting this category. Sessions that recorded it keep it — the
+    list is only a pick-list, never the record of what a session was."""
+    conn = get_conn()
+    try:
+        if not db.remove_session_category(conn, name):
+            raise HTTPException(404, "no such category")
+        return {"removed": name}
+    finally:
+        conn.close()
+
+
 @app.get("/api/sessions/export.md")
 def api_export_sessions():
     conn = get_conn()
@@ -629,6 +662,8 @@ def api_export_sessions():
         parts.append(f"\n## {row['session_date']} — {title}\n")
         if row["coach"]:
             parts.append(f"\n*Coach: {row['coach']}*\n")
+        if row["category"]:
+            parts.append(f"\n*Category: {row['category']}*\n")
         if row["link"]:
             parts.append(f"\n[Session recording]({row['link']})\n")
         if row["notes"]:
@@ -650,7 +685,8 @@ def api_export_all():
     conn = get_conn()
     try:
         sessions = [dict(r) for r in conn.execute(
-            """SELECT session_date, title, notes, start_ranks, created_at_ms
+            """SELECT session_date, title, coach, link, category, notes,
+                      start_ranks, created_at_ms
                FROM coaching_sessions ORDER BY session_date""")]
         blocks_rows = [dict(r) for r in conn.execute(
             """SELECT id, title, learnings, pool_snapshot, start_ranks, end_ranks,
@@ -852,9 +888,11 @@ async def api_import_all(file: UploadFile = File(...)):
             for row in payload.get("sessions") or []:
                 conn.execute(
                     """INSERT INTO coaching_sessions
-                       (session_date, title, notes, start_ranks, created_at_ms)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (row["session_date"], row.get("title", ""), row.get("notes", ""),
+                       (session_date, title, coach, link, category, notes,
+                        start_ranks, created_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (row["session_date"], row.get("title", ""), row.get("coach", ""),
+                     row.get("link", ""), row.get("category", ""), row.get("notes", ""),
                      json.dumps(row["start_ranks"]) if row.get("start_ranks") else None,
                      row.get("created_at_ms")))
             for row in payload.get("blocks") or []:

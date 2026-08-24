@@ -158,7 +158,14 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   init and again after a settings save, so it applies without a reload.
   Session CRUD at `/api/sessions`;
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
-- Sessions have `title`, optional `coach`, and Markdown `notes` (legacy `note`
+- Sessions have `title`, optional `coach`, an optional `category` (Theory /
+  VOD review / Live coaching seeded as defaults; `session_categories` is the
+  pick-list ONLY, exactly like `coaches` — additive `category` column,
+  `db.seed_session_categories` seeds defaults once behind a
+  `session_categories_seeded` flag and backfills from sessions until the user
+  curates the list; the session popup renders Coach and Category through the
+  same `suggestionSelect()` dropdown-with-"+ New…" builder in app.js), and
+  Markdown `notes` (legacy `note`
   column auto-migrates in `db._migrate`; `coach` is an additive column).
   The Coaching-progress view is ONE table, not a table plus a session log:
   `stats.progress_segments` attaches the anchoring session (`session_id`,

@@ -1256,3 +1256,37 @@ def test_only_one_recording_is_ever_active(conn):
     # both open is a state the API refuses to create; if it ever happened, the
     # newest is the one the UI would show as rolling
     assert db.active_session_recording(conn)["id"] == newest
+
+
+def test_session_categories_seed_defaults_once(conn):
+    # a fresh db offers the three defaults
+    assert db.list_session_categories(conn) == ["Live coaching", "Theory", "VOD review"]
+    # deleting a default doesn't resurrect on the next connect-time seed
+    assert db.remove_session_category(conn, "Theory") is True
+    db.seed_session_categories(conn)
+    assert "Theory" not in db.list_session_categories(conn)
+
+
+def test_session_category_round_trip(conn):
+    db.add_session(conn, "2026-08-01", "waves", category="VOD review")
+    session = db.list_sessions(conn)[0]
+    assert session["category"] == "VOD review"
+    # partial update leaves the other fields alone
+    db.update_session(conn, session["id"], category="Theory")
+    updated = db.list_sessions(conn)[0]
+    assert updated["category"] == "Theory"
+    assert updated["title"] == "waves"
+
+
+def test_session_categories_backfill_from_sessions_unless_curated(conn):
+    # a restored backup's category resurfaces as a suggestion...
+    with conn:
+        conn.execute("UPDATE settings SET value='0' WHERE key='session_categories_seeded'")
+        conn.execute("DELETE FROM session_categories")
+    db.add_session(conn, "2026-08-02", category="Scrim block")
+    db.seed_session_categories(conn)
+    assert "Scrim block" in db.list_session_categories(conn)
+    # ...but never after the user starts curating the list
+    db.remove_session_category(conn, "Scrim block")
+    db.seed_session_categories(conn)
+    assert "Scrim block" not in db.list_session_categories(conn)

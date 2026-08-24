@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS coaching_sessions (
     session_date TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL DEFAULT '',
     coach TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
     link TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     start_ranks TEXT,
@@ -81,6 +82,15 @@ CREATE TABLE IF NOT EXISTS coaching_sessions (
 -- from the sessions themselves: removing a name here only stops suggesting it,
 -- it never edits the sessions that recorded it.
 CREATE TABLE IF NOT EXISTS coaches (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    added_at_ms INTEGER
+);
+
+-- The pick-list for the session "Category" field (Theory / VOD review / Live
+-- coaching by default, plus whatever the user types). Same contract as
+-- `coaches`: this is ONLY the suggestion list — removing a name here stops
+-- offering it, it never edits the sessions that recorded it.
+CREATE TABLE IF NOT EXISTS session_categories (
     name TEXT PRIMARY KEY COLLATE NOCASE,
     added_at_ms INTEGER
 );
@@ -445,6 +455,7 @@ def connect(db_path) -> sqlite3.Connection:
     seed_rank_history(conn)
     seed_block_series(conn)
     seed_coaches(conn)
+    seed_session_categories(conn)
     # stamp only after the migrations succeeded, so a crash mid-upgrade leaves
     # the old version recorded and the next launch backs up again
     set_settings(conn, {"app_version": version})
@@ -467,6 +478,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN coach TEXT NOT NULL DEFAULT ''")
     if session_columns and "link" not in session_columns:  # where the VOD lives
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN link TEXT NOT NULL DEFAULT ''")
+    if session_columns and "category" not in session_columns:  # theory / VOD review / ...
+        conn.execute("ALTER TABLE coaching_sessions ADD COLUMN category TEXT NOT NULL DEFAULT ''")
     series_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_series)")}
     if series_columns:
         if "goals" not in series_columns:  # Markdown series goals
@@ -1210,18 +1223,20 @@ def tracked_ranks(conn):
     ]
 
 
-def add_session(conn, session_date, title="", notes="", coach="", link=""):
+def add_session(conn, session_date, title="", notes="", coach="", link="", category=""):
     with conn:
         cursor = conn.execute(
             """INSERT INTO coaching_sessions
-               (session_date, title, coach, link, notes, start_ranks, created_at_ms)
-               VALUES (?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
-            (session_date, title, coach, link, notes, json.dumps(tracked_ranks(conn))),
+               (session_date, title, coach, link, category, notes, start_ranks, created_at_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
+            (session_date, title, coach, link, category, notes,
+             json.dumps(tracked_ranks(conn))),
         )
     return cursor.lastrowid
 
 
-def update_session(conn, session_id, title=None, notes=None, coach=None, link=None):
+def update_session(conn, session_id, title=None, notes=None, coach=None, link=None,
+                   category=None):
     """Update the given fields (None = leave unchanged). False if id missing."""
     sets, params = [], []
     if title is not None:
@@ -1233,6 +1248,9 @@ def update_session(conn, session_id, title=None, notes=None, coach=None, link=No
     if coach is not None:
         sets.append("coach=?")
         params.append(coach)
+    if category is not None:
+        sets.append("category=?")
+        params.append(category)
     if link is not None:
         sets.append("link=?")
         params.append(link)
@@ -1293,6 +1311,59 @@ def seed_coaches(conn):
         "SELECT DISTINCT coach FROM coaching_sessions WHERE TRIM(coach) != ''")]
     for name in names:
         add_coach(conn, name)
+
+
+# The three kinds of session most coaching falls into. Seeded once as the
+# starting pick-list; the user extends it by typing anything else into the
+# Category field, and prunes it like the coach list.
+DEFAULT_SESSION_CATEGORIES = ("Theory", "VOD review", "Live coaching")
+
+
+def list_session_categories(conn):
+    """Names offered on the session Category field, A-Z."""
+    return [r["name"] for r in conn.execute(
+        "SELECT name FROM session_categories ORDER BY name COLLATE NOCASE")]
+
+
+def add_session_category(conn, name):
+    """Remember a category for future suggestions (idempotent, case-insensitive)."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO session_categories (name, added_at_ms) VALUES (?, {_now_expr()})
+                ON CONFLICT(name) DO NOTHING""", (name,))
+    return cursor.rowcount > 0
+
+
+def remove_session_category(conn, name):
+    """Stop suggesting a category. Sessions that recorded it are untouched, and
+    — like coaches — the first removal ends all automatic seeding, so a pruned
+    default never comes back."""
+    with conn:
+        cursor = conn.execute("DELETE FROM session_categories WHERE name=?",
+                              ((name or "").strip(),))
+    if cursor.rowcount:
+        set_settings(conn, {"session_categories_curated": "1"})
+    return cursor.rowcount > 0
+
+
+def seed_session_categories(conn):
+    """Defaults once (flagged, so deleting one doesn't resurrect it next
+    launch), plus a backfill from categories already on sessions — for
+    restored backups, same as seed_coaches. Both stop for good once the user
+    curates the list."""
+    settings = get_settings(conn)
+    if settings.get("session_categories_curated") == "1":
+        return
+    if settings.get("session_categories_seeded") != "1":
+        for name in DEFAULT_SESSION_CATEGORIES:
+            add_session_category(conn, name)
+        set_settings(conn, {"session_categories_seeded": "1"})
+    for row in conn.execute(
+            "SELECT DISTINCT category FROM coaching_sessions WHERE TRIM(category) != ''"):
+        add_session_category(conn, row["category"])
 
 
 def delete_session(conn, session_id):

@@ -1948,6 +1948,12 @@ footer {
 .sm-actions .muted { margin-right: auto; }       /* status left, buttons right */
 
 /* remembered coaches: click the name to use it, × to stop suggesting it */
+/* Coach / Category dropdowns in the session popup: select + a \u00d7 that stops
+   suggesting the selected name, with the "+ New\u2026" text input underneath */
+.sm-suggest-row { display: flex; align-items: center; gap: 6px; }
+.sm-suggest-select { max-width: 20em; flex: 0 1 auto; }
+.sm-suggest-new { margin-top: 6px; max-width: 20em; display: block; }
+
 .coach-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .coach-chips-label { font-size: 11px; }
 .coach-chip { padding: 2px 4px 2px 9px; gap: 2px; }

@@ -2652,3 +2652,60 @@ def test_static_files_force_revalidation(client):
     assert response.headers["cache-control"] == "no-cache"
     assert client.get("/style.css").headers["cache-control"] == "no-cache"
     assert client.get("/").headers["cache-control"] == "no-cache"
+
+
+def test_session_category_round_trip_and_suggestions(client):
+    # the defaults are offered before any session exists
+    assert client.get("/api/session-categories").json()["categories"] == [
+        "Live coaching", "Theory", "VOD review"]
+
+    assert client.post("/api/sessions", json={
+        "date": "2026-08-01", "title": "waves",
+        "category": " VOD review "}).status_code == 200
+    session = client.get("/api/sessions").json()[0]
+    assert session["category"] == "VOD review"          # trimmed
+
+    # a typed name joins the pick-list for next time
+    client.patch(f"/api/sessions/{session['id']}", json={"category": "Scrim block"})
+    assert "Scrim block" in client.get("/api/session-categories").json()["categories"]
+
+    # and it reaches the progress rows + the Markdown export
+    row = client.get("/api/stats/progress").json()[-1]
+    assert row["category"] == "Scrim block"
+    assert "Scrim block" in client.get("/api/sessions/export.md").text
+
+    # removing a suggestion never edits the session that recorded it
+    assert client.delete("/api/session-categories/Scrim%20block").status_code == 200
+    assert "Scrim block" not in client.get("/api/session-categories").json()["categories"]
+    assert client.get("/api/sessions").json()[0]["category"] == "Scrim block"
+    assert client.delete("/api/session-categories/Scrim%20block").status_code == 404
+
+
+def test_backup_carries_session_coach_link_and_category(client):
+    """coach and link used to be silently DROPPED by the full backup —
+    this pins that all three authored session fields survive a restore."""
+    import io as _io
+    import json
+    import os
+    import zipfile
+
+    client.post("/api/sessions", json={
+        "date": "2026-08-03", "title": "review", "coach": "LS",
+        "link": "https://youtu.be/x", "category": "Theory"})
+    export_bytes = client.get("/api/export-all").content
+    payload = json.loads(zipfile.ZipFile(_io.BytesIO(export_bytes)).read("data.json"))
+    exported = payload["sessions"][-1]
+    assert (exported["coach"], exported["link"], exported["category"]) == (
+        "LS", "https://youtu.be/x", "Theory")
+
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    with conn:
+        conn.execute("DELETE FROM coaching_sessions")
+    conn.close()
+
+    assert client.post("/api/import-all",
+                       files={"file": ("b.zip", export_bytes, "application/zip")}
+                       ).status_code == 200
+    restored = client.get("/api/sessions").json()[-1]
+    assert (restored["coach"], restored["link"], restored["category"]) == (
+        "LS", "https://youtu.be/x", "Theory")
