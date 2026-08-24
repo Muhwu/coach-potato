@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.58.0",
+      "date": "2026-08-24",
+      "items": [
+        "Record a coaching session with OBS: expand a coaching period and press ● Record — OBS starts, you drop ⚑ bookmarks with a note while it rolls, and pressing ■ Stop brings the finished video into the panel with every bookmark as a chapter you can click to jump straight there. Set it up in Settings → OBS recording (turn on OBS's Tools → WebSocket Server Settings first).",
+        "A coaching period can also point at a video you recorded earlier — \"Attach an existing file\" takes any path, alongside the existing recording link. Video files are never copied or moved, and forgetting a recording keeps the file where it is."
+      ]
+    },
+    {
       "version": "1.57.0",
       "date": "2026-08-22",
       "items": [

@@ -44,7 +44,10 @@ jobs:
           # Terminal in the first place.
           [[ "${{ matrix.os }}" == windows-latest ]] && ICON="--icon assets/icon.ico" && WINDOWED="--windowed"
           [[ "${{ matrix.os }}" == macos-latest ]] && ICON="--icon assets/icon.icns" && WINDOWED="--windowed"
+          # websocket-client is imported lazily inside server/obs.py, so name
+          # it explicitly rather than trusting static analysis to reach it
           pyinstaller --onefile --noconfirm --name coach-potato \
+            --hidden-import websocket \
             --add-data "static:static" --add-data "VERSION:." $ICON $WINDOWED desktop.py
       - name: Package macOS app bundle
         if: matrix.os == 'macos-latest'

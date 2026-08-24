@@ -1402,6 +1402,37 @@ footer {
 .mu-cd-link { font-size: 14px; }
 
 /* ---------- clips (coaching sessions + block games) ---------- */
+/* ---------- OBS session recordings (coaching session cards) ---------- */
+.srec-section { margin-top: 14px; max-width: 640px; }
+.srec-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.srec-card {
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+  background: var(--surface-1); margin-bottom: 10px;
+}
+.srec-card.srec-live { border-color: var(--critical); }
+.srec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.srec-title { font-size: 13px; font-weight: 600; flex: 1; }
+.srec-video { max-height: 340px; }
+.srec-actions, .srec-controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
+}
+.srec-mark-input, .srec-mark-here-label { flex: 1 1 14em; min-width: 10em; }
+.srec-rec-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  color: var(--critical); border: 1px solid var(--critical);
+  background: color-mix(in srgb, var(--critical) 12%, transparent);
+}
+.srec-elapsed { font-variant-numeric: tabular-nums; }
+.srec-marks { list-style: none; margin: 8px 0 0; padding: 0; }
+.srec-marks li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.srec-mark-label { flex: 1; font-size: 13px; }
+.srec-seek { flex: 0 0 auto; }
+.srec-empty { margin: 6px 0 0; font-size: 12px; }
+.srec-attach-form { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+/* Settings: host / port / password on one line */
+.obs-conn-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+
 .clips-section { margin-top: 14px; max-width: 520px; }
 .clips-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
 .clips-list:not(:empty) { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }

@@ -5,6 +5,9 @@ pytest>=8
 cryptography>=42
 python-multipart>=0.0.9
 reportlab>=4.0
+# talks to OBS Studio over obs-websocket v5 (server/obs.py). Pure Python and
+# tiny, unlike the Google stack below, so it stays a normal dependency.
+websocket-client>=1.7
 # YouTube upload for recorded VODs is OPTIONAL and deliberately not installed
 # here — it pulls in the Google API client stack, and the app (and the packaged
 # build) work fine without it, offering the manual "open the folder" path

@@ -329,6 +329,48 @@
     </div>
 
     <div class="settings-group">
+      <h3 class="settings-group-head">OBS recording</h3>
+      <div class="settings-field">
+        <p class="muted">Record a coaching session from its card under
+          <strong>Coach &rarr; Coaching progress</strong>: OBS starts and stops on your say-so,
+          you bookmark moments while it rolls, and the finished video plays back here with those
+          bookmarks as chapters to jump to. Video files are never copied or moved &mdash; only
+          their paths are stored, and forgetting a recording keeps the file.</p>
+        <p class="muted">In OBS, turn on <strong>Tools &rarr; WebSocket Server Settings</strong>.
+          Leave the fields below alone unless you changed OBS's defaults; copy the password from
+          that same OBS dialog if you set one.</p>
+      </div>
+      <div class="settings-field obs-conn-row">
+        <div>
+          <label class="filter-label" for="setting-obs-host">Host</label>
+          <input type="text" id="setting-obs-host" placeholder="127.0.0.1" style="max-width:11em">
+        </div>
+        <div>
+          <label class="filter-label" for="setting-obs-port">Port</label>
+          <input type="number" id="setting-obs-port" placeholder="4455" style="max-width:7em">
+        </div>
+        <div>
+          <label class="filter-label" for="setting-obs-password">Password</label>
+          <input type="password" id="setting-obs-password" placeholder="blank if none"
+            style="max-width:15em">
+        </div>
+      </div>
+      <div class="settings-field">
+        <div class="settings-actions">
+          <button type="button" class="preset" id="obs-test">Test connection</button>
+          <span class="muted" id="obs-test-status"></span>
+        </div>
+        <p class="muted">Tests whatever is typed above, saved or not.</p>
+      </div>
+      <div class="settings-field">
+        <p class="muted">OBS records <strong>.mkv</strong> by default, which no browser can play
+          back. For in-app playback set <strong>Settings &rarr; Output &rarr; Recording Format</strong>
+          to <strong>mp4</strong> in OBS (or remux afterwards &mdash; a remuxed file sitting beside
+          the original is picked up automatically). Bookmarks are kept either way.</p>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <h3 class="settings-group-head">Backup &amp; restore</h3>
       <div class="settings-field">
         <a class="preset" href="/api/export-all" download>Export everything (.zip)</a>

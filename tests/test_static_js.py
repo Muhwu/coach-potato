@@ -62,11 +62,11 @@ def test_hideable_views_match_the_nav_and_the_settings_checkboxes():
     which is exactly what happened when series/pool/tiers were added."""
     from server.app import HIDEABLE_VIEWS
 
-    app_js = (STATIC / "app.js").read_text()
+    app_js = (STATIC / "app.js").read_text(encoding="utf-8")
     nav_block = re.search(r"const NAV_SECTIONS = \[(.*?)\n\];", app_js, re.S).group(1)
     nav_views = set(re.findall(r'"([a-z]+)"', nav_block)) - {"analyze", "coach", "prepare"}
     checkboxes = set(re.findall(r'class="view-toggle-cb" value="([a-z]+)"',
-                                (STATIC / "index.html").read_text()))
+                                (STATIC / "index.html").read_text(encoding="utf-8")))
 
     assert checkboxes <= HIDEABLE_VIEWS, (
         f"hideable in the UI but rejected by the server: {checkboxes - HIDEABLE_VIEWS}")
