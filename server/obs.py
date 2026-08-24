@@ -35,14 +35,23 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4455
 RPC_VERSION = 1
 CONNECT_TIMEOUT = 4.0  # localhost — if OBS is there it answers immediately
-# Ops we send/receive. Events (op 5) are never subscribed to (eventSubscriptions
-# 0) but are skipped defensively anyway, since a future OBS could send them.
-OP_HELLO, OP_IDENTIFY, OP_IDENTIFIED, OP_REQUEST, OP_RESPONSE = 0, 1, 2, 6, 7
+OP_HELLO, OP_IDENTIFY, OP_IDENTIFIED, OP_EVENT, OP_REQUEST, OP_RESPONSE = 0, 1, 2, 5, 6, 7
+# Only Outputs events (RecordStateChanged et al). The stop event carries
+# outputPath, which is how a recording stopped IN OBS (hotkey, its own Stop
+# button) still hands us its file — our own StopRecord response only covers
+# stops we initiated. Events are captured opportunistically while reading
+# request responses; nothing ever blocks waiting for one.
+EVENT_SUBSCRIPTION_OUTPUTS = 1 << 6
+RECORD_STOPPED = "OBS_WEBSOCKET_OUTPUT_STOPPED"
 
-# Containers a <video> element can actually play. OBS's DEFAULT recording
-# format is .mkv (it survives a crash mid-recording), which browsers do not
-# play — hence `playable_path()` below, and the hint the UI shows.
+# Containers preferred for playback. .mkv is NOT here on purpose even though
+# Chromium (the packaged app's WebView2, and most users' browsers) plays
+# OBS-flavoured Matroska fine: keeping it out makes playable_path() prefer a
+# remuxed .mp4 sibling when one exists, which seeks more reliably.
 PLAYABLE_EXTENSIONS = (".mp4", ".webm", ".mov", ".m4v")
+# ...while these are served to the player optimistically. The UI keeps an
+# onerror fallback for the codec combinations Chromium genuinely can't play.
+BROWSER_OK_EXTENSIONS = PLAYABLE_EXTENSIONS + (".mkv",)
 
 
 class ObsError(RuntimeError):
@@ -82,6 +91,10 @@ class ObsClient:
         self._counter = 0
         self.obs_version = ""
         self.websocket_version = ""
+        # set by _note_event when a RecordStateChanged(STOPPED) event goes by;
+        # collected via take_last_output_path() and used to close a recording
+        # row whose stop we did not initiate
+        self._last_output_path = ""
 
     # ---------- wire ----------
 
@@ -105,10 +118,32 @@ class ObsClient:
         except json.JSONDecodeError as exc:
             raise ObsError(f"unexpected reply from OBS: {raw[:120]!r}") from exc
 
+    def _note_event(self, message):
+        """Opportunistic: any event that goes by while we wait for a response.
+        The one we care about is the recording stopping — its outputPath is
+        the file, even when the stop came from OBS itself."""
+        if message.get("op") != OP_EVENT:
+            return
+        body = message.get("d") or {}
+        if body.get("eventType") != "RecordStateChanged":
+            return
+        data = body.get("eventData") or {}
+        if data.get("outputState") == RECORD_STOPPED and data.get("outputPath"):
+            self._last_output_path = data["outputPath"]
+
+    def take_last_output_path(self):
+        """-> the path from the most recent stop event, once. '' when no stop
+        was observed on THIS connection — an app restarted mid-recording has a
+        fresh connection and missed the event, so the manual attach fallback
+        stays necessary."""
+        path, self._last_output_path = self._last_output_path, ""
+        return path
+
     def _recv_op(self, wanted):
-        """Next message with the given op, skipping events."""
+        """Next message with the given op, skipping (but noting) events."""
         while True:
             message = self._recv()
+            self._note_event(message)
             op = message.get("op")
             if op == wanted:
                 return message.get("d") or {}
@@ -121,7 +156,8 @@ class ObsClient:
         hello = self._recv_op(OP_HELLO)
         self.obs_version = hello.get("obsStudioVersion") or ""
         self.websocket_version = hello.get("obsWebSocketVersion") or ""
-        identify = {"rpcVersion": RPC_VERSION, "eventSubscriptions": 0}
+        identify = {"rpcVersion": RPC_VERSION,
+                    "eventSubscriptions": EVENT_SUBSCRIPTION_OUTPUTS}
         challenge = hello.get("authentication")
         if challenge:
             if not password:
@@ -153,6 +189,7 @@ class ObsClient:
                                             "requestData": data or {}}})
         while True:
             message = self._recv()
+            self._note_event(message)
             if message.get("op") != OP_RESPONSE:
                 continue
             body = message.get("d") or {}
@@ -269,17 +306,23 @@ def playable_path(path):
 
 
 def is_playable(path):
-    return bool(path) and Path(path).suffix.lower() in PLAYABLE_EXTENSIONS
+    """Worth handing to the <video> element. Includes .mkv — Chromium (the
+    packaged app's WebView2, and most browsers this app meets) plays
+    OBS-flavoured Matroska; the UI has an onerror fallback for the rest."""
+    return bool(path) and Path(path).suffix.lower() in BROWSER_OK_EXTENSIONS
 
 
 def format_playable(record_format):
-    """Whether a profile RecFormat value produces a browser-playable file.
-    'fragmented_mp4'/'hybrid_mp4' still write .mp4, hence substring matching;
-    unknown/'' counts as playable — the warning is for a format we KNOW is
-    unplayable, not for one we couldn't read."""
+    """Whether a profile RecFormat value produces a file the app can play.
+    'fragmented_mp4'/'hybrid_mp4' still write .mp4, hence substring matching.
+    mkv counts as playable — Chromium handles it in practice — so the
+    pre-record warning fires only for flv/ts/m3u8-style formats that
+    genuinely will not play. unknown/'' counts as playable too: the warning
+    is for a format we KNOW is unplayable, not one we couldn't read."""
     if not record_format:
         return True
-    return any(fmt in record_format.lower() for fmt in ("mp4", "mov", "webm", "m4v"))
+    return any(fmt in record_format.lower()
+               for fmt in ("mp4", "mov", "webm", "m4v", "mkv"))
 
 
 def media_type(path):

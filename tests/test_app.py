@@ -2138,6 +2138,13 @@ class StubObs:
         self.recording = False
         return self.stop_path
 
+    # mirrors ObsClient: '' unless a stop event was observed on this connection
+    last_event_path = ""
+
+    def take_last_output_path(self):
+        path, self.last_event_path = self.last_event_path, ""
+        return path
+
     def version(self):
         return {"obs_version": "30.1.2", "websocket_version": "5.4.2"}
 
@@ -2246,8 +2253,27 @@ def test_status_closes_a_row_whose_recording_ended_outside_the_app(client, fake_
     recording = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
     assert recording["id"] == started["id"]
     assert recording["recording"] is False
-    # no path — StopRecord never ran, so the UI offers "attach the file"
+    # no stop event was observed (e.g. the app restarted mid-session), so
+    # there is no path and the UI offers "attach the file"
     assert recording["video_path"] == "" and recording["play_url"] is None
+    assert status["finished"]["id"] == started["id"]
+
+
+def test_a_stop_in_obs_still_hands_over_the_file(client, fake_obs, tmp_path):
+    """The user pressed Stop in OBS itself: the RecordStateChanged event's
+    outputPath closes the row WITH the file, no manual attach needed."""
+    video = tmp_path / "stopped-in-obs.mkv"
+    video.write_bytes(b"matroska")
+    session_id = make_session(client)
+    client.post(f"/api/sessions/{session_id}/recordings/start")
+    fake_obs.recording = False
+    fake_obs.last_event_path = str(video)   # the event the poll would drain
+
+    status = client.get("/api/obs/status").json()
+    assert status["finished"]["video_path"] == str(video)
+    recording = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
+    assert recording["video_path"] == str(video)
+    assert recording["file_exists"] and recording["playable"]
 
 
 def test_status_keeps_the_row_open_when_obs_is_merely_unreachable(client, fake_obs):
@@ -2343,8 +2369,9 @@ def test_an_mkv_reports_unplayable_but_prefers_a_remux_beside_it(client, fake_ob
     session_id = make_session(client)
     attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
                            json={"path": str(mkv)}).json()
-    # the file is there, but no browser will play Matroska
-    assert attached["file_exists"] and attached["playable"] is False
+    # mkv is handed to the player (Chromium demuxes it; the UI has an onerror
+    # fallback for codecs it can't), so it is playable straight away
+    assert attached["file_exists"] and attached["playable"] is True
 
     (tmp_path / "session.mp4").write_bytes(b"remuxed")
     listed = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
@@ -2513,8 +2540,12 @@ def test_backup_carries_session_recordings_and_their_bookmarks(client, fake_obs,
 
 
 def test_record_format_preflight_reports_playability(client, fake_obs):
-    body = client.get("/api/obs/record-format").json()
-    assert body == {"format": "mkv", "playable": False}
+    # mkv plays in practice, so OBS's default no longer warns
+    assert client.get("/api/obs/record-format").json() == {
+        "format": "mkv", "playable": True}
+    fake_obs.record_fmt = "flv"   # a format that genuinely will not play
+    assert client.get("/api/obs/record-format").json() == {
+        "format": "flv", "playable": False}
     fake_obs.record_fmt = "Fragmented_MP4"
     assert client.get("/api/obs/record-format").json() == {
         "format": "fragmented_mp4", "playable": True}
@@ -2526,4 +2557,4 @@ def test_record_format_preflight_reports_playability(client, fake_obs):
 def test_obs_test_endpoint_includes_the_record_format(client, fake_obs):
     body = client.post("/api/obs/test").json()
     assert body["record_format"] == "mkv"
-    assert body["format_playable"] is False
+    assert body["format_playable"] is True   # Chromium plays it

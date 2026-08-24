@@ -3067,9 +3067,14 @@ def api_obs_status():
         active = db.active_session_recording(conn)
         out = {"available": obs.libraries_available(), "connected": False,
                "recording": False, "paused": False, "duration_ms": 0,
-               "error": None, "active": None}
+               "error": None, "active": None, "finished": None}
         try:
-            status = _obs_call(_obs_settings(conn), lambda c: c.record_status())
+            # one round trip serves both: reading the status also drains any
+            # queued RecordStateChanged event, whose outputPath is the file of
+            # a recording that was stopped in OBS rather than here
+            status, stopped_path = _obs_call(
+                _obs_settings(conn),
+                lambda c: (c.record_status(), c.take_last_output_path()))
         except obs.ObsError as exc:
             out["error"] = str(exc)
             # OBS being unreachable tells us nothing about the row — leave it open
@@ -3079,9 +3084,11 @@ def api_obs_status():
         out.update(connected=True, **status)
         if active and not status["recording"]:
             # recording ended outside the app (stopped in OBS, or the app was
-            # closed mid-session). Close the row; the UI then offers to attach
-            # the file, since we never got StopRecord's outputPath.
-            _finish_recording(conn, active)
+            # closed mid-session). If OBS's stop event went by on this
+            # connection we have the file anyway; otherwise the row closes
+            # without a path and the UI offers to attach it.
+            finished = _finish_recording(conn, active, stopped_path)
+            out["finished"] = _session_recording_payload(finished, conn)
             active = None
         if active:
             out["active"] = _session_recording_payload(active, conn)

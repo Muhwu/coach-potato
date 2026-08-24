@@ -1420,6 +1420,7 @@ const srecUi = {
   rerender: null,        // set by renderProgress so the poll can redraw
   attachOpen: new Set(), // sessionIds with the "attach a file" form open
   startError: null,      // one-shot error from the modal's "Add & record" path
+  playFailed: new Set(), // recording ids whose <video> errored (codec this browser can't play)
   markDraft: "",         // survives the re-renders the poll triggers
   busy: false,
 };
@@ -1546,13 +1547,14 @@ function srecCard(recording) {
   } else if (!recording.file_exists) {
     body = `<p class="muted">The video file has moved or been deleted:<br>
       <code>${escapeHtml(recording.video_path)}</code></p>`;
-  } else if (!recording.playable) {
-    // OBS records .mkv by default and no browser plays Matroska
+  } else if (!recording.playable || srecUi.playFailed.has(recording.id)) {
+    // a container/codec this browser genuinely can't play. mkv normally CAN
+    // play here (Chromium demuxes it), so this is the exception, not the rule.
     body = `<p class="muted">Recorded as
-      <code>${escapeHtml(recording.play_path.split(/[\\/]/).pop())}</code>, which browsers
-      can't play. In OBS set <strong>Settings → Output → Recording Format</strong> to
-      <strong>mp4</strong> (or run <strong>File → Remux Recordings</strong> on this one) and it
-      will play here. Bookmarks are kept either way.</p>`;
+      <code>${escapeHtml(recording.play_path.split(/[\\/]/).pop())}</code>, which this browser
+      can't play. Run <strong>File → Remux Recordings</strong> on it in OBS (or set
+      <strong>Settings → Output → Recording Format</strong> to <strong>mp4</strong> for next
+      time) and it will play here. Bookmarks are kept either way.</p>`;
   } else {
     body = `<video class="recording-video srec-video" controls preload="metadata"
       data-recording="${recording.id}" src="${escapeHtml(recording.play_url)}"></video>
@@ -1729,6 +1731,16 @@ function wireSessionRecordingSection(container, reload, rerender) {
         offset_ms: Math.round((video ? video.currentTime : 0) * 1000),
         label: label ? label.value : "",
       });
+    }));
+
+  // playback is attempted optimistically (Chromium plays OBS's .mkv fine);
+  // only an actual decode error swaps the player for the remux hint
+  container.querySelectorAll(".srec-video").forEach((video) =>
+    video.addEventListener("error", () => {
+      const card = video.closest(".srec-card");
+      if (!card) return;
+      srecUi.playFailed.add(+card.dataset.recording);
+      rerender();
     }));
 
   container.querySelectorAll(".srec-seek").forEach((btn) =>

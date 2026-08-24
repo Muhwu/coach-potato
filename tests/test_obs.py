@@ -216,7 +216,10 @@ def test_playable_path_leaves_an_already_playable_file_alone(tmp_path):
 
 def test_is_playable_knows_which_containers_a_browser_can_play():
     assert obs.is_playable("a.mp4") and obs.is_playable("A.WEBM")
-    assert not obs.is_playable("a.mkv") and not obs.is_playable("")
+    # mkv IS handed to the player — Chromium demuxes OBS's Matroska in
+    # practice, and the UI keeps an onerror fallback for the codecs it can't
+    assert obs.is_playable("a.mkv")
+    assert not obs.is_playable("a.flv") and not obs.is_playable("")
 
 
 def test_media_type_falls_back_to_mp4_for_unknown_containers():
@@ -255,7 +258,41 @@ def test_format_playable_knows_the_fragmented_variants():
     assert obs.format_playable("fragmented_mp4")
     assert obs.format_playable("hybrid_mp4")
     assert obs.format_playable("mov") and obs.format_playable("webm")
+    assert obs.format_playable("mkv")   # plays in Chromium — no warning
     assert obs.format_playable("")      # unknown = no warning, not a warning
-    assert not obs.format_playable("mkv")
     assert not obs.format_playable("flv")
     assert not obs.format_playable("mpegts")
+
+
+# ---------- events (recording stopped in OBS itself) ----------
+
+def record_stopped_event(path):
+    return {"op": 5, "d": {"eventType": "RecordStateChanged",
+                           "eventData": {"outputState": "OBS_WEBSOCKET_OUTPUT_STOPPED",
+                                         "outputActive": False, "outputPath": path}}}
+
+
+def test_handshake_subscribes_to_output_events():
+    socket = FakeSocket(HELLO, IDENTIFIED)
+    obs.ObsClient(socket).handshake()
+    assert socket.sent[0]["d"]["eventSubscriptions"] == obs.EVENT_SUBSCRIPTION_OUTPUTS
+
+
+def test_a_stop_event_passing_by_hands_over_the_file_path():
+    # the event is queued BEFORE the poll's response — reading the response
+    # drains it, which is exactly how a stop-in-OBS gets its path to us
+    client = connected(record_stopped_event("D:/obs/stopped-in-obs.mkv"),
+                       status_response("1", active=False))
+    assert client.record_status()["recording"] is False
+    assert client.take_last_output_path() == "D:/obs/stopped-in-obs.mkv"
+    assert client.take_last_output_path() == ""  # one-shot
+
+
+def test_other_record_events_do_not_overwrite_the_path():
+    started = {"op": 5, "d": {"eventType": "RecordStateChanged",
+                              "eventData": {"outputState": "OBS_WEBSOCKET_OUTPUT_STARTED",
+                                            "outputActive": True}}}
+    client = connected(record_stopped_event("D:/keep.mkv"), started,
+                       status_response("1", active=True))
+    client.record_status()
+    assert client.take_last_output_path() == "D:/keep.mkv"
