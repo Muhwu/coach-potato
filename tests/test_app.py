@@ -2243,11 +2243,32 @@ def test_start_refuses_when_obs_is_already_recording_something_else(client, fake
     assert client.get("/api/obs/status").json()["active"] is None
 
 
+def _age_recording(client, recording_id, by_ms):
+    """Backdate a recording's start so it is past the spin-up grace."""
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE session_recordings SET started_at_ms = started_at_ms - ? WHERE id=?",
+                (by_ms, recording_id))
+    finally:
+        conn.close()
+
+
 def test_status_closes_a_row_whose_recording_ended_outside_the_app(client, fake_obs):
     session_id = make_session(client)
     started = client.post(f"/api/sessions/{session_id}/recordings/start").json()
     fake_obs.recording = False  # stopped in OBS directly, or the app was closed
 
+    # a row younger than the spin-up grace is NOT closed on status alone:
+    # right after StartRecord, OBS can briefly report "not recording" while
+    # the encoder starts, and closing then would orphan a live recording
+    status = client.get("/api/obs/status").json()
+    assert status["finished"] is None
+    assert status["active"]["id"] == started["id"]
+
+    # once the row is older than the grace, the same status closes it
+    _age_recording(client, started["id"], app_module.OBS_START_GRACE_MS + 1_000)
     status = client.get("/api/obs/status").json()
     assert status["active"] is None
     recording = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
@@ -2257,6 +2278,41 @@ def test_status_closes_a_row_whose_recording_ended_outside_the_app(client, fake_
     # there is no path and the UI offers "attach the file"
     assert recording["video_path"] == "" and recording["play_url"] is None
     assert status["finished"]["id"] == started["id"]
+
+
+def test_a_stop_event_overrides_the_spin_up_grace(client, fake_obs, tmp_path):
+    """A path in hand is definitive: even a young row closes when the stop
+    event has already delivered the file."""
+    video = tmp_path / "quick.mkv"
+    video.write_bytes(b"matroska")
+    session_id = make_session(client)
+    client.post(f"/api/sessions/{session_id}/recordings/start")
+    fake_obs.recording = False
+    fake_obs.last_event_path = str(video)
+
+    status = client.get("/api/obs/status").json()
+    assert status["active"] is None
+    assert status["finished"]["video_path"] == str(video)
+
+
+def test_a_late_stop_event_heals_a_row_closed_without_a_path(client, fake_obs, tmp_path):
+    """The row was reconciled closed before the stop event was seen (missed
+    stop, early close): the next poll's event path backfills it instead of
+    being dropped."""
+    video = tmp_path / "late.mkv"
+    video.write_bytes(b"matroska")
+    session_id = make_session(client)
+    started = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    fake_obs.recording = False
+    _age_recording(client, started["id"], app_module.OBS_START_GRACE_MS + 1_000)
+    client.get("/api/obs/status")   # closes the row, no path yet
+
+    fake_obs.last_event_path = str(video)   # the event drains one poll later
+    status = client.get("/api/obs/status").json()
+    assert status["finished"]["id"] == started["id"]
+    recording = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
+    assert recording["video_path"] == str(video)
+    assert recording["file_exists"] and recording["playable"]
 
 
 def test_a_stop_in_obs_still_hands_over_the_file(client, fake_obs, tmp_path):

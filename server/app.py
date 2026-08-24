@@ -2975,6 +2975,15 @@ def api_upload_recording(rec_uuid: str, body: dict = None):
 # in a threadpool, hence the lock.
 OBS_CONN = {"client": None, "key": None}
 _OBS_LOCK = threading.RLock()
+# OBS's encoder takes a moment to spin up after StartRecord: GetRecordStatus
+# can still say "not recording" for the first instant, and the UI polls status
+# immediately after starting. Without this grace a brand-new row was closed 16
+# ms after it was created (observed in the wild) while OBS recorded on. A stop
+# EVENT overrides the grace — an outputPath in hand is definitive.
+OBS_START_GRACE_MS = 10_000
+# how far back a stop event's path may backfill an orphaned row (one that got
+# closed without a path) — beyond this it is likelier to be the wrong video
+OBS_BACKFILL_WINDOW_MS = 60 * 60 * 1000
 
 
 def _now_ms():
@@ -3083,13 +3092,35 @@ def api_obs_status():
             return out
         out.update(connected=True, **status)
         if active and not status["recording"]:
-            # recording ended outside the app (stopped in OBS, or the app was
-            # closed mid-session). If OBS's stop event went by on this
-            # connection we have the file anyway; otherwise the row closes
-            # without a path and the UI offers to attach it.
-            finished = _finish_recording(conn, active, stopped_path)
-            out["finished"] = _session_recording_payload(finished, conn)
-            active = None
+            age_ms = _now_ms() - (active["started_at_ms"] or 0)
+            if stopped_path or age_ms > OBS_START_GRACE_MS:
+                # recording ended outside the app (stopped in OBS, or the app
+                # was closed mid-session). If OBS's stop event went by on this
+                # connection we have the file; otherwise the row closes without
+                # a path and the UI offers to attach it. A row younger than the
+                # grace is NOT closed on status alone — right after StartRecord
+                # OBS can briefly report "not recording" while the encoder
+                # spins up, and closing on that instant orphans a live
+                # recording. The stop event overrides the grace: a path in
+                # hand is definitive.
+                finished = _finish_recording(conn, active, stopped_path)
+                out["finished"] = _session_recording_payload(finished, conn)
+                active = None
+        elif stopped_path and not active:
+            # a stop event with no open row: its file belongs to a recording
+            # whose row was already closed without a path (the app missed the
+            # stop, or an early reconciliation got it). Heal the newest such
+            # row rather than dropping a path we know is right.
+            orphan = conn.execute(
+                """SELECT * FROM session_recordings
+                   WHERE source='obs' AND video_path='' AND stopped_at_ms IS NOT NULL
+                     AND stopped_at_ms > ?
+                   ORDER BY id DESC LIMIT 1""",
+                (_now_ms() - OBS_BACKFILL_WINDOW_MS,)).fetchone()
+            if orphan:
+                db.update_session_recording(conn, orphan["id"], video_path=stopped_path)
+                out["finished"] = _session_recording_payload(
+                    db.get_session_recording(conn, orphan["id"]), conn)
         if active:
             out["active"] = _session_recording_payload(active, conn)
         return out
