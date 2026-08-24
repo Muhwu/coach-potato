@@ -3492,4 +3492,21 @@ def api_crawl_status():
     return CRAWL_STATE
 
 
-app.mount("/", StaticFiles(directory=PROJECT_ROOT / "static", html=True), name="static")
+class _NoStaleStatic(StaticFiles):
+    """StaticFiles that forces revalidation on every request. There is no
+    build step and no version-stamped URLs, so after an upgrade a browser was
+    free to keep serving last week's app.js/style.css against today's API —
+    mixed old-UI/new-backend states that look like bizarre layout bugs.
+    `no-cache` does NOT mean "don't cache": the browser keeps its copy and
+    asks "still current?" each time, getting a cheap 304 (this app is
+    localhost — the round trip is microseconds) or the new file the moment
+    one exists. Same-mtime edits within one second are the ETag's blind spot,
+    which only ever matters mid-development, never for upgrades."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/", _NoStaleStatic(directory=PROJECT_ROOT / "static", html=True), name="static")

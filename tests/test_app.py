@@ -2641,3 +2641,14 @@ def test_forget_can_also_delete_the_file_but_only_when_asked(client, fake_obs, t
     body = client.delete(f"/api/session-recordings/{kept['id']}").json()
     assert video.exists()
     assert body["files_removed"] == []
+
+
+def test_static_files_force_revalidation(client):
+    """No build step + no versioned URLs means a browser could keep serving a
+    stale app.js against a new backend — every static response says no-cache
+    (revalidate each time; a 304 on localhost is effectively free)."""
+    response = client.get("/app.js")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert client.get("/style.css").headers["cache-control"] == "no-cache"
+    assert client.get("/").headers["cache-control"] == "no-cache"
