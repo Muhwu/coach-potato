@@ -296,3 +296,16 @@ def test_other_record_events_do_not_overwrite_the_path():
                        status_response("1", active=True))
     client.record_status()
     assert client.take_last_output_path() == "D:/keep.mkv"
+
+
+def test_playable_path_picks_the_newest_of_several_siblings(tmp_path):
+    import os
+    mkv = tmp_path / "session.mkv"
+    mkv.write_bytes(b"x")
+    old_mp4 = tmp_path / "session.mp4"
+    old_mp4.write_bytes(b"stale remux from an earlier take")
+    fresh_webm = tmp_path / "session.webm"
+    fresh_webm.write_bytes(b"the remux of THIS recording")
+    os.utime(old_mp4, (1_000_000, 1_000_000))
+    os.utime(fresh_webm, (2_000_000, 2_000_000))
+    assert obs.playable_path(str(mkv)) == str(fresh_webm)

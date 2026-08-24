@@ -545,8 +545,12 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   The request that makes it work is **StopRecord**: its response carries
   `outputPath`, so the app knows exactly which file a session produced without
   watching a folder and guessing by mtime. Same two invariants as
-  `recordings.py`: video files are never copied/moved/deleted (only paths are
-  stored) and "forget" drops the row, not the file. `ObsConnectionError` (a
+  `recordings.py` — video files are never copied/moved (only paths are stored)
+  and "forget" drops the row, not the file — with ONE exception: the forget
+  endpoint takes `?delete_file=true` (sent only after a second, separate
+  confirm in the UI) and then unlinks the video plus its remuxed sibling.
+  `obs.playable_path` prefers the NEWEST same-stem sibling when several
+  exist, not whichever extension sorts first. `ObsConnectionError` (a
   subclass of `ObsError`) marks transport failures specifically, so app.py's
   `_obs_call` reconnects only for those — OBS answering "no" to a request would
   just fail again. One cached connection lives in `OBS_CONN` behind `_OBS_LOCK`

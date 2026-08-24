@@ -3262,16 +3262,28 @@ def api_update_session_recording(recording_id: int, body: dict):
 
 
 @app.delete("/api/session-recordings/{recording_id}")
-def api_delete_session_recording(recording_id: int):
-    """Forget the recording and its bookmarks. The video file is never touched
-    — same rule as the Ascent VOD table."""
+def api_delete_session_recording(recording_id: int, delete_file: bool = False):
+    """Forget the recording and its bookmarks. By default the video file is
+    left alone (the Ascent-VOD rule); `?delete_file=true` — sent only after
+    the user explicitly confirmed it in the UI — also removes the file from
+    disk, plus a remuxed sibling if one exists, since to the user both ARE
+    this recording. This is the one place a video file may ever be deleted."""
     conn = get_conn()
     try:
-        if not db.delete_session_recording(conn, recording_id):
+        row = db.get_session_recording(conn, recording_id)
+        if not row:
             raise HTTPException(404, "no such recording")
-        return {"deleted": True}
+        db.delete_session_recording(conn, recording_id)
     finally:
         conn.close()
+    removed = []
+    if delete_file and row["video_path"]:
+        for candidate in {row["video_path"], obs.playable_path(row["video_path"])}:
+            target = Path(candidate)
+            if target.is_file():
+                target.unlink(missing_ok=True)
+                removed.append(str(target))
+    return {"deleted": True, "files_removed": removed}
 
 
 @app.get("/api/session-recordings/{recording_id}/file")

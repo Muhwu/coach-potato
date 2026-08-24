@@ -16,8 +16,10 @@ the app can know exactly which video belongs to a coaching session without
 watching a folder and guessing by modification time.
 
 Two rules carried over from `server/recordings.py`, for the same reasons:
-video files are never copied, moved or deleted (only paths are stored), and
-"forget this recording" forgets the row, not the file.
+video files are never copied or moved (only paths are stored), and "forget
+this recording" forgets the row, not the file — with ONE exception: the
+forget endpoint deletes the file when, and only when, the user explicitly
+confirmed that in a second, separate prompt (`?delete_file=true`).
 
 `websocket-client` is imported lazily, and `libraries_available()` reports
 whether it is installed — same shape as `server/youtube.py`, so a stale
@@ -298,11 +300,15 @@ def playable_path(path):
     original = Path(path)
     if original.suffix.lower() in PLAYABLE_EXTENSIONS:
         return str(original)
-    for extension in PLAYABLE_EXTENSIONS:
-        sibling = original.with_suffix(extension)
-        if sibling.exists():
-            return str(sibling)
-    return str(original)
+    siblings = [candidate for candidate in
+                (original.with_suffix(ext) for ext in PLAYABLE_EXTENSIONS)
+                if candidate.exists()]
+    if not siblings:
+        return str(original)
+    # more than one same-stem candidate (say an old .mp4 beside a fresh
+    # remux): the most recently modified one is the remux of THIS recording,
+    # not whichever extension happens to sort first
+    return str(max(siblings, key=lambda candidate: candidate.stat().st_mtime))
 
 
 def is_playable(path):

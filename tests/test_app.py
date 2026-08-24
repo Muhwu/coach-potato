@@ -2614,3 +2614,30 @@ def test_obs_test_endpoint_includes_the_record_format(client, fake_obs):
     body = client.post("/api/obs/test").json()
     assert body["record_format"] == "mkv"
     assert body["format_playable"] is True   # Chromium plays it
+
+
+def test_forget_can_also_delete_the_file_but_only_when_asked(client, fake_obs, tmp_path):
+    """The one sanctioned file deletion: forget with ?delete_file=true, sent
+    only after the user's second confirm. The remux sibling goes too — to the
+    user both files ARE the recording."""
+    mkv = tmp_path / "session.mkv"
+    mkv.write_bytes(b"matroska")
+    remux = tmp_path / "session.mp4"
+    remux.write_bytes(b"remuxed")
+    session_id = make_session(client)
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": str(mkv)}).json()
+
+    body = client.delete(
+        f"/api/session-recordings/{attached['id']}?delete_file=true").json()
+    assert not mkv.exists() and not remux.exists()
+    assert sorted(body["files_removed"]) == sorted([str(mkv), str(remux)])
+
+    # ...and without the flag the file stays (pinned above too, belt and braces)
+    video = tmp_path / "keep.mp4"
+    video.write_bytes(b"bytes")
+    kept = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                       json={"path": str(video)}).json()
+    body = client.delete(f"/api/session-recordings/{kept['id']}").json()
+    assert video.exists()
+    assert body["files_removed"] == []

@@ -6,7 +6,8 @@
       "items": [
         "Record a coaching session with OBS: expand a coaching period and press ● Record — OBS starts, you drop ⚑ bookmarks with a note while it rolls, and pressing ■ Stop brings the finished video into the panel with every bookmark as a chapter you can click to jump straight there. Set it up in Settings → OBS recording (turn on OBS's Tools → WebSocket Server Settings first).",
         "Before a recording starts, the app asks OBS what container it would record into and warns if it's one browsers can't play (OBS's default .mkv) — so you can switch OBS to mp4 while it still costs nothing. Test connection in Settings shows the format too.",
-        "A coaching period can also point at a video you recorded earlier — \"Attach an existing file\" takes any path, alongside the existing recording link. Video files are never copied or moved, and forgetting a recording keeps the file where it is."
+        "A coaching period can also point at a video you recorded earlier — \"Attach an existing file\" takes any path, alongside the existing recording link. Video files are never copied or moved, and forgetting a recording keeps the file where it is.",
+        "Forgetting a recording now asks a second question: also delete the video file from disk? Cancelling keeps the file (still the default) — this is the one place the app will ever delete a video."
       ]
     },
     {

@@ -1568,7 +1568,9 @@ function srecCard(recording) {
     <div class="srec-head">
       <span class="srec-title">${title}</span>
       ${live ? "" : `<button type="button" class="preset icon-btn srec-forget"
-        data-recording="${recording.id}" title="Forget this recording (the video file is kept)"
+        data-recording="${recording.id}" data-has-file="${recording.file_exists ? 1 : 0}"
+        data-path="${escapeHtml(recording.video_path)}"
+        title="Forget this recording (asks separately about the video file)"
         aria-label="Forget this recording">🗑</button>`}
     </div>
     ${body}
@@ -1760,8 +1762,15 @@ function wireSessionRecordingSection(container, reload, rerender) {
 
   container.querySelectorAll(".srec-forget").forEach((btn) =>
     btn.addEventListener("click", async () => {
-      if (!confirm("Forget this recording? The video file itself is kept.")) return;
-      await fetch(`/api/session-recordings/${btn.dataset.recording}`, { method: "DELETE" });
+      if (!confirm("Forget this recording and its bookmarks?")) return;
+      // second, separate question so "keep the file" stays the easy default —
+      // Cancel here still forgets the recording, it only spares the file
+      const wantsFileGone = btn.dataset.hasFile === "1" && confirm(
+        "Also delete the video file from disk?\n\n"
+        + btn.dataset.path + "\n\n"
+        + "OK deletes the file permanently. Cancel keeps it on disk.");
+      await fetch(`/api/session-recordings/${btn.dataset.recording}`
+        + (wantsFileGone ? "?delete_file=true" : ""), { method: "DELETE" });
       await reload(sessionOf(btn));
     }));
 
