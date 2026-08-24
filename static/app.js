@@ -1556,7 +1556,7 @@ function srecCard(recording) {
       <strong>Settings → Output → Recording Format</strong> to <strong>mp4</strong> for next
       time) and it will play here. Bookmarks are kept either way.</p>`;
   } else {
-    body = `<video class="recording-video srec-video" controls preload="metadata"
+    body = `<video class="srec-video" controls preload="metadata"
       data-recording="${recording.id}" src="${escapeHtml(recording.play_url)}"></video>
       <div class="srec-actions">
         <button type="button" class="preset srec-mark-here" data-recording="${recording.id}">

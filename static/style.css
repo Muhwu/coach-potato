@@ -1403,7 +1403,9 @@ footer {
 
 /* ---------- clips (coaching sessions + block games) ---------- */
 /* ---------- OBS session recordings (coaching session cards) ---------- */
-.srec-section { margin-top: 14px; max-width: 640px; }
+/* same width budget as the Ascent recording card: a session review wants a
+   comfortably sized player, not a clip-sized one */
+.srec-section { margin-top: 14px; max-width: 900px; }
 .srec-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
 .srec-card {
   border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
@@ -1412,7 +1414,13 @@ footer {
 .srec-card.srec-live { border-color: var(--critical); }
 .srec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .srec-title { font-size: 13px; font-weight: 600; flex: 1; }
-.srec-video { max-height: 340px; }
+/* self-contained on purpose: the Ascent VOD layout sizes its .recording-video
+   through a --rec-media-h variable its own container defines — borrowing that
+   class here left the video at intrinsic size (1920px wide in a 640px card) */
+.srec-video {
+  width: 100%; height: auto; max-height: 500px;
+  border-radius: 6px; background: #000; display: block;
+}
 .srec-actions, .srec-controls {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
 }
