@@ -1419,6 +1419,7 @@ const srecUi = {
   poll: null,            // interval id while recording
   rerender: null,        // set by renderProgress so the poll can redraw
   attachOpen: new Set(), // sessionIds with the "attach a file" form open
+  startError: null,      // one-shot error from the modal's "Add & record" path
   markDraft: "",         // survives the re-renders the poll triggers
   busy: false,
 };
@@ -1591,11 +1592,13 @@ function srecControls(sessionId) {
       </form>`
     : `<button type="button" class="preset srec-attach-open" data-session="${sessionId}">
         + Attach an existing file</button>`;
+  const startError = srecUi.startError || "";
+  srecUi.startError = null;   // one-shot: shown on the render right after it happened
   return `<div class="srec-controls">
     <button type="button" class="preset btn-primary srec-start" data-session="${sessionId}">
       ● Record with OBS</button>
     ${attach}
-    <span class="muted srec-status"></span>
+    <span class="muted srec-status ${startError ? "status-error" : ""}">${escapeHtml(startError)}</span>
   </div>${unavailable}${offline}`;
 }
 
@@ -2747,6 +2750,8 @@ function renderSessionModal() {
     <div class="sm-actions">
       <span class="muted" id="sm-status"></span>
       <button class="preset" id="sm-cancel">Cancel</button>
+      ${m.id ? "" : `<button class="preset" id="sm-save-record"
+        title="Add the session and immediately start recording it with OBS">● Add &amp; record</button>`}
       <button class="btn-primary" id="sm-save">${m.id ? "Save session" : "Add session"}</button>
     </div>
   </div>`;
@@ -2788,7 +2793,7 @@ function wireSessionModal() {
       await ensureCoaches();
       renderSessionModal();
     }));
-  box.querySelector("#sm-save").addEventListener("click", async () => {
+  const saveSession = async () => {
     readSessionModal();
     const m = sessionUi.modal;
     const status = $("#sm-status");
@@ -2805,11 +2810,39 @@ function wireSessionModal() {
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       status.textContent = body.detail || `error ${response.status}`;
-      return;   // keep what they typed
+      return null;   // keep what they typed
     }
+    const body = await response.json().catch(() => ({}));
+    return m.id || body.id;
+  };
+  box.querySelector("#sm-save").addEventListener("click", async () => {
+    if (await saveSession() === null) return;
     sessionUi.modal = null;
     closeModal();
     loadProgress();
+  });
+  const saveRecord = box.querySelector("#sm-save-record");
+  if (saveRecord) saveRecord.addEventListener("click", async () => {
+    const sessionId = await saveSession();
+    if (sessionId === null) return;
+    // the session exists either way now — a failed OBS start must not strand
+    // the user in the modal, where saving again would collide on the date
+    $("#sm-status").textContent = "starting OBS…";
+    const started = await fetch(`/api/sessions/${sessionId}/recordings/start`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    if (!started.ok) {
+      const body = await started.json().catch(() => ({}));
+      srecUi.startError = body.detail || `error ${started.status}`;
+    }
+    sessionUi.modal = null;
+    closeModal();
+    await srecLoadStatus();
+    srecSyncPoll();
+    await loadProgress();
+    // land the user on the REC controls (or the error) instead of a collapsed row
+    const segment = (segmentUi.segments || []).find((x) => x.session_id === sessionId);
+    if (segment && !segmentUi.expanded.has(segKey(segment))) toggleSegment(segment);
   });
 }
 
