@@ -385,7 +385,8 @@ def progress_segments(conn, puuids, sessions, champion=None, queues=None,
         # session, so it carries no notes/coach
         {"label": "Baseline", "note": "", "from_ms": bounds[0] - baseline_days * day_ms,
          "to_ms": bounds[0], "start_ranks": None, "session_id": None,
-         "session_date": "", "session_title": "", "coach": "", "link": "", "notes": ""},
+         "session_date": "", "session_title": "", "coach": "", "link": "",
+         "category": "", "notes": ""},
     ]
     def anchored(session):
         """The session a period runs FROM — the row is "what happened after
@@ -395,6 +396,7 @@ def progress_segments(conn, puuids, sessions, champion=None, queues=None,
                 "session_date": session["session_date"],
                 "session_title": session["title"],
                 "coach": session["coach"] if "coach" in keys else "",
+                "category": session["category"] if "category" in keys else "",
                 "link": session["link"] if "link" in keys else "",
                 "notes": session["notes"] if "notes" in keys else ""}
 

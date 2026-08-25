@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -2108,3 +2110,602 @@ def test_session_link_is_optional_and_validated(client):
     client.patch(f"/api/sessions/{session['id']}", json={"link": "https://youtu.be/x"})
     assert client.get("/api/stats/progress").json()[-1]["link"] == "https://youtu.be/x"
     assert "https://youtu.be/x" in client.get("/api/sessions/export.md").text
+# ---------- OBS-recorded coaching sessions ----------
+
+class StubObs:
+    """Stands in for a live OBS. Only what app.py actually calls."""
+
+    def __init__(self):
+        self.recording = False
+        self.duration_ms = 0
+        self.stop_path = ""
+        self.closed = False
+        self.connects = 0
+
+    def record_status(self):
+        return {"recording": self.recording, "paused": False,
+                "duration_ms": self.duration_ms}
+
+    def start_record(self):
+        from server import obs
+        if self.recording:
+            raise obs.ObsError("OBS is already recording — stop that recording first.")
+        self.recording = True
+
+    def stop_record(self):
+        if not self.recording:
+            return ""
+        self.recording = False
+        return self.stop_path
+
+    # mirrors ObsClient: '' unless a stop event was observed on this connection
+    last_event_path = ""
+
+    def take_last_output_path(self):
+        path, self.last_event_path = self.last_event_path, ""
+        return path
+
+    def version(self):
+        return {"obs_version": "30.1.2", "websocket_version": "5.4.2"}
+
+    record_fmt = "mkv"  # OBS's default
+
+    def request(self, request_type, data=None):
+        if request_type == "GetRecordDirectory":
+            return {"recordDirectory": "C:/vods"}
+        if request_type == "GetProfileParameter":
+            if data and data.get("parameterName") == "Mode":
+                return {"parameterValue": "Simple"}
+            return {"parameterValue": self.record_fmt}
+        return {}
+
+    def record_format(self):
+        from server.obs import ObsClient
+        return ObsClient.record_format(self)
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def fake_obs(monkeypatch):
+    """A stub OBS behind app.py's connection cache, which is module-level state
+    and so has to be cleared around every test that touches it."""
+    from server import obs
+
+    stub = StubObs()
+    app_module.OBS_CONN.update(client=None, key=None)
+
+    def connect(**kwargs):
+        stub.connects += 1
+        if stub.unreachable:
+            raise obs.ObsConnectionError("could not reach OBS at 127.0.0.1:4455 — "
+                                         "is OBS running with Tools -> WebSocket "
+                                         "Server Settings enabled? (refused)")
+        return stub
+
+    stub.unreachable = False
+    monkeypatch.setattr(app_module.obs, "connect", connect)
+    yield stub
+    app_module.OBS_CONN.update(client=None, key=None)
+
+
+def make_session(client, date="2024-03-01"):
+    response = client.post("/api/sessions", json={"date": date, "title": "Session"})
+    assert response.status_code == 200
+    return response.json()["id"]
+
+
+def test_obs_start_and_stop_records_the_path_obs_reports(client, fake_obs, tmp_path):
+    video = tmp_path / "session.mp4"
+    video.write_bytes(b"fake video bytes")
+    fake_obs.stop_path = str(video)
+    session_id = make_session(client)
+
+    started = client.post(f"/api/sessions/{session_id}/recordings/start",
+                          json={"label": "VOD review"}).json()
+    assert started["recording"] is True
+    assert started["video_path"] == ""     # OBS only reports it on stop
+    assert fake_obs.recording is True
+
+    status = client.get("/api/obs/status").json()
+    assert status["connected"] and status["recording"]
+    assert status["active"]["id"] == started["id"]
+
+    stopped = client.post(f"/api/sessions/{session_id}/recordings/stop").json()
+    assert stopped["recording"] is False
+    assert stopped["video_path"] == str(video)
+    assert stopped["file_exists"] and stopped["playable"]
+    assert fake_obs.recording is False
+    # and it is listed against the session
+    listed = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"]
+    assert [r["id"] for r in listed] == [started["id"]]
+    assert listed[0]["label"] == "VOD review"
+
+
+def test_only_one_recording_can_be_in_progress_at_a_time(client, fake_obs):
+    first, second = make_session(client, "2024-03-01"), make_session(client, "2024-03-02")
+    assert client.post(f"/api/sessions/{first}/recordings/start").status_code == 200
+    response = client.post(f"/api/sessions/{second}/recordings/start")
+    assert response.status_code == 409
+    # stopping a session that is not the one recording is a 404, not a silent stop
+    assert client.post(f"/api/sessions/{second}/recordings/stop").status_code == 404
+    assert fake_obs.recording is True
+
+
+def test_start_refuses_when_obs_is_already_recording_something_else(client, fake_obs):
+    session_id = make_session(client)
+    fake_obs.recording = True  # user hit Record in OBS itself
+    response = client.post(f"/api/sessions/{session_id}/recordings/start")
+    assert response.status_code == 502
+    assert "already recording" in response.json()["detail"]
+    # no half-open row left behind
+    assert client.get("/api/obs/status").json()["active"] is None
+
+
+def _age_recording(client, recording_id, by_ms):
+    """Backdate a recording's start so it is past the spin-up grace."""
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE session_recordings SET started_at_ms = started_at_ms - ? WHERE id=?",
+                (by_ms, recording_id))
+    finally:
+        conn.close()
+
+
+def test_status_closes_a_row_whose_recording_ended_outside_the_app(client, fake_obs):
+    session_id = make_session(client)
+    started = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    fake_obs.recording = False  # stopped in OBS directly, or the app was closed
+
+    # a row younger than the spin-up grace is NOT closed on status alone:
+    # right after StartRecord, OBS can briefly report "not recording" while
+    # the encoder starts, and closing then would orphan a live recording
+    status = client.get("/api/obs/status").json()
+    assert status["finished"] is None
+    assert status["active"]["id"] == started["id"]
+
+    # once the row is older than the grace, the same status closes it
+    _age_recording(client, started["id"], app_module.OBS_START_GRACE_MS + 1_000)
+    status = client.get("/api/obs/status").json()
+    assert status["active"] is None
+    recording = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
+    assert recording["id"] == started["id"]
+    assert recording["recording"] is False
+    # no stop event was observed (e.g. the app restarted mid-session), so
+    # there is no path and the UI offers "attach the file"
+    assert recording["video_path"] == "" and recording["play_url"] is None
+    assert status["finished"]["id"] == started["id"]
+
+
+def test_a_stop_event_overrides_the_spin_up_grace(client, fake_obs, tmp_path):
+    """A path in hand is definitive: even a young row closes when the stop
+    event has already delivered the file."""
+    video = tmp_path / "quick.mkv"
+    video.write_bytes(b"matroska")
+    session_id = make_session(client)
+    client.post(f"/api/sessions/{session_id}/recordings/start")
+    fake_obs.recording = False
+    fake_obs.last_event_path = str(video)
+
+    status = client.get("/api/obs/status").json()
+    assert status["active"] is None
+    assert status["finished"]["video_path"] == str(video)
+
+
+def test_a_late_stop_event_heals_a_row_closed_without_a_path(client, fake_obs, tmp_path):
+    """The row was reconciled closed before the stop event was seen (missed
+    stop, early close): the next poll's event path backfills it instead of
+    being dropped."""
+    video = tmp_path / "late.mkv"
+    video.write_bytes(b"matroska")
+    session_id = make_session(client)
+    started = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    fake_obs.recording = False
+    _age_recording(client, started["id"], app_module.OBS_START_GRACE_MS + 1_000)
+    client.get("/api/obs/status")   # closes the row, no path yet
+
+    fake_obs.last_event_path = str(video)   # the event drains one poll later
+    status = client.get("/api/obs/status").json()
+    assert status["finished"]["id"] == started["id"]
+    recording = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
+    assert recording["video_path"] == str(video)
+    assert recording["file_exists"] and recording["playable"]
+
+
+def test_a_stop_in_obs_still_hands_over_the_file(client, fake_obs, tmp_path):
+    """The user pressed Stop in OBS itself: the RecordStateChanged event's
+    outputPath closes the row WITH the file, no manual attach needed."""
+    video = tmp_path / "stopped-in-obs.mkv"
+    video.write_bytes(b"matroska")
+    session_id = make_session(client)
+    client.post(f"/api/sessions/{session_id}/recordings/start")
+    fake_obs.recording = False
+    fake_obs.last_event_path = str(video)   # the event the poll would drain
+
+    status = client.get("/api/obs/status").json()
+    assert status["finished"]["video_path"] == str(video)
+    recording = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
+    assert recording["video_path"] == str(video)
+    assert recording["file_exists"] and recording["playable"]
+
+
+def test_status_keeps_the_row_open_when_obs_is_merely_unreachable(client, fake_obs):
+    session_id = make_session(client)
+    started = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    fake_obs.unreachable = True
+    app_module.OBS_CONN.update(client=None, key=None)  # force a reconnect attempt
+
+    status = client.get("/api/obs/status").json()
+    assert status["connected"] is False
+    assert "WebSocket Server Settings" in status["error"]
+    # OBS being unreachable says nothing about whether it is still recording
+    assert status["active"]["id"] == started["id"]
+
+
+def test_marks_use_obs_own_duration_while_recording(client, fake_obs):
+    session_id = make_session(client)
+    recording = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    fake_obs.duration_ms = 754_000
+
+    mark = client.post(f"/api/session-recordings/{recording['id']}/marks",
+                       json={"label": "bad recall"}).json()
+    assert mark["offset_ms"] == 754_000
+    assert mark["label"] == "bad recall"
+
+    stopped = client.post(f"/api/sessions/{session_id}/recordings/stop").json()
+    assert [m["offset_ms"] for m in stopped["marks"]] == [754_000]
+
+
+def test_marks_fall_back_to_wall_clock_when_obs_cannot_be_reached(client, fake_obs):
+    session_id = make_session(client)
+    recording = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    fake_obs.unreachable = True
+    app_module.OBS_CONN.update(client=None, key=None)
+
+    mark = client.post(f"/api/session-recordings/{recording['id']}/marks",
+                       json={"label": "still marking"}).json()
+    assert mark["offset_ms"] >= 0  # seconds since start, not an error
+
+
+def test_marks_on_a_finished_recording_need_an_explicit_offset(client, fake_obs):
+    session_id = make_session(client)
+    recording = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    client.post(f"/api/sessions/{session_id}/recordings/stop")
+
+    assert client.post(f"/api/session-recordings/{recording['id']}/marks",
+                       json={"label": "no offset"}).status_code == 400
+    mark = client.post(f"/api/session-recordings/{recording['id']}/marks",
+                       json={"label": "from the player", "offset_ms": 90_000}).json()
+    assert mark["offset_ms"] == 90_000
+
+    edited = client.patch(f"/api/session-marks/{mark['id']}",
+                          json={"label": "renamed"}).json()
+    assert edited["label"] == "renamed" and edited["offset_ms"] == 90_000
+    assert client.delete(f"/api/session-marks/{mark['id']}").status_code == 200
+    assert client.delete(f"/api/session-marks/{mark['id']}").status_code == 404
+
+
+def test_marks_are_returned_in_timeline_order(client, fake_obs):
+    session_id = make_session(client)
+    recording = client.post(f"/api/sessions/{session_id}/recordings/start").json()
+    client.post(f"/api/sessions/{session_id}/recordings/stop")
+    for offset in (300_000, 60_000, 120_000):
+        client.post(f"/api/session-recordings/{recording['id']}/marks",
+                    json={"offset_ms": offset})
+    listed = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
+    assert [m["offset_ms"] for m in listed["marks"]] == [60_000, 120_000, 300_000]
+
+
+def test_attaching_an_existing_file_needs_no_obs_at_all(client, fake_obs, tmp_path):
+    video = tmp_path / "recorded-earlier.mp4"
+    video.write_bytes(b"bytes")
+    fake_obs.unreachable = True
+    session_id = make_session(client)
+
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": f'"{video}"', "label": "last week"}).json()
+    assert attached["source"] == "manual"
+    assert attached["video_path"] == str(video)  # surrounding quotes stripped
+    assert attached["file_exists"] and attached["recording"] is False
+
+    missing = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                          json={"path": str(tmp_path / "nope.mp4")})
+    assert missing.status_code == 400
+    assert client.post(f"/api/sessions/{session_id}/recordings/attach",
+                       json={"path": ""}).status_code == 400
+
+
+def test_an_mkv_reports_unplayable_but_prefers_a_remux_beside_it(client, fake_obs,
+                                                                 tmp_path):
+    mkv = tmp_path / "session.mkv"
+    mkv.write_bytes(b"matroska")
+    session_id = make_session(client)
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": str(mkv)}).json()
+    # mkv is handed to the player (Chromium demuxes it; the UI has an onerror
+    # fallback for codecs it can't), so it is playable straight away
+    assert attached["file_exists"] and attached["playable"] is True
+
+    (tmp_path / "session.mp4").write_bytes(b"remuxed")
+    listed = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"][0]
+    assert listed["video_path"] == str(mkv)            # what OBS actually wrote
+    assert listed["play_path"] == str(tmp_path / "session.mp4")
+    assert listed["playable"] is True
+
+
+def test_recording_file_is_streamed_and_only_from_the_table(client, fake_obs, tmp_path):
+    video = tmp_path / "session.mp4"
+    video.write_bytes(b"video bytes here")
+    session_id = make_session(client)
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": str(video)}).json()
+
+    served = client.get(f"/api/session-recordings/{attached['id']}/file")
+    assert served.status_code == 200
+    assert served.content == b"video bytes here"
+    assert served.headers["content-type"] == "video/mp4"
+    assert client.get("/api/session-recordings/9999/file").status_code == 404
+
+    video.unlink()
+    assert client.get(f"/api/session-recordings/{attached['id']}/file").status_code == 404
+
+
+def test_forgetting_a_recording_leaves_the_video_file_alone(client, fake_obs, tmp_path):
+    video = tmp_path / "keep-me.mp4"
+    video.write_bytes(b"bytes")
+    session_id = make_session(client)
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": str(video)}).json()
+    client.post(f"/api/session-recordings/{attached['id']}/marks",
+                json={"offset_ms": 1000})
+
+    assert client.delete(f"/api/session-recordings/{attached['id']}").status_code == 200
+    assert video.exists(), "forgetting a recording must never delete the video"
+    assert client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"] == []
+    assert client.delete(f"/api/session-recordings/{attached['id']}").status_code == 404
+
+
+def test_deleting_a_session_forgets_its_recordings_but_not_the_files(client, fake_obs,
+                                                                     tmp_path):
+    video = tmp_path / "session.mp4"
+    video.write_bytes(b"bytes")
+    session_id = make_session(client)
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": str(video)}).json()
+    client.post(f"/api/session-recordings/{attached['id']}/marks", json={"offset_ms": 5})
+
+    assert client.delete(f"/api/sessions/{session_id}").status_code == 200
+    assert video.exists()
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    try:
+        assert db.list_session_recordings(conn, session_id) == []
+        assert db.list_session_marks(conn, attached["id"]) == []
+    finally:
+        conn.close()
+
+
+def test_recording_label_is_editable_without_touching_anything_else(client, fake_obs,
+                                                                    tmp_path):
+    video = tmp_path / "session.mp4"
+    video.write_bytes(b"bytes")
+    session_id = make_session(client)
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": str(video), "label": "first"}).json()
+    renamed = client.patch(f"/api/session-recordings/{attached['id']}",
+                           json={"label": "second"}).json()
+    assert renamed["label"] == "second"
+    assert renamed["video_path"] == attached["video_path"]
+    assert client.patch(f"/api/session-recordings/{attached['id']}", json={}).status_code == 400
+
+
+def test_obs_test_endpoint_reports_versions_and_the_record_directory(client, fake_obs):
+    body = client.post("/api/obs/test").json()
+    assert body["connected"] and body["obs_version"] == "30.1.2"
+    assert body["record_directory"] == "C:/vods"
+    fake_obs.unreachable = True
+    app_module.OBS_CONN.update(client=None, key=None)
+    assert client.post("/api/obs/test").status_code == 502
+
+
+def test_the_obs_connection_is_reused_across_requests(client, fake_obs):
+    for _ in range(4):
+        client.get("/api/obs/status")
+    assert fake_obs.connects == 1, "the status poll must not reconnect every time"
+
+
+def test_starting_a_recording_needs_a_real_session(client, fake_obs):
+    assert client.post("/api/sessions/999/recordings/start").status_code == 404
+    assert client.post("/api/sessions/999/recordings/attach",
+                       json={"path": __file__}).status_code == 404
+
+
+def test_obs_settings_round_trip_and_reject_a_bad_port(client):
+    saved = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"],
+        "obs_host": "192.168.0.5", "obs_port": 4456, "obs_password": "hunter2",
+    }).json()
+    assert saved["obs_host"] == "192.168.0.5"
+    assert saved["obs_port"] == 4456
+    assert saved["obs_password"] == "hunter2"
+
+    fetched = client.get("/api/settings").json()
+    assert (fetched["obs_host"], fetched["obs_port"]) == ("192.168.0.5", 4456)
+
+    bad = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"], "obs_port": 70000})
+    assert bad.status_code == 400
+    # blank host/port fall back to OBS's defaults rather than erroring
+    defaults = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"], "obs_host": ""}).json()
+    assert defaults["obs_host"] == "127.0.0.1" and defaults["obs_port"] == 4455
+
+
+def test_obs_reports_unavailable_without_the_websocket_library(client, monkeypatch):
+    """Mirrors the YouTube rule: with the library missing the app says so, and
+    the UI explains how to fix it instead of offering a button that can only
+    fail."""
+    monkeypatch.setattr(app_module.obs, "libraries_available", lambda: False)
+    assert client.get("/api/settings").json()["obs_available"] is False
+    assert client.get("/api/obs/status").json()["available"] is False
+
+
+def test_backup_carries_session_recordings_and_their_bookmarks(client, fake_obs, tmp_path):
+    """The video files stay where OBS wrote them, but the rows and bookmarks
+    are authored content and must survive a backup/restore."""
+    import io
+    import json
+    import zipfile
+
+    video = tmp_path / "session.mp4"
+    video.write_bytes(b"bytes")
+    session_id = make_session(client)
+    recording = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                            json={"path": str(video), "label": "VOD review"}).json()
+    client.post(f"/api/session-recordings/{recording['id']}/marks",
+                json={"offset_ms": 754_000, "label": "the recall that lost it"})
+
+    export_bytes = client.get("/api/export-all").content
+    payload = json.loads(zipfile.ZipFile(io.BytesIO(export_bytes)).read("data.json"))
+    assert payload["session_recordings"][0]["label"] == "VOD review"
+    assert payload["session_marks"][0]["label"] == "the recall that lost it"
+    # the video itself is never bundled — it can be gigabytes
+    assert not any(name.endswith("session.mp4")
+                   for name in zipfile.ZipFile(io.BytesIO(export_bytes)).namelist())
+
+    # re-importing onto the populated db is refused, naming the collision
+    preview = client.post("/api/import-all/preview",
+                          files={"file": ("backup.zip", export_bytes, "application/zip")}).json()
+    assert preview["counts"]["session_recordings"] == 1
+    assert any("session recording" in c for c in preview["conflicts"])
+
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    for table in ("coaching_sessions", "session_recordings", "session_marks"):
+        conn.execute(f"DELETE FROM {table}")
+    conn.commit()
+    conn.close()
+
+    assert client.post("/api/import-all",
+                       files={"file": ("backup.zip", export_bytes, "application/zip")}
+                       ).status_code == 200
+    restored = client.get(f"/api/sessions/{session_id}/recordings").json()["recordings"]
+    assert restored[0]["label"] == "VOD review"
+    assert [m["offset_ms"] for m in restored[0]["marks"]] == [754_000]
+
+
+def test_record_format_preflight_reports_playability(client, fake_obs):
+    # mkv plays in practice, so OBS's default no longer warns
+    assert client.get("/api/obs/record-format").json() == {
+        "format": "mkv", "playable": True}
+    fake_obs.record_fmt = "flv"   # a format that genuinely will not play
+    assert client.get("/api/obs/record-format").json() == {
+        "format": "flv", "playable": False}
+    fake_obs.record_fmt = "Fragmented_MP4"
+    assert client.get("/api/obs/record-format").json() == {
+        "format": "fragmented_mp4", "playable": True}
+    fake_obs.unreachable = True
+    app_module.OBS_CONN.update(client=None, key=None)
+    assert client.get("/api/obs/record-format").status_code == 502
+
+
+def test_obs_test_endpoint_includes_the_record_format(client, fake_obs):
+    body = client.post("/api/obs/test").json()
+    assert body["record_format"] == "mkv"
+    assert body["format_playable"] is True   # Chromium plays it
+
+
+def test_forget_can_also_delete_the_file_but_only_when_asked(client, fake_obs, tmp_path):
+    """The one sanctioned file deletion: forget with ?delete_file=true, sent
+    only after the user's second confirm. The remux sibling goes too — to the
+    user both files ARE the recording."""
+    mkv = tmp_path / "session.mkv"
+    mkv.write_bytes(b"matroska")
+    remux = tmp_path / "session.mp4"
+    remux.write_bytes(b"remuxed")
+    session_id = make_session(client)
+    attached = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                           json={"path": str(mkv)}).json()
+
+    body = client.delete(
+        f"/api/session-recordings/{attached['id']}?delete_file=true").json()
+    assert not mkv.exists() and not remux.exists()
+    assert sorted(body["files_removed"]) == sorted([str(mkv), str(remux)])
+
+    # ...and without the flag the file stays (pinned above too, belt and braces)
+    video = tmp_path / "keep.mp4"
+    video.write_bytes(b"bytes")
+    kept = client.post(f"/api/sessions/{session_id}/recordings/attach",
+                       json={"path": str(video)}).json()
+    body = client.delete(f"/api/session-recordings/{kept['id']}").json()
+    assert video.exists()
+    assert body["files_removed"] == []
+
+
+def test_static_files_force_revalidation(client):
+    """No build step + no versioned URLs means a browser could keep serving a
+    stale app.js against a new backend — every static response says no-cache
+    (revalidate each time; a 304 on localhost is effectively free)."""
+    response = client.get("/app.js")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert client.get("/style.css").headers["cache-control"] == "no-cache"
+    assert client.get("/").headers["cache-control"] == "no-cache"
+
+
+def test_session_category_round_trip_and_suggestions(client):
+    # the defaults are offered before any session exists
+    assert client.get("/api/session-categories").json()["categories"] == [
+        "Live coaching", "Theory", "VOD review"]
+
+    assert client.post("/api/sessions", json={
+        "date": "2026-08-01", "title": "waves",
+        "category": " VOD review "}).status_code == 200
+    session = client.get("/api/sessions").json()[0]
+    assert session["category"] == "VOD review"          # trimmed
+
+    # a typed name joins the pick-list for next time
+    client.patch(f"/api/sessions/{session['id']}", json={"category": "Scrim block"})
+    assert "Scrim block" in client.get("/api/session-categories").json()["categories"]
+
+    # and it reaches the progress rows + the Markdown export
+    row = client.get("/api/stats/progress").json()[-1]
+    assert row["category"] == "Scrim block"
+    assert "Scrim block" in client.get("/api/sessions/export.md").text
+
+    # removing a suggestion never edits the session that recorded it
+    assert client.delete("/api/session-categories/Scrim%20block").status_code == 200
+    assert "Scrim block" not in client.get("/api/session-categories").json()["categories"]
+    assert client.get("/api/sessions").json()[0]["category"] == "Scrim block"
+    assert client.delete("/api/session-categories/Scrim%20block").status_code == 404
+
+
+def test_backup_carries_session_coach_link_and_category(client):
+    """coach and link used to be silently DROPPED by the full backup —
+    this pins that all three authored session fields survive a restore."""
+    import io as _io
+    import json
+    import os
+    import zipfile
+
+    client.post("/api/sessions", json={
+        "date": "2026-08-03", "title": "review", "coach": "LS",
+        "link": "https://youtu.be/x", "category": "Theory"})
+    export_bytes = client.get("/api/export-all").content
+    payload = json.loads(zipfile.ZipFile(_io.BytesIO(export_bytes)).read("data.json"))
+    exported = payload["sessions"][-1]
+    assert (exported["coach"], exported["link"], exported["category"]) == (
+        "LS", "https://youtu.be/x", "Theory")
+
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    with conn:
+        conn.execute("DELETE FROM coaching_sessions")
+    conn.close()
+
+    assert client.post("/api/import-all",
+                       files={"file": ("b.zip", export_bytes, "application/zip")}
+                       ).status_code == 200
+    restored = client.get("/api/sessions").json()[-1]
+    assert (restored["coach"], restored["link"], restored["category"]) == (
+        "LS", "https://youtu.be/x", "Theory")

@@ -1102,7 +1102,14 @@ async function toggleSegment(segment) {
   await Promise.all([
     ensureSegmentMetrics(segment),
     segment.session_id ? ensureSessionClips(segment.session_id) : Promise.resolve(),
+    // OBS recordings + whether OBS is reachable at all, same lazy-on-expand rule
+    segment.session_id
+      ? ensureSessionRecordings(segment.session_id)
+          .catch(() => srecUi.cache.set(segment.session_id, []))
+      : Promise.resolve(),
+    segment.session_id ? srecLoadStatus() : Promise.resolve(),
   ]);
+  srecSyncPoll();
   renderProgress(segmentUi.segments);
 }
 
@@ -1157,6 +1164,7 @@ function sessionRecordPanel(segment) {
       </span>
     </div>
     ${notes}
+    ${sessionRecordingSection(segment.session_id)}
     ${clipsSection("session", segment.session_id, sessionUi.clips.get(segment.session_id))}
   </div>`;
 }
@@ -1199,6 +1207,8 @@ function renderProgress(segments) {
             <span class="muted period-sub">${fmtSegmentDates(segment)}</span>
             ${segment.coach ? `<span class="chip chip-plain session-coach"
               title="Coached by ${escapeHtml(segment.coach)}">🎓 ${escapeHtml(segment.coach)}</span>` : ""}
+            ${segment.category ? `<span class="chip chip-plain session-coach"
+              title="Session category">🏷 ${escapeHtml(segment.category)}</span>` : ""}
             ${segment.link ? `<a class="session-link" href="${escapeHtml(segment.link)}"
                target="_blank" rel="noopener noreferrer"
                title="Open the session recording">🔗</a>` : ""}
@@ -1233,18 +1243,27 @@ function renderProgress(segments) {
       const seg = segments.find((x) => x.session_id === +btn.dataset.id);
       if (seg) {
         openSessionModal({ id: seg.session_id, session_date: seg.session_date,
-                           title: seg.session_title, coach: seg.coach, notes: seg.notes });
+                           title: seg.session_title, coach: seg.coach,
+                           category: seg.category, link: seg.link, notes: seg.notes });
       }
     }));
   target.querySelectorAll(".seg-session-delete").forEach((btn) =>
     btn.addEventListener("click", async () => {
-      if (!confirm("Delete this coaching session? Its notes and clips go with it.")) return;
+      if (!confirm("Delete this coaching session? Its notes, clips and recordings "
+                   + "go with it — the video files themselves are kept.")) return;
       await fetch(`/api/sessions/${btn.dataset.id}`, { method: "DELETE" });
       loadProgress();
     }));
   wireClipsSection(target, async (ownerType, ownerId) => {
     sessionUi.clips.delete(+ownerId);
     await ensureSessionClips(+ownerId);
+    renderProgress(segmentUi.segments);
+  }, () => renderProgress(segmentUi.segments));
+  // the OBS poll redraws on its own (elapsed clock, a recording stopped in
+  // OBS), so it needs a way back into this render
+  srecUi.rerender = () => renderProgress(segmentUi.segments);
+  wireSessionRecordingSection(target, async (sessionId) => {
+    await srecRefresh(sessionId);
     renderProgress(segmentUi.segments);
   }, () => renderProgress(segmentUi.segments));
   target.querySelectorAll(".seg-toggle").forEach((btn) =>
@@ -1283,7 +1302,7 @@ function renderProgress(segments) {
   });
 }
 
-const sessionUi = { clips: new Map(), coaches: [], modal: null };
+const sessionUi = { clips: new Map(), coaches: [], categories: [], modal: null };
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g,
@@ -1385,6 +1404,412 @@ function wireClipsSection(container, reload, rerender) {
     }));
 }
 
+/* ---------- OBS session recordings (coaching progress session cards) ----------
+
+   Distinct from the Ascent VOD section below: that one attaches a recorded
+   GAME to a match and chapters it from the match timeline. This one records a
+   coaching SESSION with OBS — start/stop from the card, bookmark moments while
+   it rolls, then review with those bookmarks as chapters.
+
+   The file itself is never copied: the backend stores OBS's own output path
+   and streams it. */
+
+const SREC_POLL_MS = 2000;   // only while a recording is actually rolling
+
+const srecUi = {
+  cache: new Map(),      // sessionId -> [recording, ...] once fetched
+  status: null,          // last /api/obs/status payload
+  poll: null,            // interval id while recording
+  rerender: null,        // set by renderProgress so the poll can redraw
+  attachOpen: new Set(), // sessionIds with the "attach a file" form open
+  startError: null,      // one-shot error from the modal's "Add & record" path
+  playFailed: new Set(), // recording ids whose <video> errored (codec this browser can't play)
+  markDraft: "",         // survives the re-renders the poll triggers
+  busy: false,
+};
+
+// h:mm:ss past the hour — a coaching session runs long enough that fmtVideoTime's
+// m:ss would read as "94:12".
+function fmtSessionClock(ms) {
+  const total = Math.max(0, Math.round((ms || 0) / 1000));
+  const seconds = String(total % 60).padStart(2, "0");
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
+    : `${minutes}:${seconds}`;
+}
+
+// Preflight for both Record buttons: if OBS is set to a container no browser
+// plays (its default .mkv), warn BEFORE the session is recorded, while
+// switching OBS to mp4 still costs nothing. Any failure to answer — OBS
+// unreachable, older OBS — skips the warning rather than blocking the start;
+// the start call itself will surface a real connection error.
+async function srecConfirmFormat() {
+  let preflight;
+  try {
+    const response = await fetch("/api/obs/record-format");
+    if (!response.ok) return true;
+    preflight = await response.json();
+  } catch {
+    return true;
+  }
+  if (preflight.playable) return true;
+  return confirm(
+    `OBS is set to record .${preflight.format}, which can't be played back in the app `
+    + `(bookmarks still work).
+
+`
+    + `To watch the session here, cancel and set OBS's Settings → Output → `
+    + `Recording Format to mp4 first — or press OK to record anyway.`);
+}
+
+async function ensureSessionRecordings(sessionId) {
+  if (srecUi.cache.has(sessionId)) return;
+  const body = await getJSON(`/api/sessions/${sessionId}/recordings`);
+  srecUi.cache.set(sessionId, body.recordings);
+}
+
+async function srecRefresh(sessionId) {
+  srecUi.cache.delete(sessionId);
+  await ensureSessionRecordings(sessionId);
+}
+
+async function srecLoadStatus() {
+  try {
+    srecUi.status = await getJSON("/api/obs/status");
+  } catch {
+    srecUi.status = null;
+  }
+  return srecUi.status;
+}
+
+function srecActiveId() {
+  return srecUi.status && srecUi.status.active ? srecUi.status.active.id : null;
+}
+
+// Poll only while something is recording: an idle session card should not open
+// a connection to OBS every couple of seconds.
+function srecSyncPoll() {
+  const shouldPoll = srecActiveId() !== null;
+  if (shouldPoll && !srecUi.poll) {
+    srecUi.poll = setInterval(srecTick, SREC_POLL_MS);
+  } else if (!shouldPoll && srecUi.poll) {
+    clearInterval(srecUi.poll);
+    srecUi.poll = null;
+  }
+}
+
+async function srecTick() {
+  const before = srecUi.status;
+  const beforeId = srecActiveId();
+  const status = await srecLoadStatus();
+  if (!status) return;
+  const activeId = srecActiveId();
+  // cheap path: the clock ticks without redrawing the card (which would drop
+  // focus from the bookmark input mid-typing)
+  const elapsed = document.querySelector(".srec-elapsed");
+  if (elapsed && status.active) elapsed.textContent = fmtSessionClock(status.duration_ms);
+  if (activeId === beforeId && (!before || before.connected === status.connected)) return;
+  if (beforeId !== null && activeId === null && before.active) {
+    // it stopped (here or in OBS) — pull the finished row in
+    await srecRefresh(before.active.session_id);
+  }
+  srecSyncPoll();
+  if (srecUi.rerender) srecUi.rerender();
+}
+
+function srecMarkList(recording) {
+  const marks = recording.marks || [];
+  if (!marks.length) {
+    return `<p class="muted srec-empty">No bookmarks yet.</p>`;
+  }
+  return `<ul class="srec-marks">${marks.map((m) => `<li>
+    <button type="button" class="preset recording-seek srec-seek"
+      data-recording="${recording.id}" data-ms="${m.offset_ms}"
+      title="Jump to ${fmtSessionClock(m.offset_ms)}">⚑ ${fmtSessionClock(m.offset_ms)}</button>
+    <span class="srec-mark-label">${m.label ? escapeHtml(m.label) : `<span class="muted">bookmark</span>`}</span>
+    <button type="button" class="preset icon-btn srec-mark-delete" data-mark="${m.id}"
+      title="Delete bookmark" aria-label="Delete bookmark">🗑</button>
+  </li>`).join("")}</ul>`;
+}
+
+function srecCard(recording) {
+  const live = recording.recording;
+  const title = recording.label
+    ? escapeHtml(recording.label)
+    : `<span class="muted">${live ? "recording…" : "session recording"}</span>`;
+  let body;
+  if (live) {
+    body = `<p class="muted">OBS is recording. Bookmark anything worth coming back to —
+      each one becomes a chapter on the video once you stop.</p>`;
+  } else if (!recording.video_path) {
+    // stopped outside the app, so OBS never told us where the file went
+    body = `<p class="muted">This recording ended outside the app, so its file is unknown.
+      Attach it below, or forget this row.</p>`;
+  } else if (!recording.file_exists) {
+    body = `<p class="muted">The video file has moved or been deleted:<br>
+      <code>${escapeHtml(recording.video_path)}</code></p>`;
+  } else if (!recording.playable || srecUi.playFailed.has(recording.id)) {
+    // a container/codec this browser genuinely can't play. mkv normally CAN
+    // play here (Chromium demuxes it), so this is the exception, not the rule.
+    body = `<p class="muted">Recorded as
+      <code>${escapeHtml(recording.play_path.split(/[\\/]/).pop())}</code>, which this browser
+      can't play. Run <strong>File → Remux Recordings</strong> on it in OBS (or set
+      <strong>Settings → Output → Recording Format</strong> to <strong>mp4</strong> for next
+      time) and it will play here. Bookmarks are kept either way.</p>`;
+  } else {
+    body = `<video class="srec-video" controls preload="metadata"
+      data-recording="${recording.id}" src="${escapeHtml(recording.play_url)}"></video>
+      <div class="srec-actions">
+        <button type="button" class="preset srec-mark-here" data-recording="${recording.id}">
+          ⚑ Bookmark this moment</button>
+        <input type="text" class="srec-mark-here-label" placeholder="what happens here (optional)">
+      </div>`;
+  }
+  return `<div class="srec-card ${live ? "srec-live" : ""}" data-recording="${recording.id}">
+    <div class="srec-head">
+      <span class="srec-title">${title}</span>
+      ${live ? "" : `<button type="button" class="preset icon-btn srec-forget"
+        data-recording="${recording.id}" data-has-file="${recording.file_exists ? 1 : 0}"
+        data-path="${escapeHtml(recording.video_path)}"
+        title="Forget this recording (asks separately about the video file)"
+        aria-label="Forget this recording">🗑</button>`}
+    </div>
+    ${body}
+    <div class="srec-marks-wrap">${srecMarkList(recording)}</div>
+  </div>`;
+}
+
+function srecControls(sessionId) {
+  const status = srecUi.status;
+  const activeId = srecActiveId();
+  const activeHere = status && status.active && status.active.session_id === sessionId;
+  if (activeHere) {
+    return `<div class="srec-controls">
+      <span class="srec-rec-badge">● REC <span class="srec-elapsed">${
+        fmtSessionClock(status.duration_ms)}</span></span>
+      <input type="text" class="srec-mark-input" placeholder="bookmark this moment (optional note)"
+        value="${escapeHtml(srecUi.markDraft)}">
+      <button type="button" class="preset btn-primary srec-mark" data-session="${sessionId}">⚑ Bookmark</button>
+      <button type="button" class="preset srec-stop" data-session="${sessionId}">■ Stop</button>
+      <span class="muted srec-status"></span>
+    </div>`;
+  }
+  if (activeId !== null) {
+    return `<div class="srec-controls">
+      <span class="muted">Another session is recording right now.</span>
+    </div>`;
+  }
+  const unavailable = status && status.available === false
+    ? `<p class="muted">OBS control needs the <code>websocket-client</code> package —
+       reinstall <code>requirements.txt</code> to enable it.</p>`
+    : "";
+  const offline = status && status.available !== false && !status.connected
+    ? `<p class="muted">OBS isn't reachable. Open OBS, turn on
+       <strong>Tools → WebSocket Server Settings</strong>, then check the connection in
+       Settings → OBS recording.</p>`
+    : "";
+  const attach = srecUi.attachOpen.has(sessionId)
+    ? `<form class="srec-attach-form" data-session="${sessionId}">
+        <input type="text" class="srec-attach-path" placeholder="full path to a video file"
+          style="width:100%">
+        <input type="text" class="srec-attach-label" placeholder="Label (optional)">
+        <div class="session-actions">
+          <button type="submit" class="preset">Attach</button>
+          <button type="button" class="preset srec-attach-cancel">Cancel</button>
+          <span class="muted srec-attach-status"></span>
+        </div>
+      </form>`
+    : `<button type="button" class="preset srec-attach-open" data-session="${sessionId}">
+        + Attach an existing file</button>`;
+  const startError = srecUi.startError || "";
+  srecUi.startError = null;   // one-shot: shown on the render right after it happened
+  return `<div class="srec-controls">
+    <button type="button" class="preset btn-primary srec-start" data-session="${sessionId}">
+      ● Record with OBS</button>
+    ${attach}
+    <span class="muted srec-status ${startError ? "status-error" : ""}">${escapeHtml(startError)}</span>
+  </div>${unavailable}${offline}`;
+}
+
+function sessionRecordingSection(sessionId) {
+  const list = srecUi.cache.get(sessionId);
+  const inner = list === undefined
+    ? `<p class="muted">Loading…</p>`
+    : `${list.map(srecCard).join("")}${srecControls(sessionId)}`;
+  return `<div class="srec-section" data-session="${sessionId}">
+    <h5>Recording${list && list.length ? ` (${list.length})` : ""}</h5>
+    ${inner}
+  </div>`;
+}
+
+// reload(sessionId) refetches one session's recordings and redraws; rerender()
+// redraws without refetching (opening/closing the attach form).
+function wireSessionRecordingSection(container, reload, rerender) {
+  const sessionOf = (btn) => +btn.closest(".srec-section").dataset.session;
+  const say = (btn, message) => {
+    const status = btn.closest(".srec-section").querySelector(".srec-status");
+    if (status) status.textContent = message;
+  };
+  // one place for "call the API, show what went wrong next to the button"
+  const call = async (btn, url, options, pending) => {
+    if (srecUi.busy) return null;
+    srecUi.busy = true;
+    say(btn, pending);
+    try {
+      const response = await fetch(url, options);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        say(btn, body.detail || `error ${response.status}`);
+        return null;
+      }
+      return body;
+    } finally {
+      srecUi.busy = false;
+    }
+  };
+  const postJSON = (payload) => ({
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+
+  container.querySelectorAll(".srec-start").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const sessionId = sessionOf(btn);
+      if (!await srecConfirmFormat()) return;
+      const started = await call(btn, `/api/sessions/${sessionId}/recordings/start`,
+                                 postJSON({}), "starting OBS…");
+      if (!started) return;
+      await srecLoadStatus();
+      srecSyncPoll();
+      await reload(sessionId);
+    }));
+
+  container.querySelectorAll(".srec-stop").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const sessionId = sessionOf(btn);
+      const stopped = await call(btn, `/api/sessions/${sessionId}/recordings/stop`,
+                                 postJSON({}), "stopping…");
+      if (!stopped) return;
+      await srecLoadStatus();
+      srecSyncPoll();
+      await reload(sessionId);
+    }));
+
+  // typed bookmark labels survive the poll's re-renders
+  container.querySelectorAll(".srec-mark-input").forEach((input) =>
+    input.addEventListener("input", () => { srecUi.markDraft = input.value; }));
+
+  const addMark = async (btn, recordingId, payload) => {
+    const added = await call(btn, `/api/session-recordings/${recordingId}/marks`,
+                             postJSON(payload), "saving…");
+    if (!added) return false;
+    srecUi.markDraft = "";
+    await reload(sessionOf(btn));
+    return true;
+  };
+
+  container.querySelectorAll(".srec-mark").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const recordingId = srecActiveId();
+      if (recordingId === null) return;
+      const input = btn.closest(".srec-controls").querySelector(".srec-mark-input");
+      await addMark(btn, recordingId, { label: input ? input.value : "" });
+    }));
+  // Enter in the bookmark box marks, so a session never needs the mouse
+  container.querySelectorAll(".srec-mark-input").forEach((input) =>
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const btn = input.closest(".srec-controls").querySelector(".srec-mark");
+      if (btn) btn.click();
+    }));
+
+  // bookmarking during playback: the offset comes from the player, not OBS
+  container.querySelectorAll(".srec-mark-here").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const card = btn.closest(".srec-card");
+      const video = card.querySelector(".srec-video");
+      const label = card.querySelector(".srec-mark-here-label");
+      await addMark(btn, +btn.dataset.recording, {
+        offset_ms: Math.round((video ? video.currentTime : 0) * 1000),
+        label: label ? label.value : "",
+      });
+    }));
+
+  // playback is attempted optimistically (Chromium plays OBS's .mkv fine);
+  // only an actual decode error swaps the player for the remux hint
+  container.querySelectorAll(".srec-video").forEach((video) =>
+    video.addEventListener("error", () => {
+      const card = video.closest(".srec-card");
+      if (!card) return;
+      srecUi.playFailed.add(+card.dataset.recording);
+      rerender();
+    }));
+
+  container.querySelectorAll(".srec-seek").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const video = btn.closest(".srec-card").querySelector(".srec-video");
+      if (!video) return;
+      video.currentTime = +btn.dataset.ms / 1000;
+      video.play();
+    }));
+
+  container.querySelectorAll(".srec-mark-delete").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this bookmark?")) return;
+      await fetch(`/api/session-marks/${btn.dataset.mark}`, { method: "DELETE" });
+      await reload(sessionOf(btn));
+    }));
+
+  container.querySelectorAll(".srec-forget").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Forget this recording and its bookmarks?")) return;
+      // second, separate question so "keep the file" stays the easy default —
+      // Cancel here still forgets the recording, it only spares the file
+      const wantsFileGone = btn.dataset.hasFile === "1" && confirm(
+        "Also delete the video file from disk?\n\n"
+        + btn.dataset.path + "\n\n"
+        + "OK deletes the file permanently. Cancel keeps it on disk.");
+      await fetch(`/api/session-recordings/${btn.dataset.recording}`
+        + (wantsFileGone ? "?delete_file=true" : ""), { method: "DELETE" });
+      await reload(sessionOf(btn));
+    }));
+
+  container.querySelectorAll(".srec-attach-open").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      srecUi.attachOpen.add(sessionOf(btn));
+      rerender();
+    }));
+  container.querySelectorAll(".srec-attach-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      srecUi.attachOpen.delete(sessionOf(btn));
+      rerender();
+    }));
+  container.querySelectorAll(".srec-attach-form").forEach((form) =>
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const sessionId = +form.dataset.session;
+      const status = form.querySelector(".srec-attach-status");
+      status.textContent = "attaching…";
+      const response = await fetch(`/api/sessions/${sessionId}/recordings/attach`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: form.querySelector(".srec-attach-path").value,
+          label: form.querySelector(".srec-attach-label").value,
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail || `error ${response.status}`;
+        return;
+      }
+      srecUi.attachOpen.delete(sessionId);
+      await reload(sessionId);
+    }));
+}
+
 // ---------- game reflections (shared by Overview recent games and block game panels) ----------
 // A quick per-game tag/note, independent of matchup notes / block learnings /
 // sessions — a fast post-match reflection habit, not a full write-up.
@@ -1467,6 +1892,35 @@ function clearRecordingCaches() {
   recordingUi.recordedMatches = null;
   recordingUi.cache.clear();
   recordingUi.descriptions.clear();
+}
+
+async function testObsConnection() {
+  const status = $("#obs-test-status");
+  status.classList.remove("status-error");
+  status.textContent = "Connecting…";
+  // send what is typed rather than what is saved, so the values can be checked
+  // before committing them
+  const response = await fetch("/api/obs/test", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      host: $("#setting-obs-host").value.trim(),
+      port: parseInt($("#setting-obs-port").value, 10) || 4455,
+      password: $("#setting-obs-password").value,
+    }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    status.classList.add("status-error");
+    status.textContent = body.detail || `error ${response.status}`;
+    return;
+  }
+  const where = body.record_directory ? ` — recording to ${body.record_directory}` : "";
+  const fmt = body.record_format
+    ? ` as .${body.record_format}${body.format_playable
+        ? "" : " (browsers can't play this — set OBS to mp4 for in-app playback)"}`
+    : "";
+  status.textContent = `Connected to OBS ${body.obs_version}${
+    body.recording ? " (recording now)" : ""}${where}${fmt}`;
 }
 
 async function syncRecordings() {
@@ -2285,35 +2739,85 @@ async function ensureCoaches() {
   return sessionUi.coaches;
 }
 
+async function ensureCategories() {
+  try {
+    sessionUi.categories = (await getJSON("/api/session-categories")).categories || [];
+  } catch { sessionUi.categories = []; }
+  return sessionUi.categories;
+}
+
+// A dropdown over the known names plus a "+ New…" option that reveals a text
+// input — one builder for both the Coach and Category fields. A value the list
+// doesn't know (edited older session, pruned suggestion) is kept as its own
+// option rather than silently dropped.
+function suggestionSelect(key, names, current, addLabel) {
+  const options = [
+    `<option value="">\u2014</option>`,
+    ...(current && !names.includes(current)
+      ? [`<option value="${escapeHtml(current)}" selected>${escapeHtml(current)}</option>`]
+      : []),
+    ...names.map((name) => `<option value="${escapeHtml(name)}"
+        ${name === current ? "selected" : ""}>${escapeHtml(name)}</option>`),
+    `<option value="__new__">${addLabel}</option>`,
+  ].join("");
+  return `<div class="sm-suggest" data-key="${key}">
+    <div class="sm-suggest-row">
+      <select id="sm-${key}" class="sm-suggest-select">${options}</select>
+      <button type="button" class="preset icon-btn sm-suggest-forget"
+        title="Stop suggesting the selected name (sessions keep it)"
+        aria-label="Stop suggesting the selected name">\u00d7</button>
+    </div>
+    <input type="text" id="sm-${key}-new" class="sm-suggest-new hidden"
+      placeholder="name the new one — it's remembered for next time">
+  </div>`;
+}
+
+// what the field currently means: the new-name input while "+ New…" is open,
+// otherwise the dropdown's selection
+function suggestionValue(key) {
+  const fresh = $(`#sm-${key}-new`);
+  if (fresh && !fresh.classList.contains("hidden")) return fresh.value.trim();
+  const picked = $(`#sm-${key}`).value;
+  return picked === "__new__" ? "" : picked;
+}
+
+function wireSuggestionSelect(key, endpoint, reloadList) {
+  const select = $(`#sm-${key}`);
+  const fresh = $(`#sm-${key}-new`);
+  select.addEventListener("change", () => {
+    const wantsNew = select.value === "__new__";
+    fresh.classList.toggle("hidden", !wantsNew);
+    if (wantsNew) fresh.focus();
+  });
+  select.closest(".sm-suggest").querySelector(".sm-suggest-forget")
+    .addEventListener("click", async () => {
+      const name = select.value;
+      if (!name || name === "__new__") return;
+      readSessionModal();
+      await fetch(`${endpoint}/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (sessionUi.modal[key] === name) sessionUi.modal[key] = "";
+      await reloadList();
+      renderSessionModal();
+    });
+}
+
 // `session` = editing an existing one; omitted = adding a new one
 function openSessionModal(session) {
   sessionUi.modal = session
     ? { id: session.id, date: session.session_date, title: session.title,
-        coach: session.coach || "", link: session.link || "", notes: session.notes || "" }
+        coach: session.coach || "", category: session.category || "",
+        link: session.link || "", notes: session.notes || "" }
     : { id: null, date: new Date().toISOString().slice(0, 10),
-        title: "", coach: "", link: "", notes: "" };
+        title: "", coach: "", category: "", link: "", notes: "" };
   $("#modal-overlay").classList.remove("hidden");
   renderSessionModal();
-  ensureCoaches().then(renderSessionModal);   // suggestions arrive when they do
+  // suggestions arrive when they do; one re-render covers both dropdowns
+  Promise.all([ensureCoaches(), ensureCategories()]).then(renderSessionModal);
 }
 
 function renderSessionModal() {
   const m = sessionUi.modal;
   if (!m) return;
-  // Suggestions are an autocomplete, not the record: the ✕ only stops offering
-  // a name, it never touches the sessions that already name them.
-  const chips = sessionUi.coaches.length
-    ? `<div class="coach-chips">
-        <span class="muted coach-chips-label">Previously:</span>
-        ${sessionUi.coaches.map((name) => `
-        <span class="chip coach-chip ${name === m.coach ? "chip-main" : "chip-plain"}">
-          <button type="button" class="coach-pick" data-name="${escapeHtml(name)}"
-            title="Use this coach">${escapeHtml(name)}</button>
-          <button type="button" class="coach-forget" data-name="${escapeHtml(name)}"
-            title="Stop suggesting ${escapeHtml(name)} (sessions keep it)"
-            aria-label="Stop suggesting ${escapeHtml(name)}">×</button>
-        </span>`).join("")}</div>`
-    : "";
   $("#modal-box").innerHTML = `<div class="session-modal">
     <div class="section-head">
       <h3>${m.id ? "Edit coaching session" : "New coaching session"}</h3>
@@ -2329,11 +2833,11 @@ function renderSessionModal() {
         placeholder="e.g. wave management">
 
       <label class="filter-label" for="sm-coach">Coach</label>
-      <div class="sm-coach-field">
-        <input type="text" id="sm-coach" class="sm-coach" value="${escapeHtml(m.coach)}"
-          placeholder="optional">
-        ${chips}
-      </div>
+      ${suggestionSelect("coach", sessionUi.coaches, m.coach, "+ New coach\u2026")}
+
+      <label class="filter-label" for="sm-category">Category</label>
+      ${suggestionSelect("category", sessionUi.categories, m.category,
+                         "+ New category\u2026")}
 
       <label class="filter-label" for="sm-link">Recording</label>
       <input type="url" id="sm-link" value="${escapeHtml(m.link || "")}"
@@ -2349,6 +2853,8 @@ function renderSessionModal() {
     <div class="sm-actions">
       <span class="muted" id="sm-status"></span>
       <button class="preset" id="sm-cancel">Cancel</button>
+      ${m.id ? "" : `<button class="preset" id="sm-save-record"
+        title="Add the session and immediately start recording it with OBS">● Add &amp; record</button>`}
       <button class="btn-primary" id="sm-save">${m.id ? "Save session" : "Add session"}</button>
     </div>
   </div>`;
@@ -2358,7 +2864,8 @@ function renderSessionModal() {
 function readSessionModal() {
   const m = sessionUi.modal;
   m.title = $("#sm-title").value;
-  m.coach = $("#sm-coach").value;
+  m.coach = suggestionValue("coach");
+  m.category = suggestionValue("category");
   m.link = $("#sm-link").value;
   m.notes = $("#sm-notes").value;
   if (!m.id) m.date = $("#sm-date").value;
@@ -2377,20 +2884,9 @@ function wireSessionModal() {
     if (!sessionUi.modal.id) requestAnimationFrame(() => date.focus());
   }
   box.querySelector("#sm-cancel").addEventListener("click", closeModal);
-  box.querySelectorAll(".coach-pick").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      readSessionModal();
-      sessionUi.modal.coach = btn.dataset.name;
-      renderSessionModal();
-    }));
-  box.querySelectorAll(".coach-forget").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      readSessionModal();
-      await fetch(`/api/coaches/${encodeURIComponent(btn.dataset.name)}`, { method: "DELETE" });
-      await ensureCoaches();
-      renderSessionModal();
-    }));
-  box.querySelector("#sm-save").addEventListener("click", async () => {
+  wireSuggestionSelect("coach", "/api/coaches", ensureCoaches);
+  wireSuggestionSelect("category", "/api/session-categories", ensureCategories);
+  const saveSession = async () => {
     readSessionModal();
     const m = sessionUi.modal;
     const status = $("#sm-status");
@@ -2399,19 +2895,49 @@ function wireSessionModal() {
       ? await fetch(`/api/sessions/${m.id}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: m.title, coach: m.coach, link: m.link,
-                                 notes: m.notes }) })
+                                 category: m.category, notes: m.notes }) })
       : await fetch("/api/sessions", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ date: m.date, title: m.title, coach: m.coach,
-                                 link: m.link, notes: m.notes }) });
+                                 category: m.category, link: m.link, notes: m.notes }) });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       status.textContent = body.detail || `error ${response.status}`;
-      return;   // keep what they typed
+      return null;   // keep what they typed
     }
+    const body = await response.json().catch(() => ({}));
+    return m.id || body.id;
+  };
+  box.querySelector("#sm-save").addEventListener("click", async () => {
+    if (await saveSession() === null) return;
     sessionUi.modal = null;
     closeModal();
     loadProgress();
+  });
+  const saveRecord = box.querySelector("#sm-save-record");
+  if (saveRecord) saveRecord.addEventListener("click", async () => {
+    // format check comes first: cancelling here must leave no session behind
+    if (!await srecConfirmFormat()) return;
+    const sessionId = await saveSession();
+    if (sessionId === null) return;
+    // the session exists either way now — a failed OBS start must not strand
+    // the user in the modal, where saving again would collide on the date
+    $("#sm-status").textContent = "starting OBS…";
+    const started = await fetch(`/api/sessions/${sessionId}/recordings/start`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    if (!started.ok) {
+      const body = await started.json().catch(() => ({}));
+      srecUi.startError = body.detail || `error ${started.status}`;
+    }
+    sessionUi.modal = null;
+    closeModal();
+    await srecLoadStatus();
+    srecSyncPoll();
+    await loadProgress();
+    // land the user on the REC controls (or the error) instead of a collapsed row
+    const segment = (segmentUi.segments || []).find((x) => x.session_id === sessionId);
+    if (segment && !segmentUi.expanded.has(segKey(segment))) toggleSegment(segment);
   });
 }
 
@@ -2909,6 +3435,9 @@ async function initSettings() {
   $("#setting-secondary-role").innerHTML = roleSettingOptions(data.secondary_role || "");
   $("#setting-runes-mode").value = data.runes_mode || "matchup";
   state.runesMode = data.runes_mode || "matchup";
+  $("#setting-obs-host").value = data.obs_host || "";
+  $("#setting-obs-port").value = data.obs_port || "";
+  $("#setting-obs-password").value = data.obs_password || "";
   $("#setting-ascent-db").value = data.ascent_db_path || "";
   $("#ascent-detected").textContent = data.ascent_db_detected || "none found";
   $("#setting-youtube-secrets").value = data.youtube_client_secrets || "";
@@ -2937,6 +3466,7 @@ async function initSettings() {
   // stays here because it enables the feature, and the view follows it
   $("#settings-players-link").addEventListener("click", () => setMainView("players"));
   $("#sync-recordings").addEventListener("click", syncRecordings);
+  $("#obs-test").addEventListener("click", testObsConnection);
   $("#setting-enable-comparison").addEventListener("change", (e) => {
     $("#comparison-card").classList.toggle("hidden", !e.target.checked);
     state.enableComparison = e.target.checked;
@@ -3096,6 +3626,9 @@ async function initSettings() {
         main_role: $("#setting-main-role").value,
         secondary_role: $("#setting-secondary-role").value,
         runes_mode: $("#setting-runes-mode").value,
+        obs_host: $("#setting-obs-host").value.trim(),
+        obs_port: parseInt($("#setting-obs-port").value, 10) || 4455,
+        obs_password: $("#setting-obs-password").value,
         ascent_db_path: $("#setting-ascent-db").value.trim(),
         youtube_client_secrets: $("#setting-youtube-secrets").value.trim(),
         youtube_privacy: $("#setting-youtube-privacy").value,

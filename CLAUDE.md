@@ -62,6 +62,11 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   through CI `build.yml` on all three OSes. `python-multipart` was added
   for the clips feature's file-upload endpoints (`Form`/`File`/`UploadFile`
   in app.py) — FastAPI raises at startup if it's missing, easy to mis-diagnose.
+  `websocket-client` was added for the OBS integration (`server/obs.py`) —
+  pure Python and tiny, so unlike the Google/YouTube stack it stays a normal
+  requirement rather than an optional one; it is still imported lazily, and CI
+  passes `--hidden-import websocket` since PyInstaller has no import statement
+  at module level to follow.
   `reportlab` was added for the Matchup guide's PDF export
   (`server/pdf_export.py`) — pure-Python-installable prebuilt wheels on all
   three OSes, builds clean under PyInstaller like the other compiled/native
@@ -153,7 +158,14 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   init and again after a settings save, so it applies without a reload.
   Session CRUD at `/api/sessions`;
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
-- Sessions have `title`, optional `coach`, and Markdown `notes` (legacy `note`
+- Sessions have `title`, optional `coach`, an optional `category` (Theory /
+  VOD review / Live coaching seeded as defaults; `session_categories` is the
+  pick-list ONLY, exactly like `coaches` — additive `category` column,
+  `db.seed_session_categories` seeds defaults once behind a
+  `session_categories_seeded` flag and backfills from sessions until the user
+  curates the list; the session popup renders Coach and Category through the
+  same `suggestionSelect()` dropdown-with-"+ New…" builder in app.js), and
+  Markdown `notes` (legacy `note`
   column auto-migrates in `db._migrate`; `coach` is an additive column).
   The Coaching-progress view is ONE table, not a table plus a session log:
   `stats.progress_segments` attaches the anchoring session (`session_id`,
@@ -532,6 +544,57 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   setting, and the default quota allows only ~6 uploads/day. The UI always
   `confirm()`s before uploading — it publishes to the user's channel.
 
+- **OBS session recording** — `server/obs.py` drives OBS Studio's recorder over
+  **obs-websocket v5** (built into OBS 28+, `ws://127.0.0.1:4455`, optional
+  password; host/port/password in Settings → OBS recording, `obs_*` settings
+  keys). This is for recording a COACHING SESSION, and is unrelated to the
+  Ascent VOD integration above, which links an already-recorded GAME to a match.
+  The request that makes it work is **StopRecord**: its response carries
+  `outputPath`, so the app knows exactly which file a session produced without
+  watching a folder and guessing by mtime. Same two invariants as
+  `recordings.py` — video files are never copied/moved (only paths are stored)
+  and "forget" drops the row, not the file — with ONE exception: the forget
+  endpoint takes `?delete_file=true` (sent only after a second, separate
+  confirm in the UI) and then unlinks the video plus its remuxed sibling.
+  `obs.playable_path` prefers the NEWEST same-stem sibling when several
+  exist, not whichever extension sorts first. `ObsConnectionError` (a
+  subclass of `ObsError`) marks transport failures specifically, so app.py's
+  `_obs_call` reconnects only for those — OBS answering "no" to a request would
+  just fail again. One cached connection lives in `OBS_CONN` behind `_OBS_LOCK`
+  (FastAPI runs sync endpoints in a threadpool): reconnecting per request would
+  spam OBS's log, since the status poll runs every 2 s while recording.
+  `websocket-client` is a normal requirement (pure Python and tiny, unlike the
+  Google stack) but is imported lazily and reported via
+  `obs.libraries_available()` → `obs_available`, mirroring `youtube_ready`.
+  Flow: `POST /api/sessions/{id}/recordings/start` opens a `session_recordings`
+  row BEFORE the file exists (so live bookmarks have something to attach to)
+  and `.../stop` fills in the path. `GET /api/obs/status` is the poll, and it
+  RECONCILES: if a row is still open while OBS reports not recording (stopped
+  in OBS, or the app was closed mid-session) the row is closed with no path and
+  the UI offers "attach the file" — but only when OBS was actually reachable,
+  since an unreachable OBS says nothing about whether it is still rolling.
+  Bookmark offsets come from OBS's own `outputDuration` (right even if OBS took
+  a moment to start, and it does not advance while paused), falling back to
+  wall-clock; an explicit `offset_ms` wins, which is how a finished video is
+  marked from the player. **OBS records .mkv by default and no browser plays
+  Matroska** — `obs.playable_path()` prefers a remuxed sibling (same stem,
+  `.mp4`/`.webm`/…, which OBS's "Automatically remux" and Remux Recordings both
+  produce) and the payload's `playable` flag drives a UI hint instead of a dead
+  player. `GET /api/session-recordings/{id}/file` streams via `FileResponse`
+  (Range → seeking) and only serves paths already in the table. UI:
+  `sessionRecordingSection`/`wireSessionRecordingSection` (app.js, the same
+  shared-component pattern as `clipsSection`/`recordingSection`) mounted in
+  `sessionRecordPanel(segment)` — the expanded panel of a Coaching-progress
+  period row, keyed by `segment.session_id`, right where that panel already
+  renders its clips; it is fetched lazily on expand in `toggleSegment` and
+  wired next to `wireClipsSection` in `renderProgress`, so it follows the same
+  three-point pattern as clips rather than inventing its own. `srecUi.poll`
+  runs ONLY while a recording is active, and the elapsed clock is written
+  straight into `.srec-elapsed` rather than re-rendering, so it can't steal
+  focus from the bookmark input mid-typing. It is separate from a session's
+  `link` field (a pasted VOD URL, edited in the session popup) — that is a
+  link, this is a local file the app started and can seek.
+
 ## Schema (data/lol.sqlite)
 
 `players(puuid PK, game_name, tag_line, is_tracked, solo_tier/division/lp, rank_fetched_at_ms)`
@@ -760,6 +823,17 @@ progress session cards and `blocks.js`'s per-game stats panel) — clips
 only fetch when that session/game is expanded, matching the rest of the
 app's lazy-load convention. Research entries deliberately don't use this —
 no video/clip attachments there, screenshots only (see below).
+`session_recordings(id PK, session_id, label, video_path, source CHECK IN
+('obs','manual'), started_at_ms, stopped_at_ms, created_at_ms)` +
+`session_marks(id PK, recording_id, offset_ms, label, created_at_ms)` — a
+coaching session's OBS recording and its live bookmarks (see the OBS bullet
+above). The row is created when recording STARTS, so `video_path` is `''`
+and `stopped_at_ms IS NULL` mean "still rolling"; `source='manual'` is a
+file the user attached by path rather than one this app started. Video
+files are never copied or deleted — deleting a recording (or its session,
+via `db.delete_session_recordings_for_session`, called from app.py like the
+clips cascade) drops rows only. Marks hang off the recording, not the
+session, since their offset is into that video.
 `game_reflections(match_id+puuid PK, tags, note, updated_at_ms)` — a
 lightweight per-game tag/note from the tracked player's own perspective,
 independent of matchup notes / block learnings / sessions: a fast post-match

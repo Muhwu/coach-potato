@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS coaching_sessions (
     session_date TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL DEFAULT '',
     coach TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
     link TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     start_ranks TEXT,
@@ -81,6 +82,15 @@ CREATE TABLE IF NOT EXISTS coaching_sessions (
 -- from the sessions themselves: removing a name here only stops suggesting it,
 -- it never edits the sessions that recorded it.
 CREATE TABLE IF NOT EXISTS coaches (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    added_at_ms INTEGER
+);
+
+-- The pick-list for the session "Category" field (Theory / VOD review / Live
+-- coaching by default, plus whatever the user types). Same contract as
+-- `coaches`: this is ONLY the suggestion list — removing a name here stops
+-- offering it, it never edits the sessions that recorded it.
+CREATE TABLE IF NOT EXISTS session_categories (
     name TEXT PRIMARY KEY COLLATE NOCASE,
     added_at_ms INTEGER
 );
@@ -253,6 +263,42 @@ CREATE TABLE IF NOT EXISTS recordings (
 );
 CREATE INDEX IF NOT EXISTS idx_recordings_match ON recordings(match_id);
 
+/* Coaching-session recordings made with OBS (see server/obs.py). Same two
+   rules as the Ascent `recordings` table above: the video file is never
+   copied, moved or deleted — only its path is stored — and forgetting a
+   recording forgets the row, not the file.
+   The row is created when recording STARTS, so live bookmarks have something
+   to hang on before the file exists; `video_path` is filled in on stop from
+   the path OBS reports, and `stopped_at_ms IS NULL` means "still rolling".
+   source: 'obs' = started/stopped from here, 'manual' = an existing file the
+   user pointed at. */
+CREATE TABLE IF NOT EXISTS session_recordings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    video_path TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'obs' CHECK (source IN ('obs', 'manual')),
+    started_at_ms INTEGER,
+    stopped_at_ms INTEGER,
+    created_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_session_recordings_session
+    ON session_recordings(session_id);
+
+/* Live bookmarks taken while a session recording rolls: a note plus the
+   offset into the video, so review can seek straight to the moment. Offsets
+   come from OBS's own outputDuration (which does not advance while paused),
+   falling back to wall-clock since the start. */
+CREATE TABLE IF NOT EXISTS session_marks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recording_id INTEGER NOT NULL,
+    offset_ms INTEGER NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_session_marks_recording
+    ON session_marks(recording_id);
+
 CREATE TABLE IF NOT EXISTS research_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     player_name TEXT NOT NULL DEFAULT '',
@@ -409,6 +455,7 @@ def connect(db_path) -> sqlite3.Connection:
     seed_rank_history(conn)
     seed_block_series(conn)
     seed_coaches(conn)
+    seed_session_categories(conn)
     # stamp only after the migrations succeeded, so a crash mid-upgrade leaves
     # the old version recorded and the next launch backs up again
     set_settings(conn, {"app_version": version})
@@ -431,6 +478,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN coach TEXT NOT NULL DEFAULT ''")
     if session_columns and "link" not in session_columns:  # where the VOD lives
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN link TEXT NOT NULL DEFAULT ''")
+    if session_columns and "category" not in session_columns:  # theory / VOD review / ...
+        conn.execute("ALTER TABLE coaching_sessions ADD COLUMN category TEXT NOT NULL DEFAULT ''")
     series_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_series)")}
     if series_columns:
         if "goals" not in series_columns:  # Markdown series goals
@@ -1174,18 +1223,20 @@ def tracked_ranks(conn):
     ]
 
 
-def add_session(conn, session_date, title="", notes="", coach="", link=""):
+def add_session(conn, session_date, title="", notes="", coach="", link="", category=""):
     with conn:
         cursor = conn.execute(
             """INSERT INTO coaching_sessions
-               (session_date, title, coach, link, notes, start_ranks, created_at_ms)
-               VALUES (?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
-            (session_date, title, coach, link, notes, json.dumps(tracked_ranks(conn))),
+               (session_date, title, coach, link, category, notes, start_ranks, created_at_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
+            (session_date, title, coach, link, category, notes,
+             json.dumps(tracked_ranks(conn))),
         )
     return cursor.lastrowid
 
 
-def update_session(conn, session_id, title=None, notes=None, coach=None, link=None):
+def update_session(conn, session_id, title=None, notes=None, coach=None, link=None,
+                   category=None):
     """Update the given fields (None = leave unchanged). False if id missing."""
     sets, params = [], []
     if title is not None:
@@ -1197,6 +1248,9 @@ def update_session(conn, session_id, title=None, notes=None, coach=None, link=No
     if coach is not None:
         sets.append("coach=?")
         params.append(coach)
+    if category is not None:
+        sets.append("category=?")
+        params.append(category)
     if link is not None:
         sets.append("link=?")
         params.append(link)
@@ -1257,6 +1311,59 @@ def seed_coaches(conn):
         "SELECT DISTINCT coach FROM coaching_sessions WHERE TRIM(coach) != ''")]
     for name in names:
         add_coach(conn, name)
+
+
+# The three kinds of session most coaching falls into. Seeded once as the
+# starting pick-list; the user extends it by typing anything else into the
+# Category field, and prunes it like the coach list.
+DEFAULT_SESSION_CATEGORIES = ("Theory", "VOD review", "Live coaching")
+
+
+def list_session_categories(conn):
+    """Names offered on the session Category field, A-Z."""
+    return [r["name"] for r in conn.execute(
+        "SELECT name FROM session_categories ORDER BY name COLLATE NOCASE")]
+
+
+def add_session_category(conn, name):
+    """Remember a category for future suggestions (idempotent, case-insensitive)."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO session_categories (name, added_at_ms) VALUES (?, {_now_expr()})
+                ON CONFLICT(name) DO NOTHING""", (name,))
+    return cursor.rowcount > 0
+
+
+def remove_session_category(conn, name):
+    """Stop suggesting a category. Sessions that recorded it are untouched, and
+    — like coaches — the first removal ends all automatic seeding, so a pruned
+    default never comes back."""
+    with conn:
+        cursor = conn.execute("DELETE FROM session_categories WHERE name=?",
+                              ((name or "").strip(),))
+    if cursor.rowcount:
+        set_settings(conn, {"session_categories_curated": "1"})
+    return cursor.rowcount > 0
+
+
+def seed_session_categories(conn):
+    """Defaults once (flagged, so deleting one doesn't resurrect it next
+    launch), plus a backfill from categories already on sessions — for
+    restored backups, same as seed_coaches. Both stop for good once the user
+    curates the list."""
+    settings = get_settings(conn)
+    if settings.get("session_categories_curated") == "1":
+        return
+    if settings.get("session_categories_seeded") != "1":
+        for name in DEFAULT_SESSION_CATEGORIES:
+            add_session_category(conn, name)
+        set_settings(conn, {"session_categories_seeded": "1"})
+    for row in conn.execute(
+            "SELECT DISTINCT category FROM coaching_sessions WHERE TRIM(category) != ''"):
+        add_session_category(conn, row["category"])
 
 
 def delete_session(conn, session_id):
@@ -1726,6 +1833,125 @@ def delete_clips_for_block(conn, block_id):
             """DELETE FROM clips WHERE owner_type='block_game' AND owner_id IN
                (SELECT id FROM block_games WHERE block_id=?)""", (block_id,))
     return [r["file_name"] for r in rows if r["file_name"]]
+
+
+# ---------- OBS-recorded coaching sessions (see server/obs.py) ----------
+
+def add_session_recording(conn, session_id, label="", source="obs",
+                          started_at_ms=None, video_path="", stopped_at_ms=None):
+    """Create the row. For an OBS recording this happens at START (no path
+    yet); a manually attached file arrives already finished."""
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO session_recordings
+                (session_id, label, video_path, source, started_at_ms,
+                 stopped_at_ms, created_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()})""",
+            (session_id, label, video_path, source, started_at_ms, stopped_at_ms))
+    return cursor.lastrowid
+
+
+def update_session_recording(conn, recording_id, label=None, video_path=None,
+                             stopped_at_ms=None):
+    """Partial update — only the fields passed are written, so stopping a
+    recording never clobbers a label the user typed while it rolled."""
+    sets, params = [], []
+    for column, value in (("label", label), ("video_path", video_path),
+                          ("stopped_at_ms", stopped_at_ms)):
+        if value is not None:
+            sets.append(f"{column}=?")
+            params.append(value)
+    if not sets:
+        return False
+    with conn:
+        cursor = conn.execute(
+            f"UPDATE session_recordings SET {', '.join(sets)} WHERE id=?",
+            (*params, recording_id))
+    return cursor.rowcount > 0
+
+
+def get_session_recording(conn, recording_id):
+    return conn.execute("SELECT * FROM session_recordings WHERE id=?",
+                        (recording_id,)).fetchone()
+
+
+def list_session_recordings(conn, session_id):
+    return conn.execute(
+        """SELECT * FROM session_recordings WHERE session_id=?
+           ORDER BY COALESCE(started_at_ms, created_at_ms), id""",
+        (session_id,)).fetchall()
+
+
+def active_session_recording(conn):
+    """The one still rolling, if any. OBS records a single output at a time,
+    so this is global rather than per-session — which is also what lets the UI
+    say "another session is recording" instead of starting a second one."""
+    return conn.execute(
+        """SELECT * FROM session_recordings WHERE stopped_at_ms IS NULL
+           ORDER BY id DESC LIMIT 1""").fetchone()
+
+
+def delete_session_recording(conn, recording_id):
+    """Forgets the row and its marks. The video file is never touched."""
+    with conn:
+        conn.execute("DELETE FROM session_marks WHERE recording_id=?", (recording_id,))
+        cursor = conn.execute("DELETE FROM session_recordings WHERE id=?",
+                              (recording_id,))
+    return cursor.rowcount > 0
+
+
+def delete_session_recordings_for_session(conn, session_id):
+    """Cascade for a session being deleted. Files are left alone."""
+    with conn:
+        conn.execute(
+            """DELETE FROM session_marks WHERE recording_id IN
+               (SELECT id FROM session_recordings WHERE session_id=?)""",
+            (session_id,))
+        cursor = conn.execute("DELETE FROM session_recordings WHERE session_id=?",
+                              (session_id,))
+    return cursor.rowcount
+
+
+def add_session_mark(conn, recording_id, offset_ms, label=""):
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO session_marks (recording_id, offset_ms, label, created_at_ms)
+                VALUES (?, ?, ?, {_now_expr()})""",
+            (recording_id, max(0, int(offset_ms)), label))
+    return cursor.lastrowid
+
+
+def list_session_marks(conn, recording_id):
+    return conn.execute(
+        "SELECT * FROM session_marks WHERE recording_id=? ORDER BY offset_ms, id",
+        (recording_id,)).fetchall()
+
+
+def get_session_mark(conn, mark_id):
+    return conn.execute("SELECT * FROM session_marks WHERE id=?", (mark_id,)).fetchone()
+
+
+def update_session_mark(conn, mark_id, label=None, offset_ms=None):
+    sets, params = [], []
+    if label is not None:
+        sets.append("label=?")
+        params.append(label)
+    if offset_ms is not None:
+        sets.append("offset_ms=?")
+        params.append(max(0, int(offset_ms)))
+    if not sets:
+        return False
+    with conn:
+        cursor = conn.execute(
+            f"UPDATE session_marks SET {', '.join(sets)} WHERE id=?",
+            (*params, mark_id))
+    return cursor.rowcount > 0
+
+
+def delete_session_mark(conn, mark_id):
+    with conn:
+        cursor = conn.execute("DELETE FROM session_marks WHERE id=?", (mark_id,))
+    return cursor.rowcount > 0
 
 
 # ---------- research entries (VOD review of other players' games) ----------

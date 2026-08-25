@@ -947,6 +947,11 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     tier_id = db.create_tier_list(c, "Top lane", tier_data)
     guide_tier_id = db.create_tier_list(c, "vs AP", tier_data, champion="Gwen")
     db.set_reflection(c, ids[0], "me", tags=["bad TP"], note="keep this reflection")
+    session_id = db.list_sessions(c)[0]["id"]
+    recording_id = db.add_session_recording(c, session_id, label="VOD",
+                                            video_path="C:/vods/a.mp4",
+                                            started_at_ms=1, stopped_at_ms=2)
+    db.add_session_mark(c, recording_id, 90_000, "keep this bookmark")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
     c.execute("ALTER TABLE tier_lists DROP COLUMN champion")
@@ -965,6 +970,10 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert db.get_research_entry(c, research_id)["notes"] == "keep this too"
     assert db.get_reflection(c, ids[0], "me") == {
         "tags": ["bad TP"], "note": "keep this reflection"}
+    kept = db.list_session_recordings(c, session_id)[0]
+    assert kept["video_path"] == "C:/vods/a.mp4"
+    assert [m["label"] for m in db.list_session_marks(c, recording_id)] == [
+        "keep this bookmark"]
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
     # tier lists survive, and the re-added champion column defaults to '' rather
     # than dropping the list out of the Tier list tab
@@ -1201,3 +1210,83 @@ def test_only_the_newest_backups_are_kept(tmp_path, monkeypatch):
         _versions(monkeypatch, f"1.{i + 1}.0")
         db.connect(path).close()
     assert len(list(db.backup_dir(path).glob("*.sqlite"))) == db.KEEP_BACKUPS
+def test_session_recordings_and_marks_round_trip(conn):
+    db.add_session(conn, "2026-08-01", "review")
+    session_id = db.list_sessions(conn)[0]["id"]
+    # an OBS recording opens with no path — it is only known on stop
+    rec = db.add_session_recording(conn, session_id, label="live",
+                                   started_at_ms=1_000)
+    assert db.active_session_recording(conn)["id"] == rec
+    db.add_session_mark(conn, rec, 30_000, "first")
+    db.add_session_mark(conn, rec, 10_000, "second")
+    assert [m["label"] for m in db.list_session_marks(conn, rec)] == ["second", "first"]
+
+    # stopping writes the path without clobbering the label
+    db.update_session_recording(conn, rec, video_path="D:/a.mp4", stopped_at_ms=2_000)
+    stored = db.get_session_recording(conn, rec)
+    assert (stored["video_path"], stored["label"]) == ("D:/a.mp4", "live")
+    assert db.active_session_recording(conn) is None
+
+    # ...and relabelling later leaves the path alone
+    db.update_session_recording(conn, rec, label="renamed")
+    stored = db.get_session_recording(conn, rec)
+    assert (stored["video_path"], stored["label"]) == ("D:/a.mp4", "renamed")
+
+    assert db.delete_session_recording(conn, rec) is True
+    assert db.list_session_marks(conn, rec) == []  # bookmarks go with it
+
+
+def test_deleting_a_session_takes_its_recordings_and_marks(conn):
+    db.add_session(conn, "2026-08-02", "review")
+    session_id = db.list_sessions(conn)[0]["id"]
+    rec = db.add_session_recording(conn, session_id, video_path="D:/a.mp4",
+                                   started_at_ms=1, stopped_at_ms=2)
+    db.add_session_mark(conn, rec, 5_000, "note")
+    assert db.delete_session_recordings_for_session(conn, session_id) == 1
+    assert db.list_session_recordings(conn, session_id) == []
+    assert db.list_session_marks(conn, rec) == []
+
+
+def test_only_one_recording_is_ever_active(conn):
+    db.add_session(conn, "2026-08-03", "a")
+    db.add_session(conn, "2026-08-04", "b")
+    first, second = [row["id"] for row in db.list_sessions(conn)]
+    db.add_session_recording(conn, first, started_at_ms=1)
+    newest = db.add_session_recording(conn, second, started_at_ms=2)
+    # both open is a state the API refuses to create; if it ever happened, the
+    # newest is the one the UI would show as rolling
+    assert db.active_session_recording(conn)["id"] == newest
+
+
+def test_session_categories_seed_defaults_once(conn):
+    # a fresh db offers the three defaults
+    assert db.list_session_categories(conn) == ["Live coaching", "Theory", "VOD review"]
+    # deleting a default doesn't resurrect on the next connect-time seed
+    assert db.remove_session_category(conn, "Theory") is True
+    db.seed_session_categories(conn)
+    assert "Theory" not in db.list_session_categories(conn)
+
+
+def test_session_category_round_trip(conn):
+    db.add_session(conn, "2026-08-01", "waves", category="VOD review")
+    session = db.list_sessions(conn)[0]
+    assert session["category"] == "VOD review"
+    # partial update leaves the other fields alone
+    db.update_session(conn, session["id"], category="Theory")
+    updated = db.list_sessions(conn)[0]
+    assert updated["category"] == "Theory"
+    assert updated["title"] == "waves"
+
+
+def test_session_categories_backfill_from_sessions_unless_curated(conn):
+    # a restored backup's category resurfaces as a suggestion...
+    with conn:
+        conn.execute("UPDATE settings SET value='0' WHERE key='session_categories_seeded'")
+        conn.execute("DELETE FROM session_categories")
+    db.add_session(conn, "2026-08-02", category="Scrim block")
+    db.seed_session_categories(conn)
+    assert "Scrim block" in db.list_session_categories(conn)
+    # ...but never after the user starts curating the list
+    db.remove_session_category(conn, "Scrim block")
+    db.seed_session_categories(conn)
+    assert "Scrim block" not in db.list_session_categories(conn)

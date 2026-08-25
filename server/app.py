@@ -17,8 +17,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (ascent_log, config, crypto, db, pdf_export, recordings, rune_data,
-               stats, youtube)
+from . import (ascent_log, config, crypto, db, obs, pdf_export, recordings,
+               rune_data, stats, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING
@@ -196,6 +196,12 @@ def _extra_settings(conn):
         "youtube_privacy": stored.get("youtube_privacy") or youtube.DEFAULT_PRIVACY,
         "youtube_ready": youtube.has_credentials(
             stored.get("youtube_client_secrets"), get_db_path().parent),
+        "obs_host": stored.get("obs_host") or obs.DEFAULT_HOST,
+        "obs_port": int(stored.get("obs_port") or obs.DEFAULT_PORT),
+        "obs_password": stored.get("obs_password") or "",
+        # websocket-client missing -> the UI explains instead of offering a
+        # Record button that could only fail (same idea as youtube_ready)
+        "obs_available": obs.libraries_available(),
     }
 
 
@@ -329,6 +335,19 @@ def api_put_settings(body: dict):
     if youtube_privacy not in youtube.PRIVACY_VALUES:
         raise HTTPException(
             400, f"youtube_privacy must be one of: {', '.join(youtube.PRIVACY_VALUES)}")
+    # OBS connection: host/port/password of obs-websocket. Blank host/port fall
+    # back to OBS's own defaults rather than erroring — the common case is that
+    # the user never touched them.
+    obs_host = (body.get("obs_host") or "").strip() or obs.DEFAULT_HOST
+    obs_port = body.get("obs_port", obs.DEFAULT_PORT)
+    if isinstance(obs_port, str):
+        obs_port = int(obs_port) if obs_port.strip().isdigit() else obs_port
+    if (not isinstance(obs_port, int) or isinstance(obs_port, bool)
+            or not 1 <= obs_port <= 65535):
+        raise HTTPException(400, "obs_port must be a whole number 1..65535")
+    obs_password = body.get("obs_password") or ""
+    if not isinstance(obs_password, str):
+        raise HTTPException(400, "obs_password must be a string")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -352,6 +371,9 @@ def api_put_settings(body: dict):
             "ascent_db_path": ascent_db_path,
             "youtube_client_secrets": youtube_client_secrets,
             "youtube_privacy": youtube_privacy,
+            "obs_host": obs_host,
+            "obs_port": str(obs_port),
+            "obs_password": obs_password,
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -520,12 +542,15 @@ def api_add_session(body: dict):
     conn = get_conn()
     try:
         coach = (body.get("coach") or "").strip()
+        category = (body.get("category") or "").strip()
         session_id = db.add_session(conn, date_str,
                                     title=(body.get("title") or "").strip(),
                                     notes=body.get("notes") or "",
                                     coach=coach,
+                                    category=category,
                                     link=_clean_session_link(body.get("link")))
         db.add_coach(conn, coach)  # remember it for the next session's suggestions
+        db.add_session_category(conn, category)  # same deal for a new category
         return {"id": session_id}
     except sqlite3.IntegrityError:
         raise HTTPException(409, f"a session on {date_str} already exists")
@@ -540,20 +565,26 @@ def api_update_session(session_id: int, body: dict):
     title = body.get("title")
     notes = body.get("notes")
     coach = body.get("coach")
+    category = body.get("category")
     link = body.get("link")
-    if title is None and notes is None and coach is None and link is None:
-        raise HTTPException(400, "provide title, notes, coach and/or link")
+    if title is None and notes is None and coach is None and link is None \
+            and category is None:
+        raise HTTPException(400, "provide title, notes, coach, category and/or link")
     if coach is not None:
         coach = str(coach).strip()
+    if category is not None:
+        category = str(category).strip()
     if link is not None:
         link = _clean_session_link(link)
     conn = get_conn()
     try:
         if not db.update_session(conn, session_id, title=title, notes=notes,
-                                 coach=coach, link=link):
+                                 coach=coach, link=link, category=category):
             raise HTTPException(404, "no such session")
         if coach:
             db.add_coach(conn, coach)
+        if category:
+            db.add_session_category(conn, category)
         return {"updated": True}
     finally:
         conn.close()
@@ -594,6 +625,30 @@ def api_remove_coach(name: str):
         conn.close()
 
 
+@app.get("/api/session-categories")
+def api_session_categories():
+    """The Category pick-list: the seeded defaults (Theory / VOD review /
+    Live coaching) plus anything the user has typed into the field."""
+    conn = get_conn()
+    try:
+        return {"categories": db.list_session_categories(conn)}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/session-categories/{name}")
+def api_remove_session_category(name: str):
+    """Stop suggesting this category. Sessions that recorded it keep it — the
+    list is only a pick-list, never the record of what a session was."""
+    conn = get_conn()
+    try:
+        if not db.remove_session_category(conn, name):
+            raise HTTPException(404, "no such category")
+        return {"removed": name}
+    finally:
+        conn.close()
+
+
 @app.get("/api/sessions/export.md")
 def api_export_sessions():
     conn = get_conn()
@@ -607,6 +662,8 @@ def api_export_sessions():
         parts.append(f"\n## {row['session_date']} — {title}\n")
         if row["coach"]:
             parts.append(f"\n*Coach: {row['coach']}*\n")
+        if row["category"]:
+            parts.append(f"\n*Category: {row['category']}*\n")
         if row["link"]:
             parts.append(f"\n[Session recording]({row['link']})\n")
         if row["notes"]:
@@ -628,7 +685,8 @@ def api_export_all():
     conn = get_conn()
     try:
         sessions = [dict(r) for r in conn.execute(
-            """SELECT session_date, title, notes, start_ranks, created_at_ms
+            """SELECT session_date, title, coach, link, category, notes,
+                      start_ranks, created_at_ms
                FROM coaching_sessions ORDER BY session_date""")]
         blocks_rows = [dict(r) for r in conn.execute(
             """SELECT id, title, learnings, pool_snapshot, start_ranks, end_ranks,
@@ -658,6 +716,16 @@ def api_export_all():
                FROM clips ORDER BY id""")]
         tier_list_rows = [dict(r) for r in conn.execute(
             "SELECT id, title, data, champion, created_at_ms, updated_at_ms FROM tier_lists ORDER BY id")]
+        # OBS session recordings: the video files themselves are NOT bundled
+        # (they live wherever OBS wrote them and can be gigabytes), but the
+        # rows and their bookmarks are authored content worth keeping
+        session_recording_rows = [dict(r) for r in conn.execute(
+            """SELECT id, session_id, label, video_path, source, started_at_ms,
+                      stopped_at_ms, created_at_ms
+               FROM session_recordings ORDER BY id""")]
+        session_mark_rows = [dict(r) for r in conn.execute(
+            """SELECT id, recording_id, offset_ms, label, created_at_ms
+               FROM session_marks ORDER BY id""")]
     finally:
         conn.close()
 
@@ -688,6 +756,8 @@ def api_export_all():
         "research_screenshots": screenshot_rows,
         "clips": clip_rows,
         "tier_lists": tier_list_rows,
+        "session_recordings": session_recording_rows,
+        "session_marks": session_mark_rows,
     }
 
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
@@ -758,6 +828,10 @@ def _import_conflicts(conn, payload):
     for row in payload.get("research_entries") or []:
         if conn.execute("SELECT 1 FROM research_entries WHERE id=?", (row["id"],)).fetchone():
             conflicts.append(f"research entry #{row['id']}")
+    for row in payload.get("session_recordings") or []:
+        if conn.execute("SELECT 1 FROM session_recordings WHERE id=?",
+                         (row["id"],)).fetchone():
+            conflicts.append(f"session recording #{row['id']}")
     for row in payload.get("research_screenshots") or []:
         if conn.execute("SELECT 1 FROM research_screenshots WHERE id=?", (row["id"],)).fetchone():
             conflicts.append(f"research screenshot #{row['id']}")
@@ -780,6 +854,7 @@ def _import_counts(payload):
         "research_entries": len(payload.get("research_entries") or []),
         "clips": len(payload.get("clips") or []),
         "tier_lists": len(payload.get("tier_lists") or []),
+        "session_recordings": len(payload.get("session_recordings") or []),
     }
 
 
@@ -813,9 +888,11 @@ async def api_import_all(file: UploadFile = File(...)):
             for row in payload.get("sessions") or []:
                 conn.execute(
                     """INSERT INTO coaching_sessions
-                       (session_date, title, notes, start_ranks, created_at_ms)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (row["session_date"], row.get("title", ""), row.get("notes", ""),
+                       (session_date, title, coach, link, category, notes,
+                        start_ranks, created_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (row["session_date"], row.get("title", ""), row.get("coach", ""),
+                     row.get("link", ""), row.get("category", ""), row.get("notes", ""),
                      json.dumps(row["start_ranks"]) if row.get("start_ranks") else None,
                      row.get("created_at_ms")))
             for row in payload.get("blocks") or []:
@@ -875,6 +952,23 @@ async def api_import_all(file: UploadFile = File(...)):
                 member = f"screenshots/{row['file_name']}"
                 if member in zf.namelist():
                     (get_research_screenshots_dir() / row["file_name"]).write_bytes(zf.read(member))
+            for row in payload.get("session_recordings") or []:
+                conn.execute(
+                    """INSERT INTO session_recordings
+                       (id, session_id, label, video_path, source, started_at_ms,
+                        stopped_at_ms, created_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (row["id"], row["session_id"], row.get("label", ""),
+                     row.get("video_path", ""), row.get("source", "obs"),
+                     row.get("started_at_ms"), row.get("stopped_at_ms"),
+                     row.get("created_at_ms")))
+            for row in payload.get("session_marks") or []:
+                conn.execute(
+                    """INSERT INTO session_marks
+                       (id, recording_id, offset_ms, label, created_at_ms)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (row["id"], row["recording_id"], row.get("offset_ms", 0),
+                     row.get("label", ""), row.get("created_at_ms")))
             for row in payload.get("clips") or []:
                 conn.execute(
                     """INSERT INTO clips
@@ -905,6 +999,9 @@ def api_delete_session(session_id: int):
     conn = get_conn()
     try:
         freed = db.delete_clips_for_owner(conn, "session", session_id)
+        # recordings are forgotten, never deleted: the row goes, the video file
+        # on disk stays exactly where OBS wrote it
+        db.delete_session_recordings_for_session(conn, session_id)
         if not db.delete_session(conn, session_id):
             raise HTTPException(404, "no such session")
         _unlink_clip_files(freed)
@@ -2908,6 +3005,405 @@ def api_upload_recording(rec_uuid: str, body: dict = None):
     return {"started": True, "privacy": privacy}
 
 
+# ---------- OBS-recorded coaching sessions (see server/obs.py) ----------
+
+# One cached obs-websocket connection, reused across requests: the status poll
+# runs every couple of seconds while recording, and reconnecting each time would
+# spam OBS's own log with connect/disconnect lines. FastAPI runs sync endpoints
+# in a threadpool, hence the lock.
+OBS_CONN = {"client": None, "key": None}
+_OBS_LOCK = threading.RLock()
+# OBS's encoder takes a moment to spin up after StartRecord: GetRecordStatus
+# can still say "not recording" for the first instant, and the UI polls status
+# immediately after starting. Without this grace a brand-new row was closed 16
+# ms after it was created (observed in the wild) while OBS recorded on. A stop
+# EVENT overrides the grace — an outputPath in hand is definitive.
+OBS_START_GRACE_MS = 10_000
+# how far back a stop event's path may backfill an orphaned row (one that got
+# closed without a path) — beyond this it is likelier to be the wrong video
+OBS_BACKFILL_WINDOW_MS = 60 * 60 * 1000
+
+
+def _now_ms():
+    return int(time.time() * 1000)
+
+
+def _obs_settings(conn):
+    stored = db.get_settings(conn)
+    port = stored.get("obs_port")
+    return {"host": stored.get("obs_host") or obs.DEFAULT_HOST,
+            "port": int(port) if port else obs.DEFAULT_PORT,
+            "password": stored.get("obs_password") or ""}
+
+
+def _obs_drop():
+    client, OBS_CONN["client"], OBS_CONN["key"] = OBS_CONN["client"], None, None
+    if client is not None:
+        client.close()
+
+
+def _obs_call(settings, action):
+    """Run `action(client)` on the shared connection, reconnecting once if the
+    cached one has gone away (OBS restarted, machine slept). Only transport
+    failures are retried — an ObsError that is OBS answering "no" (already
+    recording, unknown request) would just fail again."""
+    key = (settings["host"], settings["port"], settings["password"])
+    with _OBS_LOCK:
+        if OBS_CONN["client"] is not None and OBS_CONN["key"] != key:
+            _obs_drop()  # settings changed under us
+        if OBS_CONN["client"] is not None:
+            try:
+                return action(OBS_CONN["client"])
+            except obs.ObsConnectionError:
+                _obs_drop()
+        client = obs.connect(**settings)
+        OBS_CONN.update(client=client, key=key)
+        return action(client)
+
+
+def _obs_request(conn, action, settings=None):
+    """_obs_call, with OBS's own errors turned into a 502 the UI can print."""
+    try:
+        return _obs_call(settings or _obs_settings(conn), action)
+    except obs.ObsError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _session_recording_payload(row, conn):
+    """`video_path` is what OBS reported; `play_path` is what we would actually
+    serve — the same file unless a playable remux sits beside an .mkv."""
+    stored_path = row["video_path"] or ""
+    play_path = obs.playable_path(stored_path) if stored_path else ""
+    exists = bool(play_path) and os.path.exists(play_path)
+    return {
+        "id": row["id"],
+        "session_id": row["session_id"],
+        "label": row["label"],
+        "source": row["source"],
+        "video_path": stored_path,
+        "play_path": play_path,
+        "started_at_ms": row["started_at_ms"],
+        "stopped_at_ms": row["stopped_at_ms"],
+        "recording": row["stopped_at_ms"] is None,
+        "file_exists": exists,
+        # an .mkv (OBS's default format) exists but no browser will play it
+        "playable": exists and obs.is_playable(play_path),
+        "play_url": f"/api/session-recordings/{row['id']}/file" if exists else None,
+        "marks": [dict(m) for m in db.list_session_marks(conn, row["id"])],
+    }
+
+
+def _finish_recording(conn, row, video_path=""):
+    db.update_session_recording(conn, row["id"], video_path=video_path or None,
+                                stopped_at_ms=_now_ms())
+    return db.get_session_recording(conn, row["id"])
+
+
+def _require_session(conn, session_id):
+    if not conn.execute("SELECT 1 FROM coaching_sessions WHERE id=?",
+                        (session_id,)).fetchone():
+        raise HTTPException(404, "no such coaching session")
+
+
+@app.get("/api/obs/status")
+def api_obs_status():
+    """Whether OBS is reachable and what it is doing, plus the recording row
+    still marked as rolling (if any). Polled by the session card."""
+    conn = get_conn()
+    try:
+        active = db.active_session_recording(conn)
+        out = {"available": obs.libraries_available(), "connected": False,
+               "recording": False, "paused": False, "duration_ms": 0,
+               "error": None, "active": None, "finished": None}
+        try:
+            # one round trip serves both: reading the status also drains any
+            # queued RecordStateChanged event, whose outputPath is the file of
+            # a recording that was stopped in OBS rather than here
+            status, stopped_path = _obs_call(
+                _obs_settings(conn),
+                lambda c: (c.record_status(), c.take_last_output_path()))
+        except obs.ObsError as exc:
+            out["error"] = str(exc)
+            # OBS being unreachable tells us nothing about the row — leave it open
+            if active:
+                out["active"] = _session_recording_payload(active, conn)
+            return out
+        out.update(connected=True, **status)
+        if active and not status["recording"]:
+            age_ms = _now_ms() - (active["started_at_ms"] or 0)
+            if stopped_path or age_ms > OBS_START_GRACE_MS:
+                # recording ended outside the app (stopped in OBS, or the app
+                # was closed mid-session). If OBS's stop event went by on this
+                # connection we have the file; otherwise the row closes without
+                # a path and the UI offers to attach it. A row younger than the
+                # grace is NOT closed on status alone — right after StartRecord
+                # OBS can briefly report "not recording" while the encoder
+                # spins up, and closing on that instant orphans a live
+                # recording. The stop event overrides the grace: a path in
+                # hand is definitive.
+                finished = _finish_recording(conn, active, stopped_path)
+                out["finished"] = _session_recording_payload(finished, conn)
+                active = None
+        elif stopped_path and not active:
+            # a stop event with no open row: its file belongs to a recording
+            # whose row was already closed without a path (the app missed the
+            # stop, or an early reconciliation got it). Heal the newest such
+            # row rather than dropping a path we know is right.
+            orphan = conn.execute(
+                """SELECT * FROM session_recordings
+                   WHERE source='obs' AND video_path='' AND stopped_at_ms IS NOT NULL
+                     AND stopped_at_ms > ?
+                   ORDER BY id DESC LIMIT 1""",
+                (_now_ms() - OBS_BACKFILL_WINDOW_MS,)).fetchone()
+            if orphan:
+                db.update_session_recording(conn, orphan["id"], video_path=stopped_path)
+                out["finished"] = _session_recording_payload(
+                    db.get_session_recording(conn, orphan["id"]), conn)
+        if active:
+            out["active"] = _session_recording_payload(active, conn)
+        return out
+    finally:
+        conn.close()
+
+
+@app.get("/api/obs/record-format")
+def api_obs_record_format():
+    """Preflight for the Record button: what container OBS would record into,
+    and whether the app could play it back. The UI warns BEFORE starting when
+    the answer is a format no browser plays (OBS's default .mkv), so the user
+    can switch OBS to mp4 first instead of finding out after the session."""
+    conn = get_conn()
+    try:
+        record_format = _obs_request(conn, lambda c: c.record_format())
+        return {"format": record_format,
+                "playable": obs.format_playable(record_format)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/obs/test")
+def api_obs_test(body: dict = None):
+    """Settings' "Test connection" button. Takes the values currently typed into
+    the form, so the connection can be checked before saving; anything not
+    passed falls back to what is stored."""
+    body = body or {}
+    conn = get_conn()
+    try:
+        settings = _obs_settings(conn)
+        if body.get("host"):
+            settings["host"] = str(body["host"]).strip()
+        if body.get("port"):
+            try:
+                settings["port"] = int(body["port"])
+            except (TypeError, ValueError):
+                raise HTTPException(400, "port must be a number")
+        if "password" in body:
+            settings["password"] = body.get("password") or ""
+
+        def probe(client):
+            info = dict(client.version())
+            info.update(client.record_status())
+            try:  # nice-to-have: where OBS writes its files
+                info["record_directory"] = (
+                    client.request("GetRecordDirectory") or {}).get("recordDirectory", "")
+            except obs.ObsError:
+                info["record_directory"] = ""
+            info["record_format"] = client.record_format()
+            info["format_playable"] = obs.format_playable(info["record_format"])
+            return info
+        return {"connected": True, **_obs_request(conn, probe, settings)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/sessions/{session_id}/recordings")
+def api_session_recordings(session_id: int):
+    conn = get_conn()
+    try:
+        return {"recordings": [_session_recording_payload(r, conn)
+                               for r in db.list_session_recordings(conn, session_id)]}
+    finally:
+        conn.close()
+
+
+@app.post("/api/sessions/{session_id}/recordings/start")
+def api_start_session_recording(session_id: int, body: dict = None):
+    """Tell OBS to start recording, and open a row for this session so live
+    bookmarks have something to attach to before the file exists."""
+    conn = get_conn()
+    try:
+        _require_session(conn, session_id)
+        if db.active_session_recording(conn):
+            raise HTTPException(409, "a recording is already in progress")
+        _obs_request(conn, lambda c: c.start_record())
+        recording_id = db.add_session_recording(
+            conn, session_id, label=((body or {}).get("label") or "").strip(),
+            source="obs", started_at_ms=_now_ms())
+        return _session_recording_payload(
+            db.get_session_recording(conn, recording_id), conn)
+    finally:
+        conn.close()
+
+
+@app.post("/api/sessions/{session_id}/recordings/stop")
+def api_stop_session_recording(session_id: int):
+    """Stop OBS and store the path it reports. If OBS turns out not to be
+    recording, the row is still closed — with no path — so the UI can offer to
+    attach the file by hand instead of leaving a row rolling forever."""
+    conn = get_conn()
+    try:
+        active = db.active_session_recording(conn)
+        if not active or active["session_id"] != session_id:
+            raise HTTPException(404, "this session is not recording")
+        path = _obs_request(conn, lambda c: c.stop_record())
+        return _session_recording_payload(_finish_recording(conn, active, path), conn)
+    finally:
+        conn.close()
+
+
+@app.post("/api/sessions/{session_id}/recordings/attach")
+def api_attach_session_recording(session_id: int, body: dict):
+    """Point a session at a video file that already exists — one recorded
+    before this was set up, or one whose stop we missed. The file is only ever
+    read from where it is."""
+    path = (body.get("path") or "").strip().strip('"')
+    if not path:
+        raise HTTPException(400, "path is required")
+    if not os.path.isfile(path):
+        raise HTTPException(400, f"no file at {path}")
+    conn = get_conn()
+    try:
+        _require_session(conn, session_id)
+        now = _now_ms()
+        recording_id = db.add_session_recording(
+            conn, session_id, label=(body.get("label") or "").strip(),
+            source="manual", started_at_ms=now, video_path=path, stopped_at_ms=now)
+        return _session_recording_payload(
+            db.get_session_recording(conn, recording_id), conn)
+    finally:
+        conn.close()
+
+
+@app.patch("/api/session-recordings/{recording_id}")
+def api_update_session_recording(recording_id: int, body: dict):
+    label = body.get("label")
+    if label is None:
+        raise HTTPException(400, "nothing to update — pass label")
+    conn = get_conn()
+    try:
+        if not db.update_session_recording(conn, recording_id, label=str(label)):
+            raise HTTPException(404, "no such recording")
+        return _session_recording_payload(
+            db.get_session_recording(conn, recording_id), conn)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/session-recordings/{recording_id}")
+def api_delete_session_recording(recording_id: int, delete_file: bool = False):
+    """Forget the recording and its bookmarks. By default the video file is
+    left alone (the Ascent-VOD rule); `?delete_file=true` — sent only after
+    the user explicitly confirmed it in the UI — also removes the file from
+    disk, plus a remuxed sibling if one exists, since to the user both ARE
+    this recording. This is the one place a video file may ever be deleted."""
+    conn = get_conn()
+    try:
+        row = db.get_session_recording(conn, recording_id)
+        if not row:
+            raise HTTPException(404, "no such recording")
+        db.delete_session_recording(conn, recording_id)
+    finally:
+        conn.close()
+    removed = []
+    if delete_file and row["video_path"]:
+        for candidate in {row["video_path"], obs.playable_path(row["video_path"])}:
+            target = Path(candidate)
+            if target.is_file():
+                target.unlink(missing_ok=True)
+                removed.append(str(target))
+    return {"deleted": True, "files_removed": removed}
+
+
+@app.get("/api/session-recordings/{recording_id}/file")
+def api_session_recording_file(recording_id: int):
+    """Stream the local video so <video> can play and seek it. Only paths
+    already in the table are servable — the id is looked up, never taken from
+    the request. FileResponse handles Range requests, which is what makes
+    seeking to a bookmark work without downloading the whole file."""
+    conn = get_conn()
+    try:
+        row = db.get_session_recording(conn, recording_id)
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404, "no such recording")
+    path = Path(obs.playable_path(row["video_path"] or ""))
+    if not row["video_path"] or not path.exists():
+        raise HTTPException(404, f"video file is gone: {row['video_path']}")
+    return FileResponse(path, media_type=obs.media_type(path), filename=path.name)
+
+
+def _live_offset_ms(conn, row):
+    try:
+        status = _obs_call(_obs_settings(conn), lambda c: c.record_status())
+        if status["recording"] and status["duration_ms"]:
+            return status["duration_ms"]
+    except obs.ObsError:
+        pass  # OBS unreachable: wall-clock is close enough to keep marking
+    return max(0, _now_ms() - (row["started_at_ms"] or _now_ms()))
+
+
+@app.post("/api/session-recordings/{recording_id}/marks")
+def api_add_session_mark(recording_id: int, body: dict = None):
+    """Bookmark a moment. While OBS is rolling the offset comes from OBS's own
+    outputDuration (right even if OBS took a moment to start, and it does not
+    advance while paused); wall-clock since the start is the fallback, and an
+    explicit offset_ms wins over both — that is how a finished video is marked
+    from the player."""
+    body = body or {}
+    conn = get_conn()
+    try:
+        row = db.get_session_recording(conn, recording_id)
+        if not row:
+            raise HTTPException(404, "no such recording")
+        offset_ms = body.get("offset_ms")
+        if offset_ms is None:
+            if row["stopped_at_ms"] is not None:
+                raise HTTPException(
+                    400, "offset_ms is required once a recording has stopped")
+            offset_ms = _live_offset_ms(conn, row)
+        mark_id = db.add_session_mark(conn, recording_id, int(offset_ms),
+                                      (body.get("label") or "").strip())
+        return dict(db.get_session_mark(conn, mark_id))
+    finally:
+        conn.close()
+
+
+@app.patch("/api/session-marks/{mark_id}")
+def api_update_session_mark(mark_id: int, body: dict):
+    label, offset_ms = body.get("label"), body.get("offset_ms")
+    if label is None and offset_ms is None:
+        raise HTTPException(400, "nothing to update — pass label and/or offset_ms")
+    conn = get_conn()
+    try:
+        if not db.update_session_mark(conn, mark_id, label=label, offset_ms=offset_ms):
+            raise HTTPException(404, "no such bookmark")
+        return dict(db.get_session_mark(conn, mark_id))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/session-marks/{mark_id}")
+def api_delete_session_mark(mark_id: int):
+    conn = get_conn()
+    try:
+        if not db.delete_session_mark(conn, mark_id):
+            raise HTTPException(404, "no such bookmark")
+        return {"deleted": True}
+    finally:
+        conn.close()
+
+
 def _run_crawl():
     try:
         from .crawler import Crawler
@@ -3034,4 +3530,21 @@ def api_crawl_status():
     return CRAWL_STATE
 
 
-app.mount("/", StaticFiles(directory=PROJECT_ROOT / "static", html=True), name="static")
+class _NoStaleStatic(StaticFiles):
+    """StaticFiles that forces revalidation on every request. There is no
+    build step and no version-stamped URLs, so after an upgrade a browser was
+    free to keep serving last week's app.js/style.css against today's API —
+    mixed old-UI/new-backend states that look like bizarre layout bugs.
+    `no-cache` does NOT mean "don't cache": the browser keeps its copy and
+    asks "still current?" each time, getting a cheap 304 (this app is
+    localhost — the round trip is microseconds) or the new file the moment
+    one exists. Same-mtime edits within one second are the ETag's blind spot,
+    which only ever matters mid-development, never for upgrades."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/", _NoStaleStatic(directory=PROJECT_ROOT / "static", html=True), name="static")
