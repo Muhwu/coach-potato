@@ -2802,17 +2802,34 @@ function wireSuggestionSelect(key, endpoint, reloadList) {
 }
 
 // `session` = editing an existing one; omitted = adding a new one
+// Most sessions are the live kind, so a new one starts there rather than
+// uncategorised — but only if it's still an offered category: someone who
+// deleted it from the list has said they don't run those.
+const DEFAULT_SESSION_CATEGORY = "Live coaching";
+
+function defaultSessionCategory() {
+  return sessionUi.categories.includes(DEFAULT_SESSION_CATEGORY)
+    ? DEFAULT_SESSION_CATEGORY : "";
+}
+
 function openSessionModal(session) {
   sessionUi.modal = session
     ? { id: session.id, date: session.session_date, title: session.title,
         coach: session.coach || "", category: session.category || "",
         link: session.link || "", notes: session.notes || "" }
     : { id: null, date: new Date().toISOString().slice(0, 10),
-        title: "", coach: "", category: "", link: "", notes: "" };
+        title: "", coach: "", category: defaultSessionCategory(),
+        link: "", notes: "" };
   $("#modal-overlay").classList.remove("hidden");
   renderSessionModal();
-  // suggestions arrive when they do; one re-render covers both dropdowns
-  Promise.all([ensureCoaches(), ensureCategories()]).then(renderSessionModal);
+  // suggestions arrive when they do; one re-render covers both dropdowns. The
+  // default can only be applied once the list is known, so a new session picks
+  // it up here — without overwriting a choice made in the meantime.
+  Promise.all([ensureCoaches(), ensureCategories()]).then(() => {
+    const m = sessionUi.modal;
+    if (m && !m.id && !m.category) m.category = defaultSessionCategory();
+    renderSessionModal();
+  });
 }
 
 function renderSessionModal() {
