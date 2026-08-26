@@ -158,6 +158,28 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   init and again after a settings save, so it applies without a reload.
   Session CRUD at `/api/sessions`;
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
+- **A session's video lives in ONE place** — `sessionMediaSection(segment)` in
+  app.js (rendered by `sessionRecordPanel`, wired by `wireSessionRecordingSection`):
+  a collapsed-by-default "Recordings & clips (N)" section holding OBS/attached
+  recordings (`srecCard`), the session's own external `link` (rendered AND
+  edited inline via `sessionLinkRow`/`saveSessionLink` — it used to be visible
+  only in the period title line and editable only in the edit dialog), and the
+  clips list (`clipsSection(..., {bare: true})`, which then drops its own
+  heading/add button). One action row adds any of them. `● Record with OBS` is
+  offered only when the session has NO recording yet and `obs_enabled` is on;
+  the OBS "not reachable"/"needs websocket-client" hints render only beside
+  that button, so a session that's already recorded shows nothing about OBS.
+  `obs_enabled` (settings key, default on) hides the whole OBS feature — the
+  record button, the modal's "Add & record", the per-expand `/api/obs/status`
+  poll and the connection fields in Settings.
+- **Settings is tabbed** (`.settings-tabs` / `.settings-panel[data-tab]`,
+  `setSettingsTab`/`wireSettingsTabs` in app.js, remembered in
+  `cp-settings-tab`): Account / Coaching / Interface / Appearance / Recordings
+  / Backup. Every panel stays in the DOM (only `.hidden`), so the single Save
+  button still reads fields on tabs the user never opened — keep it that way
+  when adding a setting, and put it in the panel it belongs to (a panel with no
+  matching tab button is unreachable; `tests/test_static_js.py` guards the
+  pairing).
 - Sessions have `title`, optional `coach`, an optional `category` (Theory /
   VOD review / Live coaching seeded as defaults; `session_categories` is the
   pick-list ONLY, exactly like `coaches` — additive `category` column,
