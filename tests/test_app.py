@@ -846,6 +846,22 @@ def test_comparison_player_note_is_a_partial_patch(client):
     assert client.patch("/api/comparison-players/rival-1", json={}).status_code == 400
 
 
+def test_comparison_payload_carries_the_player_note(client):
+    # the note rides along wherever the player shows — the compare window
+    # renders it under the name, so /api/comparison must include it
+    import os
+    base = {"riot_api_key": "k", "accounts": ["A#B"], "platform": "euw1",
+            "enable_player_comparison": True}
+    assert client.put("/api/settings", json=base).status_code == 200
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.add_comparison_player(conn, "rival-1", "Rival", "EUW", "euw1")
+    db.set_comparison_note(conn, "rival-1", "Gwen one-trick")
+    conn.close()
+    body = client.get("/api/comparison",
+                      params={"my_champion": "Gwen", "opp_champion": "Darius"}).json()
+    assert body["players"][0]["note"] == "Gwen one-trick"
+
+
 def test_comparison_refresh_all_starts_one_job_for_every_player(client, monkeypatch):
     import os
     started = []

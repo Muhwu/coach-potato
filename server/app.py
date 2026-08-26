@@ -2084,7 +2084,7 @@ def api_comparison(scope: str = "matchup", my_champion: str = "", opp_champion: 
                     continue
                 data = stats.comparison_entry(conn, p["puuid"], champion, opponent)
                 out.append({"puuid": p["puuid"], "game_name": p["game_name"],
-                            "tag_line": p["tag_line"], **data})
+                            "tag_line": p["tag_line"], "note": p["note"], **data})
         return {"scope": scope, "my_champion": champion or "",
                 "opp_champion": opponent or "", "you": you, "players": out}
     finally:

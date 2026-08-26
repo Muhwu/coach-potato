@@ -1545,6 +1545,12 @@ footer {
   border: 1px solid var(--border); border-radius: 10px; padding: 12px;
 }
 .cmp-card h2 { font-size: 15px; margin: 0 0 8px; }
+/* the quick note from the Players list, shown wherever the name is */
+.cmp-player-note {
+  display: block; color: var(--muted); font-size: 11px; font-weight: 400;
+  font-style: italic; max-width: 180px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
 .cmp-card h3 {
   font-size: 11px; text-transform: uppercase; color: var(--muted);
   margin: 12px 0 6px; letter-spacing: 0.05em;
