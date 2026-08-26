@@ -1106,7 +1106,8 @@ function comparisonBodyHtml(my, opp, data) {
   const scopeLabel = opp ? `vs ${displayName(opp)}` : (my ? `on ${displayName(my)}` : "All games");
   const cards = entries.map((p) => `<div class="cmp-card${p.you ? " cmp-mine" : ""}">
     <h2>${escapeHtml(p.game_name)}${p.tag_line
-      ? `<span class="muted">#${escapeHtml(p.tag_line)}</span>` : ""}</h2>
+      ? `<span class="muted">#${escapeHtml(p.tag_line)}</span>` : ""}${p.note
+      ? `<span class="cmp-player-note" title="${escapeHtml(p.note)}">${escapeHtml(p.note)}</span>` : ""}</h2>
     ${statLine(scopeLabel, p.scoped || {})}
     ${deltaLine(p.scoped || {})}
     ${p.overall ? statLine(`Overall on ${displayName(my)}`, p.overall) : ""}
