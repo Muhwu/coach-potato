@@ -11,6 +11,11 @@
   .cmp-title { font-size: 18px; margin: 0 0 4px; }
   .cmp-sub { margin: 0 0 12px; }
   .cmp-note { color: var(--muted); font-size: 12px; margin-top: 16px; }
+  .cmp-player-note {
+    display: block; color: var(--muted); font-size: 11px; font-weight: 400;
+    font-style: italic; max-width: 180px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
   .cmp-controls { margin: 0 0 14px; }
   .cmp-toggle {
     font: inherit; font-size: 12px; cursor: pointer; padding: 5px 12px;
@@ -148,6 +153,10 @@ function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
+// the quick note from the Players list rides along wherever the name shows
+function playerNote(p) {
+  return p.note ? `<span class="cmp-player-note" title="${esc(p.note)}">${esc(p.note)}</span>` : "";
+}
 function img(url, size, title) {
   return url ? `<img src="${url}" width="${size}" height="${size}" title="${esc(title)}"
     style="border-radius:50%;vertical-align:middle">` : "";
@@ -267,7 +276,7 @@ function recentBlock(p) {
 }
 function card(p) {
   return `<div class="cmp-card${p.you ? " cmp-mine" : ""}">
-    <h2>${esc(p.game_name)}${p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}</h2>
+    <h2>${esc(p.game_name)}${p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}${playerNote(p)}</h2>
     ${statRow(SCOPE_TEXT.col, aggLine(p.scoped))}
     ${deltaRow(p.scoped)}
     ${p.overall ? statRow(`Overall on ${esc(my)}`, aggLine(p.overall)) : ""}
@@ -321,7 +330,7 @@ function statTable(entries, pick, caption) {
   }).join("");
   const head = entries.map((p) =>
     `<th class="${p.you ? "cmp-mine-col" : ""}">${esc(p.game_name)}${
-      p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}</th>`).join("");
+      p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}${playerNote(p)}</th>`).join("");
   return `<div class="cmp-table-wrap">
     ${caption ? `<h3 class="cmp-table-cap">${caption}</h3>` : ""}
     <table class="cmp-table"><thead><tr><th></th>${head}</tr></thead>
@@ -334,7 +343,7 @@ function renderTableView(entries) {
     : "";
   const games = entries.map((p) => `<div class="cmp-recent-block${p.you ? " cmp-mine" : ""}">
       <h3>${esc(p.game_name)}${p.tag_line ? `<span class="muted">#${esc(p.tag_line)}</span>` : ""}
-        <span class="muted">— recent games</span></h3>
+        <span class="muted">— recent games</span>${playerNote(p)}</h3>
       ${recentBlock(p)}
     </div>`).join("");
   return statTable(entries, (p) => p.scoped, SCOPE_TEXT.col) + baseline

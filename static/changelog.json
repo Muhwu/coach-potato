@@ -9,7 +9,8 @@
         "A coaching period can also point at a video you recorded earlier — \"Attach an existing file\" takes any path, alongside the existing recording link. Video files are never copied or moved, and forgetting a recording keeps the file where it is.",
         "Forgetting a recording now asks a second question: also delete the video file from disk? Cancelling keeps the file (still the default) — this is the one place the app will ever delete a video.",
         "Sessions take a category — Theory, VOD review or Live coaching out of the box, picked from a dropdown in the session popup. \"+ New category…\" adds your own, which is remembered for next time; the × beside the dropdown stops suggesting a name without touching the sessions that recorded it. The Coach field became the same kind of dropdown.",
-        "Fixed: the full backup silently dropped each session's coach, recording link and category — all three now survive an export/restore."
+        "Fixed: the full backup silently dropped each session's coach, recording link and category — all three now survive an export/restore.",
+        "A research player's note now follows them everywhere: the comparison window (both layouts) and the in-app compare overlay show it under the player's name, not just the Players list."
       ]
     },
     {
