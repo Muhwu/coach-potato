@@ -2543,6 +2543,18 @@ def test_obs_settings_round_trip_and_reject_a_bad_port(client):
     assert defaults["obs_host"] == "127.0.0.1" and defaults["obs_port"] == 4455
 
 
+def test_obs_recording_can_be_switched_off_entirely(client):
+    # on by default, so an upgrade doesn't silently lose the feature
+    assert client.get("/api/settings").json()["obs_enabled"] is True
+    off = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"], "obs_enabled": False}).json()
+    assert off["obs_enabled"] is False
+    assert client.get("/api/settings").json()["obs_enabled"] is False
+    bad = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"], "obs_enabled": "yes"})
+    assert bad.status_code == 400
+
+
 def test_obs_reports_unavailable_without_the_websocket_library(client, monkeypatch):
     """Mirrors the YouTube rule: with the library missing the app says so, and
     the UI explains how to fix it instead of offering a button that can only

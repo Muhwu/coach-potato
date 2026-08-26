@@ -196,6 +196,9 @@ def _extra_settings(conn):
         "youtube_privacy": stored.get("youtube_privacy") or youtube.DEFAULT_PRIVACY,
         "youtube_ready": youtube.has_credentials(
             stored.get("youtube_client_secrets"), get_db_path().parent),
+        # the whole OBS session-recording feature can be switched off; the UI
+        # then stops offering it (existing recordings stay listed and playable)
+        "obs_enabled": stored.get("obs_enabled") != "0",
         "obs_host": stored.get("obs_host") or obs.DEFAULT_HOST,
         "obs_port": int(stored.get("obs_port") or obs.DEFAULT_PORT),
         "obs_password": stored.get("obs_password") or "",
@@ -348,6 +351,9 @@ def api_put_settings(body: dict):
     obs_password = body.get("obs_password") or ""
     if not isinstance(obs_password, str):
         raise HTTPException(400, "obs_password must be a string")
+    obs_enabled = body.get("obs_enabled", True)
+    if not isinstance(obs_enabled, bool):
+        raise HTTPException(400, "obs_enabled must be a boolean")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -371,6 +377,7 @@ def api_put_settings(body: dict):
             "ascent_db_path": ascent_db_path,
             "youtube_client_secrets": youtube_client_secrets,
             "youtube_privacy": youtube_privacy,
+            "obs_enabled": "1" if obs_enabled else "0",
             "obs_host": obs_host,
             "obs_port": str(obs_port),
             "obs_password": obs_password,

@@ -73,3 +73,11 @@ def test_hideable_views_match_the_nav_and_the_settings_checkboxes():
     assert checkboxes == nav_views, (
         f"navigable but not hideable: {nav_views - checkboxes}; "
         f"hideable but not navigable: {checkboxes - nav_views}")
+
+
+def test_every_settings_panel_has_a_tab_and_vice_versa():
+    """Settings is tabbed; a panel with no tab button is unreachable."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    tabs = set(re.findall(r'class="settings-tab" data-tab="([^"]+)"', html))
+    panels = set(re.findall(r'class="settings-panel" data-tab="([^"]+)"', html))
+    assert tabs and tabs == panels

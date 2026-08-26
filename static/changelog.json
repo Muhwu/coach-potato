@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.59.0",
+      "date": "2026-08-26",
+      "items": [
+        "A coaching session's videos are now one collapsed \"Recordings & clips\" section instead of an always-open OBS panel, a separate clips box and a link you could only see in the title line. Expand it to get everything in one list — recorded sessions, files you attached, the VOD link (editable right there, no more digging into the edit dialog) and clips — with one row of buttons to add any of them.",
+        "● Record with OBS is only offered while a session has nothing recorded yet, and the OBS troubleshooting text only appears next to that button — so a session you've already recorded stays quiet.",
+        "OBS session recording can be switched off completely in Settings → Recordings. With it off, the record button, the \"Add & record\" shortcut and the connection fields all disappear.",
+        "Settings is now six tabs — Account, Coaching, Interface, Appearance, Recordings, Backup — instead of one long scroll, and the explanations throughout got shorter."
+      ]
+    },
+    {
       "version": "1.58.0",
       "date": "2026-08-24",
       "items": [

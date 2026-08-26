@@ -337,7 +337,7 @@ th.wr-col, td.wr-col { text-align: center; }
 td.period-cell { white-space: normal; min-width: 220px; max-width: 360px; }
 .period-wrap { display: flex; align-items: flex-start; gap: 8px; }
 .period-text { min-width: 0; }
-.seg-toggle { flex: none; font-size: 16px; padding: 1px 7px; margin-top: 2px; }
+.seg-toggle, .smedia-toggle { flex: none; font-size: 16px; padding: 1px 7px; margin-top: 2px; }
 /* Action cells (Runes / Curve / VOD / Reflect / + Block) hold a button that
    already carries its own padding, so the cell's 10px each side is doubled-up
    whitespace — ~20px per cell, which across five columns is what pushed the
@@ -802,7 +802,22 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 /* only the very first heading in the card loses its top margin — scoped to a
    DIRECT child, or the headings inside .settings-group wrappers also match and
    collide with the section above them */
-#settings-card > .settings-group-head:first-child { margin-top: 0; }
+.settings-panel > .settings-group-head:first-child { margin-top: 0; }
+
+/* Settings tabs — same underlined-tab language as the nav's second row */
+.settings-tabs {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  border-bottom: 1px solid var(--grid); margin-bottom: 18px;
+}
+.settings-tab {
+  font: inherit; font-size: 13.5px; color: var(--text-secondary); cursor: pointer;
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0; padding: 7px 14px 6px;
+}
+.settings-tab:hover { background: var(--accent-wash); color: var(--text-primary); }
+.settings-tab.active {
+  color: var(--text-primary); font-weight: 600; border-bottom-color: var(--series-1);
+}
 /* a heading below a group head (e.g. "Older matchup notes" inside Backup) */
 .settings-subhead {
   font-size: 12px; font-weight: 650; text-transform: uppercase;
@@ -1440,6 +1455,25 @@ footer {
 .srec-attach-form { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 /* Settings: host / port / password on one line */
 .obs-conn-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+
+/* session media (recordings, attached files, VOD link, clips) — one section */
+.smedia-head { gap: 8px; margin-top: 14px; }
+.smedia-head h5 {
+  margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.smedia-item {
+  display: flex; align-items: center; gap: 8px; max-width: 520px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 8px;
+}
+.smedia-link { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--series-1); }
+.smedia-item-actions { display: flex; gap: 2px; margin-left: auto; }
+.smedia-link-form { display: flex; flex-direction: column; gap: 6px; max-width: 520px;
+  margin-bottom: 10px; }
+.smedia-actions { margin-top: 4px; }
+.srec-section .clips-section { margin-top: 0; }
 
 .clips-section { margin-top: 14px; max-width: 520px; }
 .clips-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }

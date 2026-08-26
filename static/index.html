@@ -111,211 +111,248 @@
     history (a long first crawl — roughly 2 minutes per 100 games).
   </div>
   <section id="settings-card">
-    <h3 class="settings-group-head">Riot API &amp; accounts</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-key">Riot API key</label>
-      <div class="key-row">
-        <input type="password" id="setting-key" placeholder="RGAPI-..." spellcheck="false" autocomplete="off">
-        <button id="key-reveal" class="preset icon-btn" type="button"
-          title="Show key" aria-label="Show or hide the API key">👁</button>
+    <!-- One long scroll became six tabs; every panel stays in the DOM (hidden
+         via .settings-panel), so the save button still reads every field. -->
+    <div class="settings-tabs" id="settings-tabs" role="tablist">
+      <button type="button" class="settings-tab" data-tab="account">Account</button>
+      <button type="button" class="settings-tab" data-tab="coaching">Coaching</button>
+      <button type="button" class="settings-tab" data-tab="interface">Interface</button>
+      <button type="button" class="settings-tab" data-tab="appearance">Appearance</button>
+      <button type="button" class="settings-tab" data-tab="recordings">Recordings</button>
+      <button type="button" class="settings-tab" data-tab="backup">Backup</button>
+    </div>
+
+    <div class="settings-panel" data-tab="account">
+      <h3 class="settings-group-head">Riot API &amp; accounts</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-key">Riot API key</label>
+        <div class="key-row">
+          <input type="password" id="setting-key" placeholder="RGAPI-..." spellcheck="false" autocomplete="off">
+          <button id="key-reveal" class="preset icon-btn" type="button"
+            title="Show key" aria-label="Show or hide the API key">👁</button>
+        </div>
+        <p class="muted">From
+          <a href="https://developer.riotgames.com" target="_blank" rel="noopener">developer.riotgames.com</a>.
+          A registered <strong>personal product</strong> key lasts; the instant
+          <em>development key</em> expires every 24&nbsp;h.</p>
       </div>
-      <p class="muted">Get one at
-        <a href="https://developer.riotgames.com" target="_blank" rel="noopener">developer.riotgames.com</a>.
-        Best option: register a <strong>personal product</strong> there for a
-        persistent key. The instant <em>development key</em> works too, but
-        expires every 24&nbsp;h — paste a fresh one here when crawls start failing.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="settings-accounts-input">Accounts to track</label>
-      <div class="chip-box" id="settings-accounts">
-        <input class="chip-input" id="settings-accounts-input" placeholder="Name#TAG, Enter to add…">
+      <div class="settings-field">
+        <label class="filter-label" for="settings-accounts-input">Accounts to track</label>
+        <div class="chip-box" id="settings-accounts">
+          <input class="chip-input" id="settings-accounts-input" placeholder="Name#TAG, Enter to add…">
+        </div>
+        <p class="muted">Any number of Riot IDs. Stats combine all of them.</p>
       </div>
-      <p class="muted">Any number of Riot IDs, e.g. <code>Player#EUW</code>. Stats combine all of them.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-platform">Server / platform</label>
-      <select id="setting-platform"></select>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-auto-crawl">Auto-update interval (hours)</label>
-      <input type="number" id="setting-auto-crawl" min="0" step="1" value="3" style="width:6em">
-      <p class="muted">While the app is open, new games are fetched on this schedule
-        (0 = off). Data also updates once on startup and whenever you press
-        <em>Update data</em>.</p>
-    </div>
-
-    <h3 class="settings-group-head">Blocks</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
-      <input type="number" id="setting-block-size" min="1" step="1" value="3" style="width:6em">
-      <p class="muted">Blocks auto-advance after this many games. Changing it
-        applies to the current and future blocks; finished blocks keep their size.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-block-gap">Auto-close time gap (hours)</label>
-      <input type="number" id="setting-block-gap" min="0" max="168" step="0.5" value="3" style="width:6em">
-      <p class="muted">Blocks are meant to be played in succession: if a game you add
-        starts this many hours (game time) away from the block's latest game, the
-        block closes and a new one starts. 0 turns this off.</p>
-    </div>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-block-gap-confirm" checked>
-        Ask before auto-closing a block</label>
-      <p class="muted">Untick to auto-close silently when the time gap is exceeded.</p>
-    </div>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-block-series" checked>
-        Group blocks into series</label>
-      <p class="muted">A series (e.g. a 2-week challenge) gives your blocks a shared
-        title with a per-series number after it, and a "+ New series" button on the
-        Blocks page. Untick to just number blocks continuously as "#1, #2, …".</p>
-    </div>
-
-    <h3 class="settings-group-head">Your roles</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-main-role">Main role</label>
-      <select id="setting-main-role" style="max-width:14em"></select>
-      <p class="muted">Stats default to your main + secondary role, so autofill games don't
-        muddy your matchups. Choose "All roles" in a view's Role filter to include every game.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-secondary-role">Secondary role</label>
-      <select id="setting-secondary-role" style="max-width:14em"></select>
-    </div>
-
-    <h3 class="settings-group-head">Interface</h3>
-    <div class="settings-field">
-      <span class="filter-label">Visible views</span>
-      <div class="view-toggles">
-        <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="matchups" checked> Matchups</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="series" checked> Series</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="pool" checked> Champion pool</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Playbook</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="players" checked> Research players</label>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-platform">Server / platform</label>
+        <select id="setting-platform"></select>
       </div>
-      <p class="muted">Untick views you don't use to hide them from the top bar
-        (data collection is unaffected). A section disappears when all of its
-        views are hidden.</p>
-    </div>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-hide-rank"> Hide my rank / LP</label>
-      <p class="muted">Hides your own solo-queue rank and LP everywhere — summary
-        tile, account tabs, rank chart, coaching/block rank columns. Rank history
-        keeps being recorded and reappears when you untick this.</p>
-    </div>
-    <div class="settings-field">
-      <p class="muted">The champion pool moved to its own view — Coach →
-        <button id="settings-pool-link" class="linkish" type="button">Champion pool</button>.</p>
-    </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-auto-crawl">Auto-update interval (hours)</label>
+        <input type="number" id="setting-auto-crawl" min="0" step="1" value="3" style="width:6em">
+        <p class="muted">How often new games are fetched while the app is open (0 = off).
+          Startup and <em>Update data</em> always fetch.</p>
+      </div>
 
-    <h3 class="settings-group-head">Playbook</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-runes-mode">Runes</label>
-      <select id="setting-runes-mode" style="max-width:22em">
-        <option value="matchup">Per matchup — a rune set for each opponent (as now)</option>
-        <option value="general">General — one rune set per champion, by the item build</option>
-      </select>
-      <p class="muted">"Per matchup" keeps rune pages inside each opponent's row.
-        "General" shows a single champion-level rune set up next to the item build
-        instead. Your per-matchup rune pages aren't deleted — they reappear if you
-        switch back.</p>
-    </div>
-
-    <h3 class="settings-group-head">Research &amp; comparison</h3>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
-      <p class="muted">Add any number of other players (looked up via the Riot API) to
-        compare yourself against in a matchup — their stats, runes and recent games
-        show side by side with yours from Matchups, My champions, Coaching progress
-        and the Playbook, for theorycrafting runes
-        and notes. Games are fetched deep in the background when you add a player
-        (Riot's API is slow, so it can take a few minutes); "Fetch more" pulls further
-        back. The guide comparison shows every stored game, regardless of date.</p>
-      <div id="comparison-card" class="hidden">
-        <p class="muted" style="margin-top:12px">The players themselves are managed on their own
-          page under Prepare →
-          <button id="settings-players-link" class="linkish" type="button">Research players</button>.</p>
+      <h3 class="settings-group-head">Your roles</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-main-role">Main role</label>
+        <select id="setting-main-role" style="max-width:14em"></select>
+        <p class="muted">Stats default to your main + secondary role, so autofill games don't
+          muddy your matchups. A view's Role filter can still show every game.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-secondary-role">Secondary role</label>
+        <select id="setting-secondary-role" style="max-width:14em"></select>
       </div>
     </div>
 
-    <h3 class="settings-group-head">Appearance</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-date-format">Date format</label>
-      <select id="setting-date-format" style="max-width:16em">
-        <option value="iso">ISO — 2026-07-20 (24h)</option>
-        <option value="us">US — 7/20/2026 (12h)</option>
-        <option value="eu">EU — 20/7/2026 (24h)</option>
-      </select>
-      <p class="muted">How dates and times are shown throughout the app.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-accent-color">Accent color</label>
-      <div class="accent-color-row">
-        <input type="color" id="setting-accent-color" value="#2a78d6">
-        <button id="setting-accent-reset" class="preset hidden" type="button">Reset to default</button>
+    <div class="settings-panel" data-tab="coaching">
+      <h3 class="settings-group-head">Blocks</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
+        <input type="number" id="setting-block-size" min="1" step="1" value="3" style="width:6em">
+        <p class="muted">Blocks auto-advance after this many games. Finished blocks keep the
+          size they were closed at.</p>
       </div>
-      <p class="muted">Used for buttons, active tabs, links, and chart lines.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-ui-opacity">Opacity</label>
-      <div class="opacity-row">
-        <input type="range" id="setting-ui-opacity" min="20" max="100" step="5" value="100">
-        <span id="setting-ui-opacity-value" class="muted">100%</span>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-block-gap">Auto-close time gap (hours)</label>
+        <input type="number" id="setting-block-gap" min="0" max="168" step="0.5" value="3" style="width:6em">
+        <p class="muted">A game this far (game time) from the block's latest one starts a new
+          block instead — blocks are meant to be played back to back. 0 = off.</p>
       </div>
-      <p class="muted">Makes panels and the page background see-through, like a
-        translucent terminal — lower it to let a background picture show through.</p>
-    </div>
-    <div class="settings-field">
-      <span class="filter-label">Background picture</span>
-      <div class="bg-image-row">
-        <input type="file" id="setting-bg-file" accept="image/png,image/jpeg,image/webp,image/gif">
-        <button id="setting-bg-remove" class="preset hidden" type="button">Remove</button>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-block-gap-confirm" checked>
+          Ask before auto-closing a block</label>
+        <p class="muted">Untick to close silently.</p>
       </div>
-      <span id="setting-bg-status" class="muted"></span>
-      <p class="muted">Uploads and applies immediately (up to 15 MB).</p>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-block-series" checked>
+          Group blocks into series</label>
+        <p class="muted">A series (e.g. a 2-week challenge) gives its blocks a shared title and
+          per-series numbering. Untick to number blocks continuously as "#1, #2, …".</p>
+      </div>
     </div>
 
-    <div class="settings-group">
-      <h3 class="settings-group-head">Recordings &amp; YouTube</h3>
+    <div class="settings-panel" data-tab="interface">
+      <h3 class="settings-group-head">Visible views</h3>
+      <div class="settings-field">
+        <div class="view-toggles">
+          <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="matchups" checked> Matchups</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="series" checked> Series</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="pool" checked> Champion pool</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Playbook</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="players" checked> Research players</label>
+        </div>
+        <p class="muted">Hides tabs from the top bar; nothing stops being collected. A section
+          disappears once all its views are hidden. The champion pool editor is on its own view —
+          Coach &rarr; <button id="settings-pool-link" class="linkish" type="button">Champion pool</button>.</p>
+      </div>
+
+      <h3 class="settings-group-head">Privacy</h3>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-hide-rank"> Hide my rank / LP</label>
+        <p class="muted">Blanks your own rank and LP everywhere. It keeps being recorded and
+          reappears when you untick this.</p>
+      </div>
+
+      <h3 class="settings-group-head">Features</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-runes-mode">Runes in the Playbook</label>
+        <select id="setting-runes-mode" style="max-width:22em">
+          <option value="matchup">Per matchup — a rune set for each opponent</option>
+          <option value="general">General — one rune set per champion</option>
+        </select>
+        <p class="muted">Switching doesn't delete anything: per-matchup pages reappear if you
+          switch back.</p>
+      </div>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
+        <p class="muted">Adds a "you vs them" comparison to Matchups, My champions, Coaching
+          progress and the Playbook — stats, runes and recent games side by side. Their games are
+          fetched in the background when you add a player, which takes a few minutes.</p>
+        <div id="comparison-card" class="hidden">
+          <p class="muted" style="margin-top:12px">Players are managed under Prepare &rarr;
+            <button id="settings-players-link" class="linkish" type="button">Research players</button>.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-panel" data-tab="appearance">
+      <h3 class="settings-group-head">Appearance</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-date-format">Date format</label>
+        <select id="setting-date-format" style="max-width:16em">
+          <option value="iso">ISO — 2026-07-20 (24h)</option>
+          <option value="us">US — 7/20/2026 (12h)</option>
+          <option value="eu">EU — 20/7/2026 (24h)</option>
+        </select>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-accent-color">Accent color</label>
+        <div class="accent-color-row">
+          <input type="color" id="setting-accent-color" value="#2a78d6">
+          <button id="setting-accent-reset" class="preset hidden" type="button">Reset to default</button>
+        </div>
+        <p class="muted">Buttons, active tabs, links and chart lines.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-ui-opacity">Opacity</label>
+        <div class="opacity-row">
+          <input type="range" id="setting-ui-opacity" min="20" max="100" step="5" value="100">
+          <span id="setting-ui-opacity-value" class="muted">100%</span>
+        </div>
+        <p class="muted">Makes panels see-through, so a background picture shows through.</p>
+      </div>
+      <div class="settings-field">
+        <span class="filter-label">Background picture</span>
+        <div class="bg-image-row">
+          <input type="file" id="setting-bg-file" accept="image/png,image/jpeg,image/webp,image/gif">
+          <button id="setting-bg-remove" class="preset hidden" type="button">Remove</button>
+        </div>
+        <span id="setting-bg-status" class="muted"></span>
+        <p class="muted">Applies immediately (up to 15 MB).</p>
+      </div>
+    </div>
+
+    <div class="settings-panel" data-tab="recordings">
+      <h3 class="settings-group-head">Game VODs (Ascent)</h3>
       <div class="settings-field">
         <label class="filter-label" for="setting-ascent-db">Ascent recordings database</label>
         <input type="text" id="setting-ascent-db" placeholder="auto-detected" style="max-width:34em">
-        <p class="muted">Ascent records your games and stores each one's match id, which is how a
-          VOD gets matched to a crawled game. The database is only ever <strong>read</strong> (on a
-          snapshot, so Ascent is never disturbed) and your video files are never moved or deleted.
-          Leave blank to use the detected path: <code id="ascent-detected" class="muted">–</code></p>
+        <p class="muted">Ascent stores each recording's match id, which is how a VOD finds its
+          game. Its database is only ever <strong>read</strong>, and your video files are never
+          moved or deleted. Blank uses the detected path:
+          <code id="ascent-detected" class="muted">–</code></p>
         <div class="settings-actions">
           <button type="button" class="preset" id="sync-recordings">Sync recordings now</button>
           <span class="muted" id="sync-recordings-status"></span>
         </div>
-        <p class="muted">Recordings also sync automatically after each data update.</p>
+        <p class="muted">Also syncs after every data update.</p>
       </div>
+
+      <h3 class="settings-group-head">Coaching session recording (OBS)</h3>
       <div class="settings-field">
-        <label class="filter-label">Uploading to YouTube</label>
+        <label><input type="checkbox" id="setting-obs-enabled" checked>
+          Record coaching sessions with OBS</label>
+        <p class="muted">Adds a <strong>● Record</strong> button to a session's
+          <em>Recordings &amp; clips</em> section: OBS starts and stops on your say-so, you
+          bookmark moments while it rolls, and the video plays back here with those bookmarks as
+          chapters. Files are never copied or moved — forgetting a recording keeps the file.
+          Untick to hide all of this.</p>
+      </div>
+      <div id="obs-settings">
+        <div class="settings-field">
+          <p class="muted">Turn on <strong>Tools &rarr; WebSocket Server Settings</strong> in OBS.
+            Leave these alone unless you changed OBS's defaults.</p>
+        </div>
+        <div class="settings-field obs-conn-row">
+          <div>
+            <label class="filter-label" for="setting-obs-host">Host</label>
+            <input type="text" id="setting-obs-host" placeholder="127.0.0.1" style="max-width:11em">
+          </div>
+          <div>
+            <label class="filter-label" for="setting-obs-port">Port</label>
+            <input type="number" id="setting-obs-port" placeholder="4455" style="max-width:7em">
+          </div>
+          <div>
+            <label class="filter-label" for="setting-obs-password">Password</label>
+            <input type="password" id="setting-obs-password" placeholder="blank if none"
+              style="max-width:15em">
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-actions">
+            <button type="button" class="preset" id="obs-test">Test connection</button>
+            <span class="muted" id="obs-test-status"></span>
+          </div>
+          <p class="muted">Tests what's typed above, saved or not. Note that OBS records
+            <strong>.mkv</strong> by default, which no browser plays — set
+            <strong>Settings &rarr; Output &rarr; Recording Format</strong> to <strong>mp4</strong>
+            for in-app playback. Bookmarks work either way.</p>
+        </div>
+      </div>
+
+      <h3 class="settings-group-head">Uploading to YouTube</h3>
+      <div class="settings-field">
         <p class="muted">Every recording has a <strong>📁 Upload to YouTube</strong> button that
-          needs no setup at all: it opens the file in Explorer, copies its path, and opens YouTube's
-          upload page — you drag it in, or paste the path into YouTube's file picker. No sign-in, no
-          quota, and no restriction on whether the video can be public.</p>
-        <p class="muted">The optional one-click upload below is only worth setting up if you upload
-          often enough that the drag becomes annoying.</p>
+          needs no setup: it reveals the file, copies its path and opens YouTube's upload page.
+          The one-click upload below is only worth configuring if you upload often.</p>
       </div>
       <div class="settings-field">
         <label class="filter-label" for="setting-youtube-secrets">One-click upload: client secrets (JSON)</label>
         <input type="text" id="setting-youtube-secrets" placeholder="not configured — manual upload works without this" style="max-width:34em">
-        <p class="muted"><strong>Optional.</strong> For true one-click upload you need your own
-          Google OAuth client: create a project at console.cloud.google.com, enable <em>YouTube Data
-          API v3</em>, create an OAuth client ID of type <em>Desktop app</em>, download the JSON and
-          put its path here. The first upload opens a Google sign-in in your browser; the token is
-          then cached locally.</p>
-        <p class="muted">Two limits are Google's, not ours, and apply to any unaudited project:
-          uploads stay <strong>private</strong> whatever you pick below, and the daily quota allows
-          roughly six uploads. The manual button above has neither limit.</p>
+        <p class="muted"><strong>Optional.</strong> Needs your own Google OAuth client: a project at
+          console.cloud.google.com with <em>YouTube Data API v3</em> enabled, an OAuth client ID of
+          type <em>Desktop app</em>, then the downloaded JSON's path here. Google caps unaudited
+          projects at ~6 uploads a day and forces <strong>private</strong> whatever you pick below;
+          the manual button has neither limit.</p>
       </div>
       <div class="settings-field">
         <label class="filter-label" for="setting-youtube-privacy">Upload privacy</label>
@@ -324,59 +361,17 @@
           <option value="unlisted">Unlisted — anyone with the link</option>
           <option value="public">Public</option>
         </select>
-        <p class="muted">Applied to new uploads. Uploading always asks for confirmation first.</p>
+        <p class="muted">Uploading always asks for confirmation first.</p>
       </div>
     </div>
 
-    <div class="settings-group">
-      <h3 class="settings-group-head">OBS recording</h3>
-      <div class="settings-field">
-        <p class="muted">Record a coaching session from its card under
-          <strong>Coach &rarr; Coaching progress</strong>: OBS starts and stops on your say-so,
-          you bookmark moments while it rolls, and the finished video plays back here with those
-          bookmarks as chapters to jump to. Video files are never copied or moved &mdash; only
-          their paths are stored, and forgetting a recording keeps the file.</p>
-        <p class="muted">In OBS, turn on <strong>Tools &rarr; WebSocket Server Settings</strong>.
-          Leave the fields below alone unless you changed OBS's defaults; copy the password from
-          that same OBS dialog if you set one.</p>
-      </div>
-      <div class="settings-field obs-conn-row">
-        <div>
-          <label class="filter-label" for="setting-obs-host">Host</label>
-          <input type="text" id="setting-obs-host" placeholder="127.0.0.1" style="max-width:11em">
-        </div>
-        <div>
-          <label class="filter-label" for="setting-obs-port">Port</label>
-          <input type="number" id="setting-obs-port" placeholder="4455" style="max-width:7em">
-        </div>
-        <div>
-          <label class="filter-label" for="setting-obs-password">Password</label>
-          <input type="password" id="setting-obs-password" placeholder="blank if none"
-            style="max-width:15em">
-        </div>
-      </div>
-      <div class="settings-field">
-        <div class="settings-actions">
-          <button type="button" class="preset" id="obs-test">Test connection</button>
-          <span class="muted" id="obs-test-status"></span>
-        </div>
-        <p class="muted">Tests whatever is typed above, saved or not.</p>
-      </div>
-      <div class="settings-field">
-        <p class="muted">OBS records <strong>.mkv</strong> by default, which no browser can play
-          back. For in-app playback set <strong>Settings &rarr; Output &rarr; Recording Format</strong>
-          to <strong>mp4</strong> in OBS (or remux afterwards &mdash; a remuxed file sitting beside
-          the original is picked up automatically). Bookmarks are kept either way.</p>
-      </div>
-    </div>
-
-    <div class="settings-group">
+    <div class="settings-panel" data-tab="backup">
       <h3 class="settings-group-head">Backup &amp; restore</h3>
       <div class="settings-field">
         <a class="preset" href="/api/export-all" download>Export everything (.zip)</a>
-        <p class="muted">Every session, block learning, matchup guide, note, item build and Research
-          entry — plus uploaded clips and screenshots — as one .zip. Excludes your API key/accounts
-          and crawled match history (Riot can re-supply that).</p>
+        <p class="muted">Sessions, block learnings, matchup guides, notes, item builds, Research
+          entries, uploaded clips and screenshots. Excludes your API key/accounts and crawled match
+          history (Riot can re-supply that).</p>
       </div>
       <div class="settings-field">
         <label class="filter-label" for="import-all-file">Import from a backup</label>
@@ -385,11 +380,11 @@
           <button id="import-all-btn" class="preset" type="button">Import</button>
         </div>
         <span id="import-all-status" class="muted"></span>
-        <p class="muted">Restore an "Export everything" .zip — only for a fresh/empty setup.
-          Refuses (nothing written) if anything would collide with existing data.</p>
+        <p class="muted">For a fresh setup only — it refuses, writing nothing, if anything would
+          collide with existing data.</p>
       </div>
       <div id="legacy-notes-section" class="hidden">
-        <div class="settings-subhead" style="margin-top:14px">Older matchup notes</div>
+        <h3 class="settings-group-head">Older matchup notes</h3>
         <div class="settings-field">
           <p class="muted" id="legacy-notes-summary"></p>
           <div class="legacy-notes-row">

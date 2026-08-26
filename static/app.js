@@ -1107,7 +1107,7 @@ async function toggleSegment(segment) {
       ? ensureSessionRecordings(segment.session_id)
           .catch(() => srecUi.cache.set(segment.session_id, []))
       : Promise.resolve(),
-    segment.session_id ? srecLoadStatus() : Promise.resolve(),
+    segment.session_id && state.obsEnabled !== false ? srecLoadStatus() : Promise.resolve(),
   ]);
   srecSyncPoll();
   renderProgress(segmentUi.segments);
@@ -1164,8 +1164,7 @@ function sessionRecordPanel(segment) {
       </span>
     </div>
     ${notes}
-    ${sessionRecordingSection(segment.session_id)}
-    ${clipsSection("session", segment.session_id, sessionUi.clips.get(segment.session_id))}
+    ${sessionMediaSection(segment)}
   </div>`;
 }
 
@@ -1319,7 +1318,9 @@ function renderNotes(notes) {
 
 const clipsUi = { formOpen: new Set() }; // "ownerType:ownerId" keys with the add-form open
 
-function clipsSection(ownerType, ownerId, clips) {
+// opts.bare: rendered inside another section (the session media section), so it
+// drops its own heading and add button — the parent supplies both.
+function clipsSection(ownerType, ownerId, clips, opts = {}) {
   const key = `${ownerType}:${ownerId}`;
   const items = clips === undefined
     ? `<p class="muted">Loading…</p>`
@@ -1347,9 +1348,11 @@ function clipsSection(ownerType, ownerId, clips) {
           <span class="muted clip-add-status"></span>
         </div>
       </form>`
-    : `<button type="button" class="preset clip-form-open">+ Add clip</button>`;
+    : (opts.bare ? "" : `<button type="button" class="preset clip-form-open">+ Add clip</button>`);
+  const head = opts.bare
+    ? "" : `<h5>Clips${clips && clips.length ? ` (${clips.length})` : ""}</h5>`;
   return `<div class="clips-section" data-owner-type="${ownerType}" data-owner-id="${ownerId}">
-    <h5>Clips${clips && clips.length ? ` (${clips.length})` : ""}</h5>
+    ${head}
     <div class="clips-list">${items}</div>
     ${form}
   </div>`;
@@ -1362,7 +1365,8 @@ function clipsSection(ownerType, ownerId, clips) {
 function wireClipsSection(container, reload, rerender) {
   const toggleForm = (btn, open) => {
     const section = btn.closest(".clips-section");
-    const key = `${section.dataset.ownerType}:${section.dataset.ownerId}`;
+    const source = section ? section.dataset : btn.dataset;
+    const key = `${source.ownerType}:${source.ownerId}`;
     open ? clipsUi.formOpen.add(key) : clipsUi.formOpen.delete(key);
     rerender();
   };
@@ -1422,6 +1426,8 @@ const srecUi = {
   poll: null,            // interval id while recording
   rerender: null,        // set by renderProgress so the poll can redraw
   attachOpen: new Set(), // sessionIds with the "attach a file" form open
+  open: new Set(),       // sessionIds whose media section is expanded
+  linkEdit: new Set(),   // sessionIds editing the external VOD link inline
   startError: null,      // one-shot error from the modal's "Add & record" path
   playFailed: new Set(), // recording ids whose <video> errored (codec this browser can't play)
   markDraft: "",         // survives the re-renders the poll triggers
@@ -1581,11 +1587,66 @@ function srecCard(recording) {
   </div>`;
 }
 
-function srecControls(sessionId) {
+// Writes the link through the session's own partial PATCH, then reloads the
+// progress rows the link is rendered from. Returns an error string, or null.
+async function saveSessionLink(sessionId, link) {
+  const response = await fetch(`/api/sessions/${sessionId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ link }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    return body.detail || `error ${response.status}`;
+  }
+  srecUi.linkEdit.delete(sessionId);
+  await loadProgress();
+  return null;
+}
+
+function srecLiveHere(sessionId) {
+  const status = srecUi.status;
+  return Boolean(status && status.active && status.active.session_id === sessionId);
+}
+
+// The external VOD link (weteachleague, YouTube…) is a recording of the session
+// just as much as a local file is, so it lives in the same list — and is
+// editable there, instead of only inside the edit dialog.
+function sessionLinkRow(segment) {
+  const sessionId = segment.session_id;
+  if (srecUi.linkEdit.has(sessionId)) {
+    return `<form class="smedia-link-form" data-session="${sessionId}">
+      <input type="url" class="smedia-link-input" value="${escapeHtml(segment.link || "")}"
+        placeholder="https://… (weteachleague, YouTube, Drive…)">
+      <div class="session-actions">
+        <button type="submit" class="preset">Save link</button>
+        <button type="button" class="preset smedia-link-cancel">Cancel</button>
+        <span class="muted smedia-link-status"></span>
+      </div>
+    </form>`;
+  }
+  if (!segment.link) return "";
+  return `<div class="smedia-item">
+    <span class="smedia-kind" title="Link to the session recording">🔗</span>
+    <a class="smedia-link" href="${escapeHtml(segment.link)}" target="_blank"
+      rel="noopener noreferrer">${escapeHtml(segment.link)}</a>
+    <span class="smedia-item-actions">
+      <button type="button" class="preset icon-btn smedia-link-edit" data-session="${sessionId}"
+        title="Edit this link" aria-label="Edit this link">✎</button>
+      <button type="button" class="preset icon-btn smedia-link-clear" data-session="${sessionId}"
+        title="Remove this link" aria-label="Remove this link">🗑</button>
+    </span>
+  </div>`;
+}
+
+// The controls under the list. While OBS is rolling this is the bookmark bar;
+// otherwise it's one row of "add something" buttons. Recording is offered only
+// when the session has nothing recorded yet — a second take is the exception,
+// and the button was the loudest thing on every session card.
+function srecControls(segment, list) {
+  const sessionId = segment.session_id;
   const status = srecUi.status;
   const activeId = srecActiveId();
-  const activeHere = status && status.active && status.active.session_id === sessionId;
-  if (activeHere) {
+  if (srecLiveHere(sessionId)) {
     return `<div class="srec-controls">
       <span class="srec-rec-badge">● REC <span class="srec-elapsed">${
         fmtSessionClock(status.duration_ms)}</span></span>
@@ -1596,52 +1657,74 @@ function srecControls(sessionId) {
       <span class="muted srec-status"></span>
     </div>`;
   }
-  if (activeId !== null) {
-    return `<div class="srec-controls">
-      <span class="muted">Another session is recording right now.</span>
-    </div>`;
+  if (srecUi.attachOpen.has(sessionId)) {
+    return `<form class="srec-attach-form" data-session="${sessionId}">
+      <input type="text" class="srec-attach-path" placeholder="full path to a video file on this PC"
+        style="width:100%">
+      <input type="text" class="srec-attach-label" placeholder="Label (optional)">
+      <div class="session-actions">
+        <button type="submit" class="preset">Attach</button>
+        <button type="button" class="preset srec-attach-cancel">Cancel</button>
+        <span class="muted srec-attach-status"></span>
+      </div>
+    </form>`;
   }
-  const unavailable = status && status.available === false
+  const obsOn = state.obsEnabled !== false;
+  const canRecord = obsOn && activeId === null && !(list && list.length);
+  const startError = srecUi.startError || "";
+  srecUi.startError = null;   // one-shot: shown on the render right after it happened
+  // OBS troubleshooting only appears next to the button it explains
+  const unavailable = canRecord && status && status.available === false
     ? `<p class="muted">OBS control needs the <code>websocket-client</code> package —
        reinstall <code>requirements.txt</code> to enable it.</p>`
     : "";
-  const offline = status && status.available !== false && !status.connected
-    ? `<p class="muted">OBS isn't reachable. Open OBS, turn on
-       <strong>Tools → WebSocket Server Settings</strong>, then check the connection in
-       Settings → OBS recording.</p>`
+  const offline = canRecord && status && status.available !== false && !status.connected
+    ? `<p class="muted">OBS isn't reachable — open it and turn on
+       <strong>Tools → WebSocket Server Settings</strong> (details in Settings → Recordings).</p>`
     : "";
-  const attach = srecUi.attachOpen.has(sessionId)
-    ? `<form class="srec-attach-form" data-session="${sessionId}">
-        <input type="text" class="srec-attach-path" placeholder="full path to a video file"
-          style="width:100%">
-        <input type="text" class="srec-attach-label" placeholder="Label (optional)">
-        <div class="session-actions">
-          <button type="submit" class="preset">Attach</button>
-          <button type="button" class="preset srec-attach-cancel">Cancel</button>
-          <span class="muted srec-attach-status"></span>
-        </div>
-      </form>`
-    : `<button type="button" class="preset srec-attach-open" data-session="${sessionId}">
-        + Attach an existing file</button>`;
-  const startError = srecUi.startError || "";
-  srecUi.startError = null;   // one-shot: shown on the render right after it happened
-  return `<div class="srec-controls">
-    <button type="button" class="preset btn-primary srec-start" data-session="${sessionId}">
-      ● Record with OBS</button>
-    ${attach}
+  const busy = !obsOn || activeId === null
+    ? "" : `<span class="muted">Another session is recording right now.</span>`;
+  return `<div class="srec-controls smedia-actions">
+    ${canRecord ? `<button type="button" class="preset srec-start" data-session="${sessionId}">
+      ● Record with OBS</button>` : ""}
+    <button type="button" class="preset srec-attach-open" data-session="${sessionId}">
+      📎 Attach a file</button>
+    <button type="button" class="preset smedia-link-edit" data-session="${sessionId}">
+      🔗 ${segment.link ? "Edit the VOD link" : "Link to a VOD"}</button>
+    <button type="button" class="preset clip-form-open"
+      data-owner-type="session" data-owner-id="${sessionId}">✂ Add a clip</button>
+    ${busy}
     <span class="muted srec-status ${startError ? "status-error" : ""}">${escapeHtml(startError)}</span>
   </div>${unavailable}${offline}`;
 }
 
-function sessionRecordingSection(sessionId) {
+// Everything video about a session in one collapsed-by-default section: OBS
+// recordings, files you attached, the external VOD link and clips. It used to
+// be two always-open sections plus a link that could only be seen in the title
+// line and only changed in the edit dialog.
+function sessionMediaSection(segment) {
+  const sessionId = segment.session_id;
   const list = srecUi.cache.get(sessionId);
-  const inner = list === undefined
-    ? `<p class="muted">Loading…</p>`
-    : `${list.map(srecCard).join("")}${srecControls(sessionId)}`;
-  return `<div class="srec-section" data-session="${sessionId}">
-    <h5>Recording${list && list.length ? ` (${list.length})` : ""}</h5>
-    ${inner}
+  const clips = sessionUi.clips.get(sessionId);
+  const open = srecUi.open.has(sessionId);
+  const count = (list ? list.length : 0) + (clips ? clips.length : 0)
+    + (segment.link ? 1 : 0);
+  // collapsed with OBS rolling, the section is the only thing that could say so
+  // — a clockless pill, so srecTick's one .srec-elapsed stays the live bar's
+  const head = `<div class="learnings-head smedia-head">
+    <button class="preset smedia-toggle" data-session="${sessionId}"
+      aria-expanded="${open}">${open ? "▾" : "▸"}</button>
+    <h5>Recordings &amp; clips${count ? ` (${count})` : ""}</h5>
+    ${!open && srecLiveHere(sessionId) ? `<span class="srec-rec-badge">● REC</span>` : ""}
   </div>`;
+  if (!open) return `<div class="srec-section" data-session="${sessionId}">${head}</div>`;
+  const body = list === undefined
+    ? `<p class="muted">Loading…</p>`
+    : `${sessionLinkRow(segment)}
+       ${list.map(srecCard).join("")}
+       ${clipsSection("session", sessionId, clips, { bare: true })}
+       ${srecControls(segment, list)}`;
+  return `<div class="srec-section" data-session="${sessionId}">${head}${body}</div>`;
 }
 
 // reload(sessionId) refetches one session's recordings and redraws; rerender()
@@ -1674,6 +1757,39 @@ function wireSessionRecordingSection(container, reload, rerender) {
     body: JSON.stringify(payload || {}),
   });
 
+  container.querySelectorAll(".smedia-toggle").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const sessionId = +btn.dataset.session;
+      if (srecUi.open.has(sessionId)) srecUi.open.delete(sessionId);
+      else srecUi.open.add(sessionId);
+      rerender();
+    }));
+
+  container.querySelectorAll(".smedia-link-edit").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      srecUi.linkEdit.add(+btn.dataset.session);
+      rerender();
+    }));
+  container.querySelectorAll(".smedia-link-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      srecUi.linkEdit.delete(sessionOf(btn));
+      rerender();
+    }));
+  container.querySelectorAll(".smedia-link-clear").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remove the link to this session's recording?")) return;
+      await saveSessionLink(+btn.dataset.session, "");
+    }));
+  container.querySelectorAll(".smedia-link-form").forEach((form) =>
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = form.querySelector(".smedia-link-status");
+      status.textContent = "saving…";
+      const error = await saveSessionLink(+form.dataset.session,
+                                          form.querySelector(".smedia-link-input").value.trim());
+      if (error) status.textContent = error;
+    }));
+
   container.querySelectorAll(".srec-start").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const sessionId = sessionOf(btn);
@@ -1681,6 +1797,7 @@ function wireSessionRecordingSection(container, reload, rerender) {
       const started = await call(btn, `/api/sessions/${sessionId}/recordings/start`,
                                  postJSON({}), "starting OBS…");
       if (!started) return;
+      srecUi.open.add(sessionId);
       await srecLoadStatus();
       srecSyncPoll();
       await reload(sessionId);
@@ -2870,7 +2987,7 @@ function renderSessionModal() {
     <div class="sm-actions">
       <span class="muted" id="sm-status"></span>
       <button class="preset" id="sm-cancel">Cancel</button>
-      ${m.id ? "" : `<button class="preset" id="sm-save-record"
+      ${m.id || state.obsEnabled === false ? "" : `<button class="preset" id="sm-save-record"
         title="Add the session and immediately start recording it with OBS">● Add &amp; record</button>`}
       <button class="btn-primary" id="sm-save">${m.id ? "Save session" : "Add session"}</button>
     </div>
@@ -2953,6 +3070,7 @@ function wireSessionModal() {
     srecSyncPoll();
     await loadProgress();
     // land the user on the REC controls (or the error) instead of a collapsed row
+    srecUi.open.add(sessionId);
     const segment = (segmentUi.segments || []).find((x) => x.session_id === sessionId);
     if (segment && !segmentUi.expanded.has(segKey(segment))) toggleSegment(segment);
   });
@@ -3188,6 +3306,32 @@ function applyAppearance(data) {
 function applyComparisonEnabled() {
   const btn = $("#progress-compare");
   if (btn) btn.classList.toggle("hidden", !state.enableComparison);
+}
+
+// Settings tabs: every panel stays in the DOM (only hidden), so Save still
+// reads fields the user never opened. The chosen tab is remembered.
+const SETTINGS_TAB_KEY = "cp-settings-tab";
+
+function setSettingsTab(tab) {
+  const tabs = [...document.querySelectorAll(".settings-tab")];
+  const known = tabs.some((b) => b.dataset.tab === tab) ? tab : "account";
+  tabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === known));
+  document.querySelectorAll(".settings-panel").forEach((panel) =>
+    panel.classList.toggle("hidden", panel.dataset.tab !== known));
+  localStorage.setItem(SETTINGS_TAB_KEY, known);
+}
+
+function wireSettingsTabs() {
+  document.querySelectorAll(".settings-tab").forEach((btn) =>
+    btn.addEventListener("click", () => setSettingsTab(btn.dataset.tab)));
+  setSettingsTab(localStorage.getItem(SETTINGS_TAB_KEY) || "account");
+}
+
+// With OBS recording switched off, its connection settings are irrelevant —
+// hide them rather than leave dead fields on the page.
+function applyObsEnabled() {
+  const card = $("#obs-settings");
+  if (card) card.classList.toggle("hidden", state.obsEnabled === false);
 }
 
 function applyHiddenViews(hidden) {
@@ -3461,6 +3605,9 @@ async function initSettings() {
   $("#setting-youtube-privacy").value = data.youtube_privacy || "private";
   state.youtubePrivacy = data.youtube_privacy || "private";
   state.youtubeReady = Boolean(data.youtube_ready);
+  $("#setting-obs-enabled").checked = data.obs_enabled !== false;
+  state.obsEnabled = data.obs_enabled !== false;
+  applyObsEnabled();
   $("#setting-enable-comparison").checked = Boolean(data.enable_player_comparison);
   $("#comparison-card").classList.toggle("hidden", !data.enable_player_comparison);
   state.enableComparison = Boolean(data.enable_player_comparison);
@@ -3478,12 +3625,17 @@ async function initSettings() {
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  wireSettingsTabs();
   $("#settings-pool-link").addEventListener("click", () => setMainView("pool"));
   // the players themselves live on their own view (initPlayers); the toggle
   // stays here because it enables the feature, and the view follows it
   $("#settings-players-link").addEventListener("click", () => setMainView("players"));
   $("#sync-recordings").addEventListener("click", syncRecordings);
   $("#obs-test").addEventListener("click", testObsConnection);
+  $("#setting-obs-enabled").addEventListener("change", (e) => {
+    state.obsEnabled = e.target.checked;
+    applyObsEnabled();
+  });
   $("#setting-enable-comparison").addEventListener("change", (e) => {
     $("#comparison-card").classList.toggle("hidden", !e.target.checked);
     state.enableComparison = e.target.checked;
@@ -3643,6 +3795,7 @@ async function initSettings() {
         main_role: $("#setting-main-role").value,
         secondary_role: $("#setting-secondary-role").value,
         runes_mode: $("#setting-runes-mode").value,
+        obs_enabled: $("#setting-obs-enabled").checked,
         obs_host: $("#setting-obs-host").value.trim(),
         obs_port: parseInt($("#setting-obs-port").value, 10) || 4455,
         obs_password: $("#setting-obs-password").value,
@@ -3676,6 +3829,8 @@ async function initSettings() {
           && state.mainView === "guide") loadGuide();
       state.enableComparison = Boolean(body.enable_player_comparison);
       applyComparisonEnabled();
+      state.obsEnabled = body.obs_enabled !== false;
+      applyObsEnabled();
       $("#comparison-card").classList.toggle("hidden", !body.enable_player_comparison);
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
@@ -4001,6 +4156,7 @@ async function init(firstLoad = true) {
     // button appears without having to visit Settings first
     state.youtubePrivacy = settings.youtube_privacy || "private";
     state.youtubeReady = Boolean(settings.youtube_ready);
+    state.obsEnabled = settings.obs_enabled !== false;
     applyRoleSettings(settings);
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
