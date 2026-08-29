@@ -116,6 +116,13 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   participants (coaching metrics, actual runes played); `backfill_metrics()`/
   `backfill_runes()` re-fetch stored matches missing either.
 - `server/stats.py` — all aggregation in SQL over a filtered base query;
+  **the lane opponent is joined through `_LANE_OPPONENT_JOIN`, never on
+  `team_position` equality alone** — Riot does not guarantee the role is unique
+  within a team, and a plain equality join then matches two (or five) enemies
+  and duplicates MY row once per match, showing a game 2x/4x/5x in every list
+  AND inflating every count/winrate built on it. The helper picks one opponent
+  via a correlated subquery (`ORDER BY o.puuid LIMIT 1`); reuse it for any new
+  query that needs the lane opponent;
   matchup = tracked TOP player joined to enemy TOP participant; remakes
   (<300 s) excluded; opponent rank bucket `UNKNOWN` when not fetched.
   `_filtered_base` takes a `side` filter ("blue"=team 100 / "red"=team 200,

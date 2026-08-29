@@ -811,3 +811,31 @@ def test_champion_roles_dominant_and_secondary(conn):
     assert roles["Malphite"] == ["TOP", "MIDDLE"]          # secondary >= 20% share
     add_match(conn, my_champ="Sion", my_pos="TOP")
     assert stats.champion_roles(conn)["Sion"] == ["TOP"]   # seen once = that lane only
+
+
+def test_two_enemies_in_my_role_still_count_as_one_game(conn):
+    """Riot's team_position is not unique within a team — a game where two
+    enemies come back as TOP used to join twice and show up twice in every
+    list (4x, 5x when position detection failed for most of the team)."""
+    def part(puuid, champ, team, pos, win):
+        return {"puuid": puuid, "riot_id_name": puuid, "champion_name": champ,
+                "team_id": team, "team_position": pos, "win": int(win),
+                "kills": 1, "deaths": 1, "assists": 1, "cs": 100,
+                "gold_earned": 1000, "damage_to_champions": 1000}
+
+    parts = [part(ME, "Garen", 100, "TOP", True)]
+    parts += [part(f"ally-{i}", "Ahri", 100, p, True)
+              for i, p in enumerate(["JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"])]
+    # the whole enemy team came back as TOP
+    parts += [part(f"enemy-{i}", "Darius", 200, "TOP", False) for i in range(5)]
+    db.insert_match(
+        conn,
+        {"match_id": "EUW1_dup", "queue_id": 420, "game_creation_ms": 1_700_000_000_000,
+         "game_duration_s": 1800, "game_version": "14.1.1"},
+        parts,
+    )
+
+    games = stats.games_in_range(conn, [ME])
+    assert [g["match_id"] for g in games] == ["EUW1_dup"]
+    assert games[0]["opp_champion"] == "Darius"
+    assert stats.summary(conn, ME)["games"] == 1

@@ -111,6 +111,21 @@ _METRIC_SELECT = ",\n       ".join(f"pm.{k} AS {k}" for k in metric_keys())
 
 # One row per (my TOP game, enemy TOP opponent). LEFT JOIN keeps games
 # where the enemy team has no TOP (position data missing) for summary().
+# Riot's team_position is NOT guaranteed unique within a team: a game can come
+# back with two enemies carrying the same role (and, when position detection
+# fails outright, several). Joining the lane opponent on equality alone then
+# matches more than one row, and SQL duplicates MY row once per match — the same
+# game appears 2x, 4x, 5x in every list built on this query. Pick exactly one
+# opponent, deterministically, so a game is always one row per tracked account.
+_LANE_OPPONENT_JOIN = """
+LEFT JOIN participants opp ON opp.match_id = {match} AND opp.puuid = (
+    SELECT o.puuid FROM participants o
+    WHERE o.match_id = {match} AND o.team_id != me.team_id
+      AND o.team_position = me.team_position AND o.team_position != ''
+    ORDER BY o.puuid LIMIT 1)
+"""
+
+
 _BASE = """
 SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id,
        me.puuid AS my_puuid,
@@ -127,8 +142,7 @@ SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id,
        """ + _METRIC_SELECT + """
 FROM participants me
 JOIN matches m ON m.match_id = me.match_id
-LEFT JOIN participants opp ON opp.match_id = me.match_id
-    AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+""" + _LANE_OPPONENT_JOIN.format(match="me.match_id") + """
 LEFT JOIN player_ranks pr ON pr.puuid = opp.puuid
 LEFT JOIN participant_metrics pm
     ON pm.match_id = me.match_id AND pm.puuid = me.puuid
@@ -563,9 +577,7 @@ def block_games_detailed(conn):
            FROM block_games bg
            JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
            JOIN matches m ON m.match_id = bg.match_id
-           LEFT JOIN participants opp ON opp.match_id = bg.match_id
-               AND opp.team_id != me.team_id AND opp.team_position = me.team_position
-               AND me.team_position != ''
+           """ + _LANE_OPPONENT_JOIN.format(match="bg.match_id") + """
            LEFT JOIN participant_metrics pm
                ON pm.match_id = bg.match_id AND pm.puuid = bg.puuid
            LEFT JOIN participant_runes myr
@@ -653,9 +665,7 @@ def session_games_detailed(conn, session_id):
         FROM session_games sg
         JOIN participants me ON me.match_id = sg.match_id AND me.puuid = sg.puuid
         JOIN matches m ON m.match_id = sg.match_id
-        LEFT JOIN participants opp ON opp.match_id = sg.match_id
-            AND opp.team_id != me.team_id AND opp.team_position = me.team_position
-            AND me.team_position != ''
+        """ + _LANE_OPPONENT_JOIN.format(match="sg.match_id") + """
         LEFT JOIN players pl ON pl.puuid = sg.puuid
         LEFT JOIN participant_runes myr ON myr.match_id = sg.match_id AND myr.puuid = sg.puuid
         LEFT JOIN participant_runes oppr ON oppr.match_id = sg.match_id AND oppr.puuid = opp.puuid

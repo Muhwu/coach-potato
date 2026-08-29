@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.59.1",
+      "date": "2026-08-29",
+      "items": [
+        "Fixed: a game could show up two, four or five times in every list — recent games, matchups, blocks, coaching periods — and inflate the stats built from them (games played, winrate, KDA, CS/min) by the same factor. Riot doesn't guarantee that a role is unique within a team, and when two enemies came back in your role the game was counted once per enemy. The lane opponent is now picked once, whatever Riot sends. Nothing to clean up — your numbers correct themselves on the next load."
+      ]
+    },
+    {
       "version": "1.59.0",
       "date": "2026-08-26",
       "items": [
