@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Compare</title>
+<script>
+  // Apply the saved theme before the first paint so a forced light/dark
+  // theme doesn't flash the OS look first; app.js keeps cp-theme in sync
+  // with the `theme` setting (applyAppearance).
+  try {
+    const t = localStorage.getItem("cp-theme");
+    if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+  } catch (e) { /* storage unavailable: fall through to the OS preference */ }
+</script>
 <link rel="stylesheet" href="style.css">
 <style>
   /* standalone comparison window — reuses .cmp-* from style.css */

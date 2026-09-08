@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.60.0",
+      "date": "2026-09-08",
+      "items": [
+        "Settings → Appearance has a Theme setting: Auto (follow the system, as before), Light or Dark. Pick one and the app stays that way regardless of the OS setting — the comparison window follows it too, and it applies before the page paints so there's no flash of the other look on launch."
+      ]
+    },
+    {
       "version": "1.59.1",
       "date": "2026-08-29",
       "items": [

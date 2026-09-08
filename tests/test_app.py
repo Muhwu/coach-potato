@@ -1317,6 +1317,18 @@ def test_ui_opacity_setting_endpoint(client):
     assert _put_settings(client, ui_opacity="60").status_code == 400
 
 
+def test_theme_setting_endpoint(client):
+    assert client.get("/api/settings").json()["theme"] == "auto"
+    assert _put_settings(client, theme="dark").status_code == 200
+    assert client.get("/api/settings").json()["theme"] == "dark"
+    assert _put_settings(client, theme="light").status_code == 200
+    assert client.get("/api/settings").json()["theme"] == "light"
+    assert _put_settings(client).status_code == 200  # omitted -> back to auto
+    assert client.get("/api/settings").json()["theme"] == "auto"
+    assert _put_settings(client, theme="blue").status_code == 400
+    assert _put_settings(client, theme=1).status_code == 400
+
+
 def test_accent_color_setting_endpoint(client):
     assert client.get("/api/settings").json()["accent_color"] is None
     assert _put_settings(client, accent_color="#ff8800").status_code == 200

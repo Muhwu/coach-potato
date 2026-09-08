@@ -159,6 +159,7 @@ def api_version():
 HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "series",
                   "pool", "guide", "research", "players", "tiers"}
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+THEMES = ("auto", "light", "dark")  # `theme` setting; auto = follow the OS
 
 
 def _hidden_views(conn):
@@ -185,6 +186,7 @@ def _extra_settings(conn):
         "ui_opacity": int(stored.get("ui_opacity") or 100),
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
+        "theme": stored.get("theme") or "auto",  # auto = follow the OS
         "date_format": stored.get("date_format") or "iso",
         "runes_mode": stored.get("runes_mode") or "matchup",
         "enable_player_comparison": stored.get("enable_player_comparison") == "1",
@@ -312,6 +314,9 @@ def api_put_settings(body: dict):
     if accent_color is not None and (not isinstance(accent_color, str)
                                       or not HEX_COLOR_RE.match(accent_color)):
         raise HTTPException(400, "accent_color must be a #rrggbb hex string or null")
+    theme = body.get("theme", "auto")
+    if theme not in THEMES:
+        raise HTTPException(400, f"theme must be one of: {', '.join(THEMES)}")
     date_format = body.get("date_format", "iso")
     if date_format not in ("iso", "us", "eu"):
         raise HTTPException(400, "date_format must be one of: iso, us, eu")
@@ -369,6 +374,7 @@ def api_put_settings(body: dict):
             "block_series_enabled": "1" if series_enabled else "0",
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
+            "theme": theme,
             "date_format": date_format,
             "runes_mode": runes_mode,
             "enable_player_comparison": "1" if enable_comparison else "0",

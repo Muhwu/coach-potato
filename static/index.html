@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Coach Potato</title>
 <link rel="icon" type="image/png" href="favicon.png">
+<script>
+  // Apply the saved theme before the first paint so a forced light/dark
+  // theme doesn't flash the OS look first; app.js keeps cp-theme in sync
+  // with the `theme` setting (applyAppearance).
+  try {
+    const t = localStorage.getItem("cp-theme");
+    if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+  } catch (e) { /* storage unavailable: fall through to the OS preference */ }
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -252,6 +261,14 @@
           <option value="iso">ISO — 2026-07-20 (24h)</option>
           <option value="us">US — 7/20/2026 (12h)</option>
           <option value="eu">EU — 20/7/2026 (24h)</option>
+        </select>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-theme">Theme</label>
+        <select id="setting-theme" style="max-width:16em">
+          <option value="auto">Auto — follow the system setting</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
         </select>
       </div>
       <div class="settings-field">

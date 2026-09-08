@@ -3279,7 +3279,22 @@ function rgbToHex(colorString) {
   return "#" + nums.slice(0, 3).map((n) => (+n).toString(16).padStart(2, "0")).join("");
 }
 
+// "light"/"dark" force a theme via data-theme on <html> (style.css); "auto"
+// (or anything else) clears it so the OS preference decides. Mirrored into
+// localStorage so the inline <head> script in index.html/compare.html can
+// apply it before the first paint.
+function applyTheme(theme) {
+  const forced = theme === "dark" || theme === "light";
+  if (forced) document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  try {
+    if (forced) localStorage.setItem("cp-theme", theme);
+    else localStorage.removeItem("cp-theme");
+  } catch (e) { /* storage unavailable */ }
+}
+
 function applyAppearance(data) {
+  if ("theme" in data) applyTheme(data.theme);
   if (data.ui_opacity !== undefined) {
     document.documentElement.style.setProperty("--ui-opacity", data.ui_opacity / 100);
   }
@@ -3615,6 +3630,8 @@ async function initSettings() {
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // legacy migrate select needs display names
   refreshLegacySection();
+  $("#setting-theme").value = data.theme || "auto";
+  applyTheme(data.theme); // before reading --series-1 below: the default accent differs per theme
   $("#setting-accent-color").value = data.accent_color
     || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
   $("#setting-accent-reset").classList.toggle("hidden", !data.accent_color);
@@ -3679,6 +3696,14 @@ async function initSettings() {
     }
     status.textContent = "imported ✓ — reloading…";
     setTimeout(() => location.reload(), 1000);
+  });
+  $("#setting-theme").addEventListener("change", (e) => {
+    applyTheme(e.target.value); // live preview; Save persists it
+    if ($("#setting-accent-reset").classList.contains("hidden")) {
+      // no custom accent: the picker shows the theme's default, which just changed
+      $("#setting-accent-color").value =
+        rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
+    }
   });
   $("#setting-accent-color").addEventListener("input", (e) => {
     document.documentElement.style.setProperty("--series-1", e.target.value);
@@ -3807,6 +3832,7 @@ async function initSettings() {
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
           ? null : $("#setting-accent-color").value,
+        theme: $("#setting-theme").value,
       }),
     });
     const body = await response.json().catch(() => ({}));

@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;      /* native controls (selects, scrollbars) follow the theme */
   --ui-opacity: 1;          /* 0.2–1, set inline from the ui_opacity setting */
   /* Surfaces that hold text (cards, tables, the page) keep a readable backing
      even at the lowest opacity: the raw slider is remapped into [0.6, 1] so
@@ -25,8 +26,15 @@
   --good-text: #006300;
   --accent-wash: color-mix(in srgb, var(--series-1) 10%, transparent);
 }
+/* Theme. The `theme` setting (Settings → Appearance) writes data-theme="dark"
+   or "light" on <html> (index.html/compare.html also read it from localStorage
+   `cp-theme` in an inline <head> script, so there is no flash before
+   /api/settings answers); "auto" sets nothing and the OS preference decides.
+   The dark tokens appear twice on purpose — a media query and an attribute
+   selector cannot share one rule — so keep both lists identical. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --surface-1-solid: #1a1a19;
     --page-solid: #0d0d0d;
     --text-primary: #ffffff;
@@ -42,6 +50,23 @@
     --good-text: #0ca30c;
     --accent-wash: color-mix(in srgb, var(--series-1) 16%, transparent);
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1-solid: #1a1a19;
+  --page-solid: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --series-1: #3987e5;
+  --series-2: #a98cf0;
+  --good: #0ca30c;
+  --critical: #d03b3b;
+  --good-text: #0ca30c;
+  --accent-wash: color-mix(in srgb, var(--series-1) 16%, transparent);
 }
 
 * { box-sizing: border-box; }

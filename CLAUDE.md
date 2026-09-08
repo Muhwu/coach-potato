@@ -137,7 +137,14 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   API responses via middleware — new endpoints get hiding for free as long as
   they reuse those key names (`solo_*`, `start_ranks`, `end_ranks`); anything
   else rank-shaped needs its own check (see the rank-history endpoint).
-  Appearance settings: `ui_opacity` (20-100, default 100) and an optional
+  Appearance settings: `theme` (`auto` default / `light` / `dark`; `light`/
+  `dark` set `data-theme` on `<html>`, which style.css honours via
+  `:root[data-theme="dark"]` plus a `:root:not([data-theme="light"])` guard on
+  the `prefers-color-scheme` block — the dark token list is deliberately
+  duplicated there, keep both copies identical; `applyTheme` in app.js also
+  mirrors it to localStorage `cp-theme`, which an inline `<head>` script in
+  index.html AND compare.html applies before first paint so the saved theme
+  never flashes the OS look), `ui_opacity` (20-100, default 100) and an optional
   uploaded background picture (`POST/DELETE /api/settings/background`,
   served via `GET /api/settings/background/file`; stored as a single file
   in `<db_dir>/background/`, filename tracked by the `background_image_file`
