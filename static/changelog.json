@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.62.0",
+      "date": "2026-09-17",
+      "items": [
+        "The Blocks view is paged — 10 blocks at a time, newest first, with a pager above and below the list, so a long history no longer buries the add-game picker at the bottom of the page.",
+        "A \u201c+ Add game\u201d button in the Blocks header opens the recent-games picker in a popup from anywhere in the view, whether or not the current block still has room."
+      ]
+    },
+    {
       "version": "1.61.0",
       "date": "2026-09-14",
       "items": [

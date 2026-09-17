@@ -14,10 +14,17 @@ const blockState = {
   gameClipsCache: new Map(),
   gameSort: { key: "date", dir: 1 }, // shared across block tables; oldest-first default
   focusId: null, // block to scroll to + highlight after the next render
+  page: 0, // blocks are paged (newest first); 0 = the page holding the current block
 };
 
+// Blocks are long cards; a year of them is a lot of scrolling, and the thing
+// you actually want (the current block, the add-game picker) sits at either
+// end of it. Paging keeps both within reach.
+const BLOCKS_PER_PAGE = 10;
+
 function focusBlock(blockId) {
-  // deep-link from other views (e.g. matchup block notes)
+  // deep-link from other views (e.g. matchup block notes) — loadBlocks turns
+  // the focus id into the page that block sits on
   blockState.focusId = blockId;
   blockState.collapsed.delete(blockId);
   persistCollapsed();
@@ -100,6 +107,7 @@ async function initBlocks() {
     $("#series-edit-btn").addEventListener("click", () =>
       openSeriesModal(blockState.currentSeriesId, { editing: true }));
     $("#pool-edit-btn").addEventListener("click", () => setMainView("pool"));
+    $("#blocks-add-game").addEventListener("click", openAddGameModal);
     $("#copy-discord").addEventListener("click", () => {
       copyDiscordMarkdown(blockState.blocks);
       closeMenus();
@@ -480,6 +488,7 @@ async function loadBlocks() {
   blockState.seriesEnabled = data.series_enabled;
   blockState.series = data.series || [];
   blockState.currentSeriesId = data.current_series_id ?? null;
+  if (blockState.focusId != null) blockState.page = blockPageOf(blockState.focusId);
   renderBlocks();
   maybeBackfillBlockTimelines();
   if (blockState.focusId != null) {
@@ -990,6 +999,44 @@ function blockCard(block, isCurrent) {
   </div>`;
 }
 
+function blockPageCount() {
+  return Math.max(1, Math.ceil(blockState.blocks.length / BLOCKS_PER_PAGE));
+}
+
+// which page a given block sits on (blocks come back newest first)
+function blockPageOf(blockId) {
+  const index = blockState.blocks.findIndex((b) => b.id === blockId);
+  return index < 0 ? blockState.page : Math.floor(index / BLOCKS_PER_PAGE);
+}
+
+// Windowed page buttons: first and last always reachable, current ±1, "…" for
+// the gaps. Newest blocks are page 1, so "newer"/"older" reads better than
+// prev/next here.
+function blockPagerHtml() {
+  const pages = blockPageCount();
+  if (pages < 2) return "";
+  const page = blockState.page;
+  let numbers = "";
+  let previous = -1;
+  for (let i = 0; i < pages; i++) {
+    if (!(i === 0 || i === pages - 1 || Math.abs(i - page) <= 1)) continue;
+    if (i - previous > 1) numbers += `<span class="muted pager-gap">…</span>`;
+    numbers += `<button type="button" class="preset block-page${i === page ? " active" : ""}"
+      data-page="${i}" title="Page ${i + 1}"${i === page ? ` aria-current="page"` : ""}>${i + 1}</button>`;
+    previous = i;
+  }
+  const first = page * BLOCKS_PER_PAGE + 1;
+  const last = Math.min(blockState.blocks.length, (page + 1) * BLOCKS_PER_PAGE);
+  return `<div class="block-pager">
+    <button type="button" class="preset block-page" data-page="${page - 1}"
+      title="Newer blocks"${page === 0 ? " disabled" : ""}>‹ Newer</button>
+    ${numbers}
+    <button type="button" class="preset block-page" data-page="${page + 1}"
+      title="Older blocks"${page >= pages - 1 ? " disabled" : ""}>Older ›</button>
+    <span class="muted">Blocks ${first}–${last} of ${blockState.blocks.length}</span>
+  </div>`;
+}
+
 function renderBlocks() {
   $("#new-series-btn").classList.toggle("hidden", !blockState.seriesEnabled);
   renderCurrentSeries();
@@ -997,12 +1044,27 @@ function renderBlocks() {
   const currentId = blockState.blocks.length
     ? Math.max(...blockState.blocks.map((b) => b.id)) : null;
   if (!blockState.blocks.length) {
-    target.innerHTML = `<div class="muted">No blocks yet — add a game below to start your first block.</div>`;
+    target.innerHTML = `<div class="muted">No blocks yet — use <strong>+ Add game</strong> above
+      (or the picker below) to start your first block.</div>`;
     return;
   }
-  target.innerHTML = blockState.blocks
+  // deleting blocks can leave the page past the end
+  blockState.page = Math.min(Math.max(blockState.page, 0), blockPageCount() - 1);
+  const start = blockState.page * BLOCKS_PER_PAGE;
+  const pager = blockPagerHtml();
+  target.innerHTML = pager + blockState.blocks
+    .slice(start, start + BLOCKS_PER_PAGE)
     // active = where the next game would land: newest, not closed, not finalized
-    .map((b) => blockCard(b, b.id === currentId && !b.closed && !b.complete)).join("");
+    .map((b) => blockCard(b, b.id === currentId && !b.closed && !b.complete)).join("")
+    + pager;
+
+  target.querySelectorAll(".block-page").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      blockState.page = +btn.dataset.page;
+      renderBlocks();
+      // the bottom pager is off-screen once it re-renders a fresh page
+      $("#blocks-list").scrollIntoView({ block: "start" });
+    }));
 
   // one shared game-sort across every block table (app.js helper)
   wireSortable(target, blockState.gameSort, BLOCK_GAME_COLS_ALL, () => renderBlocks());
@@ -1214,20 +1276,26 @@ function wireAddableGames(target, after) {
     }));
 }
 
+// a just-added game lands in the current block, which is always on page 1
+function reloadBlocksFromStart() {
+  blockState.page = 0;
+  return loadBlocks();
+}
+
 async function renderBlockPicker() {
   const target = $("#block-picker");
   target.innerHTML = addableGamesTable(await addableGames());
-  wireAddableGames(target, () => loadBlocks());
+  wireAddableGames(target, reloadBlocksFromStart);
 }
 
 // The picker lives at the bottom of the page, which is a long way down once
-// you have a few blocks — so the current block's header can open the same
-// list in a popup.
+// you have a few blocks — so the Blocks header and the current block's header
+// both open the same list in a popup.
 async function openAddGameModal() {
   const box = $("#modal-box");
   $("#modal-overlay").classList.remove("hidden");
   box.innerHTML = `<div class="addgame-modal">
-    <div class="section-head"><h3>Add a game to the current block</h3>
+    <div class="section-head"><h3>Add a game to a block</h3>
       <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
     </div>
     <p class="muted">Loading…</p></div>`;
@@ -1241,10 +1309,11 @@ async function openAddGameModal() {
   }
   const body = box.querySelector(".addgame-modal");
   body.querySelector("p").outerHTML = `<p class="muted">Your most recent games that
-    aren't in a block yet. Adding to a full block starts the next one.</p>
+    aren't in a block yet. They go into the current block; adding to a full or
+    closed one starts the next block.</p>
     <div class="addgame-list">${addableGamesTable(candidates)}</div>`;
   // keep the popup open so several games can go in one after another
-  wireAddableGames(body, () => loadBlocks());
+  wireAddableGames(body, reloadBlocksFromStart);
 }
 
 // shared with match-list promote buttons in app.js

@@ -1271,6 +1271,15 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .bn-learnings summary { color: var(--muted); cursor: pointer; font-size: 12px; }
 .bn-learnings[open] summary { margin-bottom: 2px; }
 .block-flash { box-shadow: 0 0 0 2px var(--series-1); transition: box-shadow 0.4s; }
+
+/* blocks are paged, newest first — pager above AND below the list */
+.block-pager {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 10px 0;
+}
+.block-pager .muted { margin-left: auto; font-size: 12px; }
+.block-pager .pager-gap { margin: 0 2px; }
+.block-pager button[disabled] { opacity: 0.45; cursor: default; }
 .block-badge.block-closed { background: var(--muted); }
 
 /* ---------- trends ---------- */

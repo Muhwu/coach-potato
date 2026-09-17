@@ -397,6 +397,16 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   card). UI in `blocks.js`; "+ Block" promote buttons on Recent-games and
   segment game rows. A block game's Clips section (see `clips` table below)
   lives in its per-game stats panel, loaded together on first expand.
+  The blocks list is PAGED client-side (`BLOCKS_PER_PAGE`=10, newest first,
+  `blockState.page`, pager rendered above AND below the list by
+  `blockPagerHtml`) — `/api/blocks` still returns everything, so exports,
+  the Discord copy and the picker's "already in a block" set stay whole-history.
+  `focusBlock` jumps to the page holding that block (`blockPageOf`), and
+  adding a game resets to page 1 (`reloadBlocksFromStart`) since the game
+  lands in the current block. `openAddGameModal` (the same recent-games
+  picker as the bottom `#block-picker` panel) is reachable from the Blocks
+  section head (`#blocks-add-game`, always) and from the active block's
+  header (`+ Game`, only while that block can still take one).
 - **Top nav is two rows, driven by `NAV_SECTIONS` in `app.js`** — sections
   (Analyze / Coach / Prepare) on the first row, the active section's views on
   the second (`#main-view-toggle` / `#sub-view-toggle`, both rendered by
