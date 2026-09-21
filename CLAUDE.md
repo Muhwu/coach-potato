@@ -407,6 +407,28 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   picker as the bottom `#block-picker` panel) is reachable from the Blocks
   section head (`#blocks-add-game`, always) and from the active block's
   header (`+ Game`, only while that block can still take one).
+- **Learnings view** (`#learnings`, `static/learnings.js`, under Coach) is the
+  holistic read of every block's learnings — the Blocks view is where you work,
+  this is where you review. It has NO endpoint of its own: it renders the same
+  `/api/blocks` payload blocks.js already loads (`blockState.blocks`/`.series`),
+  so `initLearnings` just calls the shared `loadBlocks()`. Two modes
+  (`cp-learn-mode`): "By block" (a card per block, grouped by series, with that
+  series' goals above and closing notes below, so learnings read inside the
+  intent that produced them) and **"All bullets"** (`learningItems()` splits each
+  blob at its column-0 bullets — prose paragraphs count as items too, so nothing
+  written is dropped — and streams every item flat with a chip back to its
+  block). Filters (search + series + champion + newest/oldest) are client-side
+  over that payload; search hits are wrapped in `<mark>` by
+  `highlightLearnMatches`, a TreeWalker over text nodes so the rendered Markdown
+  isn't broken. Learnings are editable here too (same click-to-edit/blur-to-save
+  contract and the same `PATCH /api/blocks/{id}` as the block card) in "By
+  block" mode only; in bullets mode the chip deep-links via `focusBlock`.
+  Blocks with no learnings are hidden behind a "Show blocks without learnings"
+  toggle so gaps stay findable without cluttering the read.
+  `GET /api/blocks/learnings.md?series_id=` is the learnings-ONLY Markdown
+  export (no game lines, no per-game notes — unlike `/api/blocks/export.md`),
+  grouped by series with goals/closing notes; the view's Copy button produces
+  the same shape for what's currently filtered on screen.
 - **Top nav is two rows, driven by `NAV_SECTIONS` in `app.js`** — sections
   (Analyze / Coach / Prepare) on the first row, the active section's views on
   the second (`#main-view-toggle` / `#sub-view-toggle`, both rendered by

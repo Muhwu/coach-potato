@@ -420,7 +420,8 @@ tbody tr.games-row:hover td { background: var(--page); }
   padding: 12px 16px;
 }
 /* shared Markdown-editor look: session notes, block learnings, champ guide */
-.session-body textarea, .session-body input[type="text"], .mu-notes textarea {
+.session-body textarea, .session-body input[type="text"], .mu-notes textarea,
+.learn-card textarea {
   width: 100%;
   font: inherit;
   font-size: 14px;
@@ -431,7 +432,7 @@ tbody tr.games-row:hover td { background: var(--page); }
   padding: 6px 8px;
   margin: 4px 0 10px;
 }
-.session-body textarea, .mu-notes textarea {
+.session-body textarea, .mu-notes textarea, .learn-card textarea {
   font-family: ui-monospace, monospace; resize: vertical;
 }
 
@@ -2058,3 +2059,49 @@ footer {
 .learnings-display:hover { outline: 1px dashed var(--border); outline-offset: 4px; }
 .learnings-hint { font-size: 11px; margin-left: auto; }
 .block-learnings { width: 100%; font: inherit; resize: vertical; }
+
+/* ---------- Learnings view (holistic read of every block's learnings) ---------- */
+.learn-series { margin-bottom: 22px; }
+.learn-series-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 10px;
+}
+.learn-series-head h3 { margin: 0; font-size: 15px; }
+.learn-series-frame {
+  border-left: 2px solid var(--series-1);
+  padding: 2px 0 2px 12px;
+  margin: 0 0 12px;
+}
+.learn-series-frame h4 { margin: 0 0 4px; font-size: 13px; color: var(--text-secondary); }
+.learn-series-frame .md-body { font-size: 13px; }
+
+.learn-cards { display: flex; flex-direction: column; gap: 10px; }
+.learn-card {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; background: var(--surface-1);
+}
+.learn-card-empty { border-style: dashed; }
+.learn-card-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;
+}
+.learn-card-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.learn-card .learn-body { cursor: text; min-height: 1em; }
+.learn-champ img { width: 20px; height: 20px; border-radius: 4px; }
+.learn-block-link { font-weight: 600; }
+.learn-empty-note { margin: 8px 0 0; }
+
+.learn-bullets { display: flex; flex-direction: column; gap: 2px; }
+.learn-bullet {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 7px 4px; border-bottom: 1px solid var(--grid);
+}
+.learn-bullet:last-child { border-bottom: none; }
+.learn-bullet-body { flex: 1; max-width: none; }
+.learn-bullet-body p:first-child { margin-top: 0; }
+.learn-bullet-body p:last-child { margin-bottom: 0; }
+.learn-bullet-source { margin-left: auto; white-space: nowrap; font-size: 12px; }
+
+#learn-list mark {
+  background: var(--accent-wash); color: inherit;
+  border-radius: 3px; padding: 0 1px;
+}

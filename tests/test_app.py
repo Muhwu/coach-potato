@@ -615,6 +615,51 @@ def test_blocks_export_single_block(client):
     assert client.get("/api/blocks/export.md?block_id=99").status_code == 404
 
 
+def test_blocks_learnings_export_is_learnings_only(client):
+    """The holistic-review export: learnings inside their series' frame, and
+    NOTHING else — no game lines, no per-game notes."""
+    seed_block(client)
+    series_id = client.get("/api/blocks").json()["current_series_id"]
+    client.patch(f"/api/blocks/series/{series_id}",
+                 json={"title": "Two-week TP challenge", "goals": "- TP only for plays",
+                       "closing_notes": "- it worked"})
+    response = client.get("/api/blocks/learnings.md")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert "learnings.md" in response.headers["content-disposition"]
+    body = response.text
+    assert body.startswith("# Block learnings")
+    assert "## Two-week TP challenge" in body
+    assert "- TP only for plays" in body        # goals frame the learnings
+    assert "- freeze more" in body              # the learnings themselves
+    assert "- it worked" in body                # closing retrospective
+    assert "Fundamentals" in body               # block heading
+    assert "good tempo" not in body             # per-game note stays out
+    assert "Garen" not in body and "Kled" not in body  # no game lines
+
+
+def test_blocks_learnings_export_skips_blocks_without_learnings(client):
+    seed_block(client)
+    game = client.get("/api/stats/games").json()[2]
+    client.post("/api/blocks/games",
+                json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    client.patch("/api/blocks/1", json={"learnings": ""})
+    body = client.get("/api/blocks/learnings.md").text
+    assert "Fundamentals" not in body
+    assert "freeze more" not in body
+
+
+def test_blocks_learnings_export_can_scope_to_one_series(client):
+    seed_block(client)
+    first = client.get("/api/blocks").json()["current_series_id"]
+    client.patch(f"/api/blocks/series/{first}", json={"title": "Series one"})
+    second = client.post("/api/blocks/series", json={"title": "Series two"}).json()["series_id"]
+    body = client.get(f"/api/blocks/learnings.md?series_id={second}").text
+    assert "Series one" not in body and "freeze more" not in body
+    assert client.get(f"/api/blocks/learnings.md?series_id={first}").text.count("freeze more") == 1
+    assert client.get("/api/blocks/learnings.md?series_id=999").status_code == 404
+
+
 def test_blocks_export_csv(client):
     seed_block(client)
     response = client.get("/api/blocks/export.csv")

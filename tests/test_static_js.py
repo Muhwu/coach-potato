@@ -12,8 +12,8 @@ import pytest
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 # in <script> load order (index.html)
-JS_FILES = ["app.js", "matchups.js", "trends.js", "blocks.js", "guide.js",
-            "cooldowns.js", "research.js", "tierlist.js"]
+JS_FILES = ["app.js", "matchups.js", "trends.js", "blocks.js", "learnings.js",
+            "guide.js", "cooldowns.js", "research.js", "tierlist.js"]
 DECL_RE = re.compile(r"^(?:async\s+)?function\s+([A-Za-z0-9_]+)|^(?:const|let)\s+([A-Za-z0-9_]+)",
                      re.MULTILINE)
 

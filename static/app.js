@@ -3137,14 +3137,15 @@ const WIDE_VIEWS = new Set(["matchups", "progress", "trends", "blocks"]);
 // mode you work in, so it stays the ⚙ icon.
 const NAV_SECTIONS = [
   { key: "analyze", label: "Analyze", views: ["overview", "matchups", "trends"] },
-  { key: "coach", label: "Coach", views: ["progress", "blocks", "series", "pool"] },
+  { key: "coach", label: "Coach",
+    views: ["progress", "blocks", "series", "learnings", "pool"] },
   { key: "prepare", label: "Prepare",
     views: ["guide", "tiers", "research", "players"] },
 ];
 const VIEW_LABELS = {
   overview: "Overview", matchups: "Matchups", trends: "Trends",
   progress: "Coaching progress", blocks: "Blocks", series: "Series",
-  pool: "Champion pool",
+  learnings: "Learnings", pool: "Champion pool",
   guide: "Playbook", tiers: "Tier list", research: "Research",
   players: "Research players",
 };
@@ -3215,6 +3216,7 @@ function setMainView(view) {
   if (view === "players") initPlayers();
   if (view === "tiers") initTiers();
   if (view === "series") initSeriesView();
+  if (view === "learnings") initLearnings();
   if (view === "pool") initPool();
   if (view === "settings") initSettings();
 }

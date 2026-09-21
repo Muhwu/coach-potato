@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.63.0",
+      "date": "2026-09-21",
+      "items": [
+        "New Learnings tab under Coach: every block's learnings in one place for a holistic review \u2014 grouped by series with that series' goals above them and the closing notes below, searchable, filterable by series or champion, and readable newest- or oldest-first.",
+        "The same page can read as \u201cAll bullets\u201d: every individual learning you have ever written as one flat stream, each with a link back to the block it came from.",
+        "Learnings can be edited straight from that page, and the whole set exports as learnings-only Markdown (no game lines, no per-game notes) or copies to the clipboard following whatever filters are on screen."
+      ]
+    },
+    {
       "version": "1.62.0",
       "date": "2026-09-17",
       "items": [

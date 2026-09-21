@@ -157,7 +157,7 @@ def api_version():
 # must stay in step with the .view-toggle-cb checkboxes in index.html — a view
 # offered there but missing here makes saving settings 400
 HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "series",
-                  "pool", "guide", "research", "players", "tiers"}
+                  "learnings", "pool", "guide", "research", "players", "tiers"}
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 THEMES = ("auto", "light", "dark")  # `theme` setting; auto = follow the OS
 
@@ -2158,6 +2158,60 @@ def api_blocks_export_md(block_id: int | None = None):
         content="".join(parts),
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="block-learnings.md"'},
+    )
+
+
+@app.get("/api/blocks/learnings.md")
+def api_blocks_learnings_md(series_id: int | None = None):
+    """The learnings ALONE — no game lines, no per-game notes: the shape you
+    paste to a coach after a holistic review. Grouped by series (newest first)
+    with that series' goals and closing notes around its blocks, so each set of
+    learnings is read inside the intent that produced it. Blocks that never got
+    learnings written are skipped; `series_id` narrows it to one challenge."""
+    conn = get_conn()
+    try:
+        blocks = _blocks_payload(conn)
+        series_rows = [dict(r) for r in db.list_block_series(conn)]
+        series_enabled = db.get_settings(conn).get("block_series_enabled") != "0"
+    finally:
+        conn.close()
+    if series_id is not None:
+        if not any(r["id"] == series_id for r in series_rows):
+            raise HTTPException(404, "no such series")
+        series_rows = [r for r in series_rows if r["id"] == series_id]
+        blocks = [b for b in blocks if b["series_id"] == series_id]
+
+    def block_section(block, level):
+        wins = sum(g["win"] for g in block["games"])
+        index = block["series_index"] if series_enabled else block["global_index"]
+        date = _game_date(block["games"][0]) if block["games"] else ""
+        title = block["title"] or date or f"Block #{index}"
+        return [f"\n{'#' * level} {title} — #{index} "
+                f"({wins}–{len(block['games']) - wins})\n",
+                f"\n{block['learnings'].strip()}\n"]
+
+    parts = ["# Block learnings\n"]
+    if series_enabled:
+        for series in series_rows:
+            written = [b for b in blocks
+                       if b["series_id"] == series["id"] and b["learnings"].strip()]
+            if not written and not (series["goals"] or "").strip():
+                continue
+            parts.append(f"\n## {series['title'] or 'Series'}\n")
+            if (series["goals"] or "").strip():
+                parts.append(f"\n**Goals**\n\n{series['goals'].strip()}\n")
+            for block in written:
+                parts.extend(block_section(block, 3))
+            if (series["closing_notes"] or "").strip():
+                parts.append(f"\n**How it went**\n\n{series['closing_notes'].strip()}\n")
+    else:
+        for block in blocks:
+            if block["learnings"].strip():
+                parts.extend(block_section(block, 2))
+    return Response(
+        content="".join(parts),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="learnings.md"'},
     )
 
 

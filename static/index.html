@@ -213,6 +213,7 @@
           <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
           <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
           <label><input type="checkbox" class="view-toggle-cb" value="series" checked> Series</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="learnings" checked> Learnings</label>
           <label><input type="checkbox" class="view-toggle-cb" value="pool" checked> Champion pool</label>
           <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Playbook</label>
           <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
@@ -714,6 +715,54 @@
   </section>
 </div>
 
+<div id="learnings-view" class="hidden">
+  <section class="filter-row" aria-label="Learnings filters">
+    <div class="filter-group">
+      <label class="filter-label" for="learn-search">Search</label>
+      <input type="search" id="learn-search" placeholder="Find a learning…"
+        autocomplete="off" style="max-width:18em">
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="learn-series">Series</label>
+      <select id="learn-series"></select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="learn-champion">Champion</label>
+      <select id="learn-champion"></select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="learn-order">Order</label>
+      <select id="learn-order">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+      </select>
+    </div>
+    <div class="filter-group" id="learn-mode">
+      <span class="filter-label">Read as</span>
+      <button type="button" class="preset" data-mode="blocks"
+        title="One card per block, grouped by series">By block</button>
+      <button type="button" class="preset" data-mode="bullets"
+        title="Every learning you have written, as one stream">All bullets</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Learnings</h2>
+      <span id="learn-summary" class="muted"></span>
+      <div class="head-actions">
+        <span id="learn-copy-status" class="muted"></span>
+        <button id="learn-show-empty" class="preset" type="button"></button>
+        <button id="learn-copy" class="preset" type="button"
+          title="Copy what's on screen as Markdown">Copy</button>
+        <a id="learn-export" class="preset" href="/api/blocks/learnings.md"
+          download title="Download every learning as Markdown">Export .md</a>
+      </div>
+    </div>
+    <div id="learn-list"></div>
+  </section>
+</div>
+
 <div id="pool-view" class="hidden">
   <section class="panel">
     <h2>Champion pool</h2>
@@ -914,6 +963,7 @@
 <script src="matchups.js"></script>
 <script src="trends.js"></script>
 <script src="blocks.js"></script>
+<script src="learnings.js"></script>
 <script src="guide.js"></script>
 <script src="cooldowns.js"></script>
 <script src="research.js"></script>
