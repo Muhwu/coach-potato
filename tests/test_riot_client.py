@@ -7,7 +7,9 @@ from server.riot_client import (
     ApiKeyExpiredError,
     NotFoundError,
     RateLimiter,
+    RiotApiError,
     RiotClient,
+    scrub_secret,
 )
 
 
@@ -257,3 +259,72 @@ def test_5xx_retries_then_succeeds():
     account = make_client(handler, limiter=limiter).get_account("PlayerOne", "EUW")
     assert account["puuid"] == "abc"
     assert calls["n"] == 3
+
+
+# ---------- error diagnostics (the copy-to-clipboard bug report) ----------
+
+def test_error_detail_carries_the_whole_exchange_without_the_api_key():
+    """A 400 only some users hit is undebuggable without seeing the request
+    that caused it — so the exception carries one, minus the credential."""
+    def handler(request):
+        return httpx.Response(400, headers={"X-App-Rate-Limit": "20:1,100:120"},
+                              json={"status": {"message": "Bad Request - malformed puuid",
+                                               "status_code": 400}})
+
+    with pytest.raises(RiotApiError) as excinfo:
+        make_client(handler, platform="oc1").get_league_entries("- JIQwsRx8")
+    error = excinfo.value
+    assert str(error) == "An error occurred (400)."
+    assert error.status_code == 400
+    detail = error.detail
+    # exactly what was sent, including the malformed puuid that caused it
+    assert detail["request"]["method"] == "GET"
+    assert "by-puuid/-%20JIQwsRx8" in detail["request"]["url"]
+    assert detail["platform"] == "oc1"
+    # and exactly what came back, rate-limit headers included
+    assert detail["response"]["status"] == 400
+    assert "malformed puuid" in detail["response"]["body"]
+    assert detail["response"]["headers"]["x-app-rate-limit"] == "20:1,100:120"
+    # the key is NOWHERE in it
+    assert detail["request"]["headers"]["x-riot-token"] == "<redacted>"
+    assert "RGAPI-test" not in json.dumps(detail)
+
+
+def test_error_detail_records_request_params():
+    def handler(request):
+        return httpx.Response(400, json={})
+
+    with pytest.raises(RiotApiError) as excinfo:
+        make_client(handler).get_match_ids("abc", queue=420, count=5)
+    assert excinfo.value.detail["request"]["params"]["queue"] == 420
+    assert excinfo.value.detail["request"]["params"]["count"] == 5
+
+
+def test_expired_key_error_keeps_its_hint_and_gets_diagnostics():
+    def handler(request):
+        return httpx.Response(401, json={"status": {"message": "Unauthorized"}})
+
+    with pytest.raises(ApiKeyExpiredError) as excinfo:
+        make_client(handler).get_account("PlayerOne", "EUW")
+    assert "An error occurred (401)" in str(excinfo.value)
+    assert "developer.riotgames.com" in str(excinfo.value)  # still actionable
+    assert excinfo.value.detail["response"]["status"] == 401
+
+
+def test_not_found_also_carries_diagnostics():
+    def handler(request):
+        return httpx.Response(404, json={"status": {"message": "not found"}})
+
+    with pytest.raises(NotFoundError) as excinfo:
+        make_client(handler).get_account("Nobody", "EUW")
+    assert excinfo.value.detail["response"]["status"] == 404
+
+
+def test_scrub_secret_removes_the_key_from_anywhere_in_a_payload():
+    payload = {"url": "https://x/?api_key=RGAPI-secret-key", "list": ["RGAPI-secret-key"],
+               "nested": {"note": "used RGAPI-secret-key"}, "n": 1}
+    scrubbed = scrub_secret(payload, "RGAPI-secret-key")
+    assert "RGAPI-secret-key" not in json.dumps(scrubbed)
+    assert scrubbed["n"] == 1
+    # a too-short/absent secret must not scrub half the payload away
+    assert scrub_secret(payload, "")["n"] == 1

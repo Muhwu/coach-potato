@@ -699,8 +699,12 @@ async function maybeBackfillBlockTimelines() {
       setTimeout(poll, 2000);
     } else {
       blockState.timelinePolling = false;
-      el.textContent = s && s.error ? "Couldn't fetch some timelines — try Update data." : "";
-      if (!(s && s.error)) loadBlocks(); // refresh has_timeline + delta values
+      if (s && s.error) {
+        showApiError(el, `Couldn't fetch some timelines — ${s.error}`, s.error_detail);
+      } else {
+        clearApiError(el);
+        loadBlocks(); // refresh has_timeline + delta values
+      }
     }
   };
   poll();

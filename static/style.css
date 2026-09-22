@@ -2105,3 +2105,20 @@ footer {
   background: var(--accent-wash); color: inherit;
   border-radius: 3px; padding: 0 1px;
 }
+
+/* ---------- API error diagnostics (copyable bug reports) ---------- */
+.api-error { display: inline-flex; align-items: center; gap: 6px; }
+.api-error .api-error-copy { flex: none; font-weight: 400; }
+
+.diag-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.diag-row {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; margin-bottom: 8px; background: var(--surface-1);
+}
+.diag-row-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.diag-row-head .diag-copy { margin-left: auto; }
+.diag-status { font-weight: 600; color: var(--critical); }
+.diag-url {
+  font-family: ui-monospace, monospace; font-size: 12px;
+  margin-top: 4px; word-break: break-all;
+}

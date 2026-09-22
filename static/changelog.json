@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.64.0",
+      "date": "2026-09-22",
+      "items": [
+        "API errors now say what actually happened \u2014 \u201cAn error occurred (400)\u201d \u2014 with a copy button beside them that puts the full technical details (the exact request and response) on your clipboard, ready to paste into a bug report. Your API key is never part of it.",
+        "Settings \u2192 Diagnostics keeps the last 20 failed API calls, so an error that has already scrolled past can still be copied and sent along."
+      ]
+    },
+    {
       "version": "1.63.0",
       "date": "2026-09-21",
       "items": [

@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -2794,3 +2795,85 @@ def test_backup_carries_session_coach_link_and_category(client):
     restored = client.get("/api/sessions").json()[-1]
     assert (restored["coach"], restored["link"], restored["category"]) == (
         "LS", "https://youtu.be/x", "Theory")
+
+
+# ---------- API error diagnostics ----------
+
+def _fake_riot_failure(status=400, message="Bad Request - malformed puuid"):
+    from server import riot_client
+    detail = {
+        "when": "2026-09-22T09:00:00Z",
+        "platform": "oc1",
+        "request": {"method": "GET",
+                    "url": "https://oc1.api.riotgames.com/lol/league/v4/entries/"
+                           "by-puuid/-%20JIQwsRx8",
+                    "params": {}, "headers": {"x-riot-token": "<redacted>"}},
+        "response": {"status": status, "reason": "Bad Request", "headers": {},
+                     "body": message, "elapsed_ms": 12},
+    }
+    return riot_client.RiotApiError(f"An error occurred ({status}).", detail)
+
+
+def test_riot_failure_answers_with_a_copyable_diagnostic_dump(client, monkeypatch):
+    """Any Riot error escaping an endpoint must come back as a message the UI
+    can show plus the full exchange the user can hand over."""
+    from server import riot_client
+    app_module.API_ERRORS.clear()
+    _put_settings(client)
+
+    def boom(self, puuid):
+        raise _fake_riot_failure()
+    monkeypatch.setattr(riot_client.RiotClient, "get_active_game", boom)
+
+    response = client.get("/api/live-game")
+    assert response.status_code == 502
+    body = response.json()
+    assert body["detail"] == "An error occurred (400)."
+    diagnostics = body["diagnostics"]
+    assert diagnostics["response"]["status"] == 400
+    assert "by-puuid/-%20JIQwsRx8" in diagnostics["request"]["url"]
+    assert diagnostics["context"] == "GET /api/live-game"
+    assert diagnostics["error_type"] == "RiotApiError"
+    assert diagnostics["app_version"]
+    assert "<redacted>" in json.dumps(diagnostics) and "RGAPI" not in json.dumps(diagnostics)
+
+
+def test_recent_api_errors_are_kept_for_the_diagnostics_panel(client, monkeypatch):
+    from server import riot_client
+    app_module.API_ERRORS.clear()
+    assert client.get("/api/diagnostics/errors").json() == {"errors": []}
+    _put_settings(client)
+
+    def boom(self, puuid):
+        raise _fake_riot_failure(403, "Forbidden")
+    monkeypatch.setattr(riot_client.RiotClient, "get_active_game", boom)
+    client.get("/api/live-game")
+
+    errors = client.get("/api/diagnostics/errors").json()["errors"]
+    assert len(errors) == 1
+    assert errors[0]["response"]["status"] == 403
+    assert client.delete("/api/diagnostics/errors").status_code == 200
+    assert client.get("/api/diagnostics/errors").json()["errors"] == []
+
+
+def test_error_payload_of_a_non_api_failure_carries_its_traceback(client):
+    """Not every failure is an HTTP one — a crash mid-crawl still has to be
+    reportable, and there the stack IS the diagnostic."""
+    app_module.API_ERRORS.clear()
+    try:
+        raise RuntimeError("not configured — set your API key")
+    except RuntimeError as exc:
+        payload = app_module._error_payload(exc, context="crawl (starting)")
+    assert payload["error_type"] == "RuntimeError"
+    assert payload["context"] == "crawl (starting)"
+    assert "RuntimeError" in payload["traceback"]
+    assert payload in list(app_module.API_ERRORS)
+
+
+def test_error_payload_scrubs_the_api_key_from_everything(client):
+    app_module.API_ERRORS.clear()
+    try:
+        raise RuntimeError("failed with key RGAPI-abcdef-123456")
+    except RuntimeError as exc:
+        payload = app_module._error_payload(exc, secret="RGAPI-abcdef-123456")
+    assert "RGAPI-abcdef-123456" not in json.dumps(payload)

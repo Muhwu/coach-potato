@@ -129,6 +129,7 @@
       <button type="button" class="settings-tab" data-tab="appearance">Appearance</button>
       <button type="button" class="settings-tab" data-tab="recordings">Recordings</button>
       <button type="button" class="settings-tab" data-tab="backup">Backup</button>
+      <button type="button" class="settings-tab" data-tab="diagnostics">Diagnostics</button>
     </div>
 
     <div class="settings-panel" data-tab="account">
@@ -412,6 +413,22 @@
           </div>
           <span id="legacy-notes-status" class="muted"></span>
         </div>
+      </div>
+    </div>
+
+    <div class="settings-panel" data-tab="diagnostics">
+      <h3 class="settings-group-head">Recent API errors</h3>
+      <div class="settings-field">
+        <div class="diag-actions">
+          <button id="diag-refresh" class="preset" type="button">Refresh</button>
+          <button id="diag-copy-all" class="preset" type="button">Copy all as JSON</button>
+          <button id="diag-clear" class="preset" type="button">Clear</button>
+          <span id="diag-status" class="muted"></span>
+        </div>
+        <p class="muted">The last 20 failed calls to Riot's API, with the exact request and
+          response behind each one. Your API key is never included — copy one and send it
+          along when reporting a problem.</p>
+        <div id="diag-list"></div>
       </div>
     </div>
 

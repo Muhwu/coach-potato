@@ -288,6 +288,67 @@ async function getJSON(url) {
   return response.json();
 }
 
+// ---------- API error diagnostics ----------
+// Every API failure can be handed over whole: the status line reads
+// "An error occurred (400)" and a 📋 button copies the request/response dump
+// the server built for it — everything sent and received EXCEPT the API key,
+// which is redacted server-side. Payloads live here rather than in a
+// data-attribute: they are JSON, and some run to kilobytes.
+const apiErrorUi = { seq: 0, payloads: new Map() };
+
+function apiErrorHtml(message, detail) {
+  const text = escapeHtml(message || "An error occurred");
+  if (!detail) return text;
+  const id = ++apiErrorUi.seq;
+  apiErrorUi.payloads.set(id, detail);
+  return `<span class="api-error">${text}
+    <button type="button" class="preset icon-btn api-error-copy" data-err="${id}"
+      title="Copy the technical details for a bug report (never includes your API key)"
+      aria-label="Copy error details">📋</button></span>`;
+}
+
+async function copyApiError(payload, btn) {
+  const original = btn.textContent;
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(payload ?? {}, null, 2));
+    btn.textContent = "✓";
+  } catch {
+    btn.textContent = "✕";
+  }
+  setTimeout(() => { btn.textContent = original; }, 2000);
+}
+
+// wire every copy button inside `root` that isn't wired yet
+function wireApiErrorCopy(root) {
+  (root || document).querySelectorAll(".api-error-copy:not([data-wired])").forEach((btn) => {
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", () =>
+      copyApiError(apiErrorUi.payloads.get(+btn.dataset.err), btn));
+  });
+}
+
+// the one way to put an API failure on screen: message + copy button
+function showApiError(el, message, detail) {
+  if (!el) return;
+  el.innerHTML = apiErrorHtml(message, detail);
+  el.classList.add("status-error");
+  wireApiErrorCopy(el);
+}
+
+// ...and the way to take it off again, so a later success doesn't stay red
+function clearApiError(el, text = "") {
+  if (!el) return;
+  el.classList.remove("status-error");
+  el.textContent = text;
+}
+
+// a failed fetch(): the server answers {detail, diagnostics} for API errors
+async function apiErrorFrom(response) {
+  const body = await response.json().catch(() => ({}));
+  return { message: body.detail || `An error occurred (${response.status})`,
+           detail: body.diagnostics || null };
+}
+
 // ---------- rendering ----------
 
 function wrCell(winrate) {
@@ -3223,7 +3284,7 @@ function setMainView(view) {
 
 // ---------- settings ----------
 
-const settingsUi = { wired: false, accounts: [] };
+const settingsUi = { wired: false, accounts: [], errors: [] };
 
 // canonical Riot platform id -> human-readable server name
 const PLATFORM_LABELS = {
@@ -3344,6 +3405,65 @@ function wireSettingsTabs() {
   setSettingsTab(localStorage.getItem(SETTINGS_TAB_KEY) || "account");
 }
 
+// ---------- Settings → Diagnostics ----------
+// The server keeps the last few API failures so an error that has already
+// scrolled out of a status line can still be copied into a bug report.
+
+function diagErrorRow(error, index) {
+  const response = error.response || {};
+  const request = error.request || {};
+  const status = response.status ? `HTTP ${response.status}` : (error.error_type || "error");
+  return `<div class="diag-row">
+    <div class="diag-row-head">
+      <span class="diag-status">${escapeHtml(status)}</span>
+      <span class="muted">${escapeHtml(error.when || "")}</span>
+      <span class="muted">${escapeHtml(error.context || "")}</span>
+      <button type="button" class="preset icon-btn diag-copy" data-index="${index}"
+        title="Copy this error as JSON" aria-label="Copy this error">📋</button>
+    </div>
+    <div class="diag-url muted">${escapeHtml(request.url || error.message || "")}</div>
+  </div>`;
+}
+
+async function loadDiagnostics() {
+  const list = $("#diag-list");
+  if (!list) return;
+  let data;
+  try {
+    data = await getJSON("/api/diagnostics/errors");
+  } catch {
+    list.innerHTML = `<p class="muted">Couldn't read the error log.</p>`;
+    return;
+  }
+  settingsUi.errors = data.errors || [];
+  list.innerHTML = settingsUi.errors.length
+    ? settingsUi.errors.map(diagErrorRow).join("")
+    : `<p class="muted">No API errors recorded since the app started.</p>`;
+  list.querySelectorAll(".diag-copy").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      copyApiError(settingsUi.errors[+btn.dataset.index], btn)));
+}
+
+function wireDiagnostics() {
+  $("#diag-refresh").addEventListener("click", loadDiagnostics);
+  $("#diag-copy-all").addEventListener("click", async () => {
+    const status = $("#diag-status");
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify({ app_version: $("#app-version").textContent || "",
+                         errors: settingsUi.errors || [] }, null, 2));
+      status.textContent = "copied ✓";
+    } catch {
+      status.textContent = "copy failed";
+    }
+    setTimeout(() => { status.textContent = ""; }, 2500);
+  });
+  $("#diag-clear").addEventListener("click", async () => {
+    await fetch("/api/diagnostics/errors", { method: "DELETE" });
+    loadDiagnostics();
+  });
+}
+
 // With OBS recording switched off, its connection settings are irrelevant —
 // hide them rather than leave dead fields on the page.
 function applyObsEnabled() {
@@ -3462,13 +3582,13 @@ async function loadComparisonPlayers() {
   // a background fetch is running — poll until it finishes, updating counts
   const status = $("#comparison-status");
   if (data.fetching && data.fetching.running) {
-    if (status) status.textContent = data.fetching.message || "fetching games…";
+    clearApiError(status, data.fetching.message || "fetching games…");
     clearTimeout(state.comparisonPoll);
     state.comparisonPoll = setTimeout(loadComparisonPlayers, 2500);
   } else if (data.fetching && data.fetching.error) {
-    if (status) status.textContent = `fetch failed — ${data.fetching.error}`;
+    showApiError(status, `fetch failed — ${data.fetching.error}`, data.fetching.error_detail);
   } else if (data.fetching && data.fetching.message && data.fetching.message !== "idle") {
-    if (status) status.textContent = data.fetching.message;
+    clearApiError(status, data.fetching.message);
   }
 }
 
@@ -3516,7 +3636,7 @@ async function addComparisonPlayer() {
   const riotId = input.value.trim();
   if (!riotId) return;
   const status = $("#comparison-status");
-  status.textContent = `looking up ${riotId}…`;
+  clearApiError(status, `looking up ${riotId}…`);
   const res = await fetch("/api/comparison-players", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ riot_id: riotId, platform: $("#comparison-add-platform").value }),
@@ -3524,10 +3644,11 @@ async function addComparisonPlayer() {
   const body = await res.json().catch(() => ({}));
   if (res.ok) {
     input.value = "";
-    status.textContent = `added ${body.game_name}#${body.tag_line} — fetching games in the background…`;
+    clearApiError(status,
+      `added ${body.game_name}#${body.tag_line} — fetching games in the background…`);
     loadComparisonPlayers(); // picks up the running fetch and polls it
   } else {
-    status.textContent = body.detail || `error ${res.status}`;
+    showApiError(status, body.detail || `An error occurred (${res.status})`, body.diagnostics);
   }
 }
 
@@ -3537,7 +3658,9 @@ async function comparisonFetchMore(puuid, btn) {
   const res = await fetch(`/api/comparison-players/${encodeURIComponent(puuid)}/fetch-more`,
     { method: "POST" });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) status.textContent = body.detail || `error ${res.status}`;
+  if (!res.ok) {
+    showApiError(status, body.detail || `An error occurred (${res.status})`, body.diagnostics);
+  }
   loadComparisonPlayers(); // background fetch started — poll for progress
 }
 
@@ -3555,8 +3678,8 @@ async function setComparisonNote(puuid, note) {
     body: JSON.stringify({ note }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    status.textContent = body.detail || `note not saved — error ${res.status}`;
+    const { message, detail } = await apiErrorFrom(res);
+    showApiError(status, `note not saved — ${message}`, detail);
   }
 }
 
@@ -3569,10 +3692,12 @@ async function refreshAllComparisonPlayers() {
   if (!confirm(`Fetch new games for all ${count} research player${count === 1 ? "" : "s"}? `
              + "Riot's API is rate limited, so this runs in the background and can take a while."))
     return;
-  status.textContent = "starting…";
+  clearApiError(status, "starting…");
   const res = await fetch("/api/comparison-players/refresh-all", { method: "POST" });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) status.textContent = body.detail || `error ${res.status}`;
+  if (!res.ok) {
+    showApiError(status, body.detail || `An error occurred (${res.status})`, body.diagnostics);
+  }
   loadComparisonPlayers(); // background fetch started — poll for progress
 }
 
@@ -3642,9 +3767,11 @@ async function initSettings() {
   $("#setting-bg-remove").classList.toggle("hidden", !data.background_image);
   applyAppearance(data);
   $("#settings-banner").classList.toggle("hidden", data.configured);
+  loadDiagnostics();  // recent API errors, for the copy-a-bug-report button
   if (settingsUi.wired) return;
   settingsUi.wired = true;
   wireSettingsTabs();
+  wireDiagnostics();
   $("#settings-pool-link").addEventListener("click", () => setMainView("pool"));
   // the players themselves live on their own view (initPlayers); the toggle
   // stays here because it enables the feature, and the view follows it
@@ -4056,15 +4183,15 @@ async function pollCrawl() {
     warn.classList.toggle("hidden", !status.rate_limited);
     warn.title = explain;
     warn.onclick = () => alert(explain);
-    el.textContent = "";
+    clearApiError(el);
     if (!crawlTimer) crawlTimer = setInterval(pollCrawl, 2000);
     if (++crawlPolls % 5 === 0) await refreshDuringCrawl();
   } else {
     if (crawlTimer) { clearInterval(crawlTimer); crawlTimer = null; }
     if (status.error) {
-      el.textContent = `crawl failed: ${status.error}`;
+      showApiError(el, status.error, status.error_detail);
     } else if (status.message === "done") {
-      el.textContent = "up to date";
+      clearApiError(el, "up to date");
       await init(false);
       // refresh whichever view is active so new games appear immediately —
       // but never yank a half-written note out from under the user
@@ -4080,7 +4207,7 @@ async function pollCrawl() {
         await loadTrends();
       }
     } else {
-      el.textContent = "";
+      clearApiError(el);
     }
   }
 }

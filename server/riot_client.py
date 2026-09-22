@@ -5,6 +5,7 @@ every 24 h; a 403 raises ApiKeyExpiredError with a hint to refresh.
 """
 import time
 from collections import deque
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import httpx
@@ -20,9 +21,42 @@ PLATFORM_ROUTING = {
 
 DEV_KEY_LIMITS = [(20, 1.0), (100, 120.0)]
 
+# headers whose value is a credential and must never leave this machine
+SECRET_HEADERS = {"x-riot-token", "authorization"}
+MAX_BODY_CHARS = 2000  # Riot error bodies are one line; this is room to spare
+
+
+def scrub_secret(value, secret):
+    """Replace `secret` wherever it appears in a nested dict/list/string.
+    Belt-and-braces on top of redacting the known header: a key that somehow
+    ended up in a URL, a body or an exception message must not be shareable."""
+    if not secret or len(secret) < 8:
+        return value
+    if isinstance(value, str):
+        return value.replace(secret, "<redacted>")
+    if isinstance(value, dict):
+        return {k: scrub_secret(v, secret) for k, v in value.items()}
+    if isinstance(value, list):
+        return [scrub_secret(v, secret) for v in value]
+    return value
+
 
 class RiotApiError(Exception):
-    pass
+    """A Riot API call failed.
+
+    `detail` is a shareable diagnostic dump of exactly what was sent and what
+    came back — request URL/params/headers, response status/headers/body — with
+    the API key redacted. The UI offers it as copy-to-clipboard JSON so a user
+    hitting an error only some users hit can hand over the whole exchange
+    without also handing over their key."""
+
+    def __init__(self, message, detail=None):
+        super().__init__(message)
+        self.detail = detail or {}
+
+    @property
+    def status_code(self):
+        return (self.detail.get("response") or {}).get("status")
 
 
 class ApiKeyExpiredError(RiotApiError):
@@ -81,12 +115,45 @@ class RiotClient:
         self.match_host = f"https://{region}.api.riotgames.com"
         account_region = "asia" if region == "sea" else region
         self.account_host = f"https://{account_region}.api.riotgames.com"
+        self.platform = platform
         self.limiter = limiter if limiter is not None else RateLimiter()
+        self._api_key = api_key
         self._http = httpx.Client(
             headers={"X-Riot-Token": api_key},
             timeout=15.0,
             transport=transport,
         )
+
+    def diagnostics(self, response, params=None, attempts_429=0, attempts_5xx=0):
+        """Everything about one failed exchange, minus the API key: what we
+        sent (method, final URL, params, headers) and what came back (status,
+        headers, body). Response headers are kept because Riot's rate-limit
+        counters live there and they are often the whole story."""
+        request = response.request
+        headers = {name: ("<redacted>" if name.lower() in SECRET_HEADERS else value)
+                   for name, value in request.headers.items()}
+        body = response.text or ""
+        if len(body) > MAX_BODY_CHARS:
+            body = f"{body[:MAX_BODY_CHARS]}… (+{len(response.text) - MAX_BODY_CHARS} chars)"
+        try:
+            elapsed_ms = round(response.elapsed.total_seconds() * 1000)
+        except RuntimeError:  # not available if the response wasn't read
+            elapsed_ms = None
+        detail = {
+            "when": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "platform": self.platform,
+            "request": {"method": request.method, "url": str(request.url),
+                        "params": dict(params or {}), "headers": headers},
+            "response": {"status": response.status_code,
+                         "reason": response.reason_phrase,
+                         "headers": dict(response.headers),
+                         "body": body,
+                         "elapsed_ms": elapsed_ms},
+            "attempts": {"rate_limited": attempts_429, "server_error": attempts_5xx},
+            "hosts": {"platform": self.platform_host, "match": self.match_host,
+                      "account": self.account_host},
+        }
+        return scrub_secret(detail, self._api_key)
 
     def _get(self, url, params=None):
         attempts_429 = 0
@@ -96,29 +163,33 @@ class RiotClient:
             response = self._http.get(url, params=params)
             if response.status_code == 200:
                 return response.json()
-            if response.status_code in (401, 403):
+            code = response.status_code
+            detail = self.diagnostics(response, params, attempts_429, attempts_5xx)
+            if code in (401, 403):
                 raise ApiKeyExpiredError(
-                    "Riot API returned 403 — the dev key has likely expired. "
-                    "Refresh it at https://developer.riotgames.com and update .env"
-                )
-            if response.status_code == 404:
-                raise NotFoundError(url)
-            if response.status_code == 429:
+                    f"An error occurred ({code}) — the dev key has likely expired. "
+                    "Refresh it at https://developer.riotgames.com and update it in "
+                    "Settings.", detail)
+            if code == 404:
+                raise NotFoundError(url, detail)
+            if code == 429:
                 attempts_429 += 1
                 if attempts_429 > self.MAX_429_RETRIES:
-                    raise RiotApiError(f"Rate limited too many times: {url}")
+                    raise RiotApiError(
+                        f"An error occurred ({code}) — rate limited too many times.", detail)
                 retry_after = int(response.headers.get("Retry-After", "10"))
                 if self.limiter.on_wait:
                     self.limiter.on_wait(retry_after)
                 self.limiter.sleep(retry_after)
                 continue
-            if response.status_code >= 500:
+            if code >= 500:
                 attempts_5xx += 1
                 if attempts_5xx > self.MAX_5XX_RETRIES:
-                    raise RiotApiError(f"Server error {response.status_code}: {url}")
+                    raise RiotApiError(
+                        f"An error occurred ({code}) — Riot's servers keep failing.", detail)
                 self.limiter.sleep(2 * attempts_5xx)
                 continue
-            raise RiotApiError(f"Unexpected status {response.status_code}: {url}")
+            raise RiotApiError(f"An error occurred ({code}).", detail)
 
     def get_account(self, game_name, tag_line):
         url = (

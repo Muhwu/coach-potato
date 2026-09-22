@@ -71,6 +71,26 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   (`server/pdf_export.py`) — pure-Python-installable prebuilt wheels on all
   three OSes, builds clean under PyInstaller like the other compiled/native
   deps here.
+- **Every API failure is reportable.** `RiotApiError` (and its subclasses)
+  carries a `detail` dict built by `RiotClient.diagnostics()`: the exact
+  request (method, final URL, params, headers) and response (status, headers,
+  body, elapsed) — with `X-Riot-Token` redacted AND
+  `riot_client.scrub_secret()` run over the whole blob, so a key that leaked
+  into a URL or a message can't ride along. Messages are
+  `An error occurred ({code})` (the 401/403 one keeps its refresh-the-key
+  hint). app.py's `_error_payload()` adds context/app version/error type,
+  falls back to a traceback for non-HTTP failures, and pushes every one onto
+  `API_ERRORS` (last 20) behind `GET/DELETE /api/diagnostics/errors`. A
+  RiotApiError escaping a sync endpoint is turned into a 502
+  `{detail, diagnostics}` by the `@app.exception_handler(RiotApiError)`;
+  the background jobs report it as `error` + `error_detail` in
+  `CRAWL_STATE`/`TIMELINE_STATE`/`COMPARISON_CRAWL`. Frontend: `showApiError(el,
+  message, detail)`/`clearApiError`/`apiErrorFrom(response)` in app.js render
+  the message with a 📋 copy button (payloads held in `apiErrorUi`, not in a
+  data-attribute); Settings → Diagnostics (`loadDiagnostics`) lists the
+  remembered ones so an error that already scrolled past is still copyable.
+  Any NEW place that surfaces an API error should use those helpers rather
+  than writing `textContent`.
 - **Rate limits: 20 req/1 s and 100 req/2 min**, enforced by
   `RateLimiter` in `server/riot_client.py`. Never bypass it; test crawler
   changes with `--limit 5` before any full crawl.

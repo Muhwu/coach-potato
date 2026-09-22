@@ -7,8 +7,10 @@ import sqlite3
 import tempfile
 import threading
 import time
+import traceback
 import uuid
 import zipfile
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,15 +23,64 @@ from . import (ascent_log, config, crypto, db, obs, pdf_export, recordings,
                rune_data, stats, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
-from .riot_client import PLATFORM_ROUTING
+from .riot_client import PLATFORM_ROUTING, RiotApiError, scrub_secret
 
 app = FastAPI(title="Coach Potato")
 
 CRAWL_STATE = {"running": False, "message": "idle", "last_result": None, "error": None,
-               "rate_limited": False}
+               "error_detail": None, "rate_limited": False}
+
+# The last few failures, newest first, so the UI can hand the user a complete
+# bug report for ANY API error — including one that has already scrolled out of
+# a status line. Never holds the API key: RiotApiError.detail is redacted at
+# the source and _error_payload scrubs the whole blob again.
+API_ERRORS = deque(maxlen=20)
+
+
+def _error_payload(exc, context="", secret=None):
+    """Turn an exception into the shareable JSON dump behind the UI's copy
+    button, and remember it. A Riot failure carries the whole exchange
+    (`RiotApiError.detail`); anything else carries its traceback, which is the
+    diagnostic in that case."""
+    detail = dict(getattr(exc, "detail", None) or {})
+    detail.update({"context": context,
+                   "app_version": config.app_version(),
+                   "error_type": type(exc).__name__,
+                   "message": str(exc)})
+    detail.setdefault("when", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    if "request" not in detail:  # not an HTTP failure — the stack is what helps
+        detail["traceback"] = traceback.format_exc(limit=12)
+    payload = scrub_secret(detail, secret)
+    API_ERRORS.appendleft(payload)
+    return payload
+
+
+@app.exception_handler(RiotApiError)
+def _riot_api_error_handler(request: Request, exc: RiotApiError):
+    """Any Riot failure escaping a synchronous endpoint answers with the same
+    shape the background jobs report: a human message plus the diagnostics the
+    copy button shares. 502 — the upstream call is what failed, not this one."""
+    payload = _error_payload(exc, context=f"{request.method} {request.url.path}")
+    return JSONResponse(status_code=502,
+                        content={"detail": str(exc), "diagnostics": payload})
+
+
+@app.get("/api/diagnostics/errors")
+def api_diagnostics_errors():
+    """Recent API failures with their full request/response dumps (no API
+    key) — Settings → Diagnostics reads this so an error that has already
+    scrolled past can still be copied into a bug report."""
+    return {"errors": list(API_ERRORS)}
+
+
+@app.delete("/api/diagnostics/errors")
+def api_clear_diagnostics_errors():
+    API_ERRORS.clear()
+    return {"ok": True}
 # Background fetch of match timelines for block games (deeper lane-delta
 # stats), separate from the full crawl but sharing the same Riot rate budget.
-TIMELINE_STATE = {"running": False, "done": 0, "total": 0, "error": None}
+TIMELINE_STATE = {"running": False, "done": 0, "total": 0, "error": None,
+                  "error_detail": None}
 
 
 def _riot_job_running():
@@ -1832,7 +1883,7 @@ COMPARISON_FETCH_TARGET = 300  # games pulled per add / "fetch more"
 
 # one comparison fetch at a time; the UI polls this while it runs
 COMPARISON_CRAWL = {"running": False, "puuid": None, "message": "idle",
-                    "new_matches": 0, "error": None}
+                    "new_matches": 0, "error": None, "error_detail": None}
 
 
 def _comparison_games(conn, puuid):
@@ -1883,6 +1934,7 @@ def _run_comparison_crawl(players, api_key):
     (expired key aside, usually a bad region) doesn't abandon the rest; the
     failures are collected and reported together at the end."""
     failures = []
+    details = []
     total = len(players)
     try:
         for i, player in enumerate(players, 1):
@@ -1895,7 +1947,10 @@ def _run_comparison_crawl(players, api_key):
                     player, api_key, prefix)
             except Exception as exc:  # surfaced via the status field
                 failures.append(f"{label}: {exc}")
+                details.append(_error_payload(
+                    exc, context=f"research player fetch ({label})", secret=api_key))
         COMPARISON_CRAWL["error"] = "; ".join(failures) or None
+        COMPARISON_CRAWL["error_detail"] = details[0] if details else None
         if len(failures) == total:
             COMPARISON_CRAWL["message"] = "failed"
         elif total > 1:
@@ -1911,7 +1966,8 @@ def _start_comparison_crawl(players, api_key):
     """Kick off the worker for one or more players (each a row from
     db.list_comparison_players, with `platform` already resolved)."""
     COMPARISON_CRAWL.update({"running": True, "puuid": players[0]["puuid"],
-                             "message": "fetching games…", "new_matches": 0, "error": None})
+                             "message": "fetching games…", "new_matches": 0, "error": None,
+                             "error_detail": None})
     threading.Thread(target=_run_comparison_crawl, args=(players, api_key),
                      daemon=True).start()
 
@@ -3472,12 +3528,14 @@ def api_delete_session_mark(mark_id: int):
 
 
 def _run_crawl():
+    api_key = None  # for scrubbing if this blows up after the key is read
     try:
         from .crawler import Crawler
         from .riot_client import RateLimiter, RiotClient
 
         conn = db.connect(get_db_path())
         settings = config.resolve_settings(conn)
+        api_key = settings.get("riot_api_key")
         if not settings["configured"]:
             raise RuntimeError("not configured — set your API key and accounts in Settings")
 
@@ -3520,8 +3578,11 @@ def _run_crawl():
         CRAWL_STATE["last_result"] = results
         CRAWL_STATE["message"] = "done"
         CRAWL_STATE["error"] = None
+        CRAWL_STATE["error_detail"] = None
     except Exception as exc:  # surfaced via /api/crawl/status
         CRAWL_STATE["error"] = str(exc)
+        CRAWL_STATE["error_detail"] = _error_payload(
+            exc, context=f"crawl ({CRAWL_STATE['message']})", secret=api_key)
         CRAWL_STATE["message"] = "failed"
     finally:
         CRAWL_STATE["running"] = False
@@ -3533,12 +3594,13 @@ def api_crawl():
         return JSONResponse({"detail": "a crawl or timeline fetch is already running"},
                             status_code=409)
     CRAWL_STATE.update({"running": True, "message": "starting", "error": None,
-                        "rate_limited": False})
+                        "error_detail": None, "rate_limited": False})
     threading.Thread(target=_run_crawl, daemon=True).start()
     return {"started": True}
 
 
 def _run_timeline_backfill():
+    api_key = None
     try:
         from .crawler import Crawler
         from .riot_client import RateLimiter, RiotClient
@@ -3547,7 +3609,8 @@ def _run_timeline_backfill():
         settings = config.resolve_settings(conn)
         if not settings["configured"]:
             raise RuntimeError("not configured")
-        client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+        api_key = settings["riot_api_key"]
+        client = RiotClient(api_key, platform=settings["platform"],
                             limiter=RateLimiter())
 
         def status_cb(msg):  # "lane-delta backfill: 3/8 matches"
@@ -3560,8 +3623,11 @@ def _run_timeline_backfill():
         crawler.backfill_lane_deltas(block_games_only=True)
         conn.close()
         TIMELINE_STATE["error"] = None
+        TIMELINE_STATE["error_detail"] = None
     except Exception as exc:  # surfaced via /api/blocks/timeline-status
         TIMELINE_STATE["error"] = str(exc)
+        TIMELINE_STATE["error_detail"] = _error_payload(
+            exc, context="block timeline backfill", secret=api_key)
     finally:
         TIMELINE_STATE["running"] = False
 
@@ -3582,7 +3648,8 @@ def api_backfill_block_timelines():
         conn.close()
     if _riot_job_running() or not pending:
         return {"started": False, "pending": pending}
-    TIMELINE_STATE.update({"running": True, "done": 0, "total": pending, "error": None})
+    TIMELINE_STATE.update({"running": True, "done": 0, "total": pending, "error": None,
+                           "error_detail": None})
     threading.Thread(target=_run_timeline_backfill, daemon=True).start()
     return {"started": True, "pending": pending}
 

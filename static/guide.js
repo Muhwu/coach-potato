@@ -1205,14 +1205,18 @@ async function guessLaneOpponent(myChampion, enemies) {
 
 async function liveLookup() {
   const status = $("#guide-live-status");
-  status.classList.remove("status-error");
-  status.textContent = "Looking up your live game…";
+  clearApiError(status, "Looking up your live game…");
   let data;
   try {
-    data = await getJSON("/api/live-game");
+    const response = await fetch("/api/live-game");
+    if (!response.ok) {  // read the body: API failures carry copyable diagnostics
+      const { message, detail } = await apiErrorFrom(response);
+      showApiError(status, `Live lookup failed — ${message}`, detail);
+      return;
+    }
+    data = await response.json();
   } catch {
-    status.classList.add("status-error");
-    status.textContent = "Live lookup failed — check your API key.";
+    showApiError(status, "Live lookup failed — the app couldn't reach the server.", null);
     return;
   }
   if (!data.found) {
