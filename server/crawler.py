@@ -3,6 +3,7 @@ import json
 import time
 
 from . import db, rune_data
+from .riot_client import NotFoundError, RiotApiError
 from .metrics import (parse_build_order, parse_death_events, parse_frame_series,
                       parse_jungle_starts, parse_map_events, parse_metrics,
                       parse_skill_order, parse_starting_items, parse_timeline_deltas)
@@ -11,6 +12,15 @@ from .parsing import parse_match
 _NO_TIMELINE = object()  # _store_metrics sentinel: no timeline fetch was attempted
 
 RANK_TTL_MS = 7 * 86_400_000  # re-fetch a player's rank after 7 days
+# Riot hands back participant puuids it then refuses to resolve — 400 "Bad
+# Request - Exception decrypting <puuid>" for an anonymised or dead account,
+# 404 for one that no longer exists. That is about THAT identifier, not about
+# the crawl, so it must not take the whole run down with it: one opponent loses
+# their rank badge instead of the user losing every refresh, forever (nothing
+# is cached on failure, so the same puuid would be retried on every crawl).
+# Everything else — expired key, exhausted rate limit, Riot 5xx — still aborts,
+# because those ARE about the run.
+UNRESOLVABLE_PUUID_STATUSES = (400, 404)
 PAGE_SIZE = 100
 OVERLAP_S = 3600  # re-scan 1 h before the watermark to be safe
 
@@ -20,10 +30,15 @@ def _default_now_ms():
 
 
 class Crawler:
-    def __init__(self, client, conn, status_cb=None, now_ms=_default_now_ms):
+    def __init__(self, client, conn, status_cb=None, now_ms=_default_now_ms,
+                 error_cb=None):
         self.client = client
         self.conn = conn
         self.status_cb = status_cb or (lambda msg: None)
+        # called with (exception, context) for a failure the crawl SURVIVES, so
+        # a skipped lookup still reaches the diagnostics log instead of
+        # vanishing silently (app.py passes _error_payload)
+        self.error_cb = error_cb or (lambda exc, context: None)
         self.now_ms = now_ms
 
     def crawl_player(self, game_name, tag_line, queues=(420, 440), limit=None,
@@ -550,7 +565,10 @@ class Crawler:
         for row in rows:
             if max_players is not None and count >= max_players:
                 break
-            tier, division, lp = self._fetch_solo_rank(row["puuid"])
+            # an unresolvable opponent is cached as "no rank" ON PURPOSE: the
+            # 7-day TTL then keeps the crawl from asking Riot about the same
+            # dead puuid on every single run
+            tier, division, lp = self._fetch_solo_rank(row["puuid"]) or (None, None, None)
             db.set_player_rank(self.conn, row["puuid"], tier, division, lp,
                                fetched_at_ms=self.now_ms())
             count += 1
@@ -560,7 +578,10 @@ class Crawler:
     def refresh_tracked_ranks(self):
         rows = self.conn.execute("SELECT puuid FROM players WHERE is_tracked=1").fetchall()
         for row in rows:
-            tier, division, lp = self._fetch_solo_rank(row["puuid"])
+            rank = self._fetch_solo_rank(row["puuid"])
+            if rank is None:
+                continue  # unresolvable: leave the rank we already have alone
+            tier, division, lp = rank
             now_ms = self.now_ms()
             with self.conn:
                 self.conn.execute(
@@ -572,7 +593,19 @@ class Crawler:
                 db.record_rank_history(self.conn, row["puuid"], tier, division, lp, now_ms)
 
     def _fetch_solo_rank(self, puuid):
-        entries = self.client.get_league_entries(puuid)
+        """(tier, division, lp) — all None for an unranked player — or None
+        when Riot refuses to resolve the puuid at all (see
+        UNRESOLVABLE_PUUID_STATUSES). The two cases differ for the caller: an
+        unranked answer is worth storing, an unresolvable one must not
+        overwrite a rank we already know."""
+        try:
+            entries = self.client.get_league_entries(puuid)
+        except RiotApiError as exc:
+            if not (isinstance(exc, NotFoundError)
+                    or exc.status_code in UNRESOLVABLE_PUUID_STATUSES):
+                raise  # expired key / rate limit / Riot down — the run is over
+            self.error_cb(exc, f"rank lookup skipped — Riot can't resolve puuid {puuid}")
+            return None
         solo = next((e for e in entries if e.get("queueType") == "RANKED_SOLO_5x5"), None)
         if solo is None:
             return (None, None, None)

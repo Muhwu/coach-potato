@@ -132,6 +132,19 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   watermark in `crawl_state` (incomplete crawls re-page full history; detail
   fetches are skipped for stored matches, so it's cheap). `enrich_ranks()`
   fetches lane opponents' current solo rank (7-day TTL in `player_ranks`).
+  **A puuid Riot won't resolve must never fail the run**: match-v5 hands back
+  participant puuids that league-v4 then answers 400 "Bad Request - Exception
+  decrypting <puuid>" (anonymised/dead account) or 404 for, and since nothing
+  was cached on failure this broke EVERY refresh, forever, for the users who
+  had one in their history. `_fetch_solo_rank` returns None for those
+  (`UNRESOLVABLE_PUUID_STATUSES`) and re-raises everything else — an expired
+  key, an exhausted rate limit or Riot 5xx are about the RUN, not about one
+  identifier. `enrich_ranks` caches the miss as "no rank" so the TTL stops it
+  re-asking; `refresh_tracked_ranks` skips instead, so a tracked player's known
+  rank isn't blanked. Skipped lookups still reach the diagnostics log via
+  `Crawler(error_cb=...)` (app.py passes `_error_payload`) rather than
+  vanishing. Note real puuids CAN start with `-`, so don't "fix" this class of
+  bug with character validation.
   `_store_metrics()`/`_store_runes()` run inline per new match for tracked
   participants (coaching metrics, actual runes played); `backfill_metrics()`/
   `backfill_runes()` re-fetch stored matches missing either.

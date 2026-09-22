@@ -1904,7 +1904,10 @@ def _fetch_comparison_player(player, api_key, prefix=""):
     conn = db.connect(get_db_path())
     try:
         crawler = Crawler(client, conn,
-                          status_cb=lambda m: COMPARISON_CRAWL.__setitem__("message", prefix + m))
+                          status_cb=lambda m: COMPARISON_CRAWL.__setitem__("message", prefix + m),
+                          error_cb=lambda exc, context: _error_payload(
+                              exc, context=f"research player fetch — {context}",
+                              secret=api_key))
         res = crawler.crawl_player(player["game_name"], player["tag_line"],
                                    limit=COMPARISON_FETCH_TARGET,
                                    is_tracked=False,  # since_s omitted -> by count
@@ -3550,7 +3553,9 @@ def _run_crawl():
             CRAWL_STATE["message"] = msg
             CRAWL_STATE["rate_limited"] = False  # progress resumed
 
-        crawler = Crawler(client, conn, status_cb=status_cb)
+        crawler = Crawler(client, conn, status_cb=status_cb,
+                          error_cb=lambda exc, context: _error_payload(
+                              exc, context=f"crawl — {context}", secret=api_key))
         results = []
         for account in settings["accounts"]:
             game_name, _, tag_line = account.partition("#")

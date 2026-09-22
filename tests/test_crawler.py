@@ -207,6 +207,92 @@ def test_enrich_ranks_skips_fresh_entries(conn):
     assert crawler.enrich_ranks() == 1
 
 
+def _undecryptable(puuid, status=400):
+    """What Riot answers for a participant puuid it won't resolve:
+    400 "Bad Request - Exception decrypting <puuid>" (an anonymised or dead
+    account), or 404. Reported in the wild as a crawl that fails forever."""
+    from server.riot_client import NotFoundError, RiotApiError
+    detail = {"response": {"status": status, "body": f"Exception decrypting {puuid}"},
+              "request": {"url": f"https://oc1.api.riotgames.com/.../by-puuid/{puuid}"}}
+    if status == 404:
+        return NotFoundError(puuid, detail)
+    return RiotApiError(f"An error occurred ({status}).", detail)
+
+
+@pytest.mark.parametrize("status", [400, 404])
+def test_enrich_ranks_survives_a_puuid_riot_cannot_resolve(conn, status):
+    """One unresolvable opponent must cost that opponent's rank badge, not the
+    whole crawl — and it must be cached, or every future crawl asks again and
+    fails again."""
+    client = FakeClient([
+        match_json("EUW1_1", 1_700_000_000_000, opp_puuid="opp-bad"),
+        match_json("EUW1_2", 1_700_000_100_000, opp_puuid="opp-good"),
+    ])
+    client.ranks["opp-good"] = [
+        {"queueType": "RANKED_SOLO_5x5", "tier": "GOLD", "rank": "III", "leaguePoints": 42}]
+    original = client.get_league_entries
+
+    def get_league_entries(puuid):
+        if puuid == "opp-bad":
+            client.league_calls.append(puuid)
+            raise _undecryptable(puuid, status)
+        return original(puuid)
+    client.get_league_entries = get_league_entries
+
+    seen = []
+    now = 1_800_000_000_000
+    crawler = Crawler(client, conn, now_ms=lambda: now,
+                      error_cb=lambda exc, context: seen.append((exc, context)))
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    assert crawler.enrich_ranks() == 2  # both attempted, neither aborts the run
+    # the good one still landed
+    assert db.get_player_rank(conn, "opp-good")["solo_tier"] == "GOLD"
+    # the bad one is cached as "no rank", so the 7-day TTL stops it being retried
+    bad = db.get_player_rank(conn, "opp-bad")
+    assert bad["solo_tier"] is None and bad["fetched_at_ms"] == now
+    assert crawler.enrich_ranks() == 0
+    # ...and the failure was still reported rather than silently swallowed
+    assert len(seen) == 1 and "opp-bad" in seen[0][1]
+
+
+def test_enrich_ranks_still_aborts_on_an_expired_key(conn):
+    """The skip is for ONE bad identifier. An expired key (or rate limiting, or
+    Riot being down) is about the whole run and must still surface."""
+    from server.riot_client import ApiKeyExpiredError
+    client = FakeClient([match_json("EUW1_1", 1_700_000_000_000, opp_puuid="opp-A")])
+
+    def get_league_entries(puuid):
+        raise ApiKeyExpiredError("An error occurred (403) — the dev key has likely expired.",
+                                 {"response": {"status": 403}})
+    client.get_league_entries = get_league_entries
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    with pytest.raises(ApiKeyExpiredError):
+        crawler.enrich_ranks()
+
+
+def test_refresh_tracked_ranks_keeps_a_known_rank_when_the_lookup_is_skipped(conn):
+    """A tracked player's own rank is real data — an unresolvable lookup must
+    not blank it out the way a genuine 'unranked' answer would."""
+    client = FakeClient([match_json("EUW1_1", 1_700_000_000_000)])
+    client.ranks[TRACKED_PUUID] = [
+        {"queueType": "RANKED_SOLO_5x5", "tier": "PLATINUM", "rank": "IV", "leaguePoints": 90}]
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    crawler.refresh_tracked_ranks()
+    row = conn.execute("SELECT solo_tier, solo_lp FROM players WHERE puuid=?",
+                       (TRACKED_PUUID,)).fetchone()
+    assert (row["solo_tier"], row["solo_lp"]) == ("PLATINUM", 90)
+
+    def get_league_entries(puuid):
+        raise _undecryptable(puuid)
+    client.get_league_entries = get_league_entries
+    crawler.refresh_tracked_ranks()
+    row = conn.execute("SELECT solo_tier, solo_lp FROM players WHERE puuid=?",
+                       (TRACKED_PUUID,)).fetchone()
+    assert (row["solo_tier"], row["solo_lp"]) == ("PLATINUM", 90)  # untouched
+
+
 def test_crawl_stores_metrics_for_tracked_participant(conn):
     match = match_json("EUW1_1", 1_700_000_000_000)
     tracked = next(p for p in match["info"]["participants"]
