@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 
 from .metrics import METRICS, metric_keys, strongside
+from . import minion_waves
 
 REMAKE_S = 300
 
@@ -526,12 +527,12 @@ def single_game_metrics(conn, match_id, puuid):
     return values
 
 
-_FRAME_SERIES_COLS = ("cs", "xp", "gold", "level")
+_FRAME_SERIES_COLS = ("cs", "xp", "gold", "level", "minions")
 
 
 def _frame_series_side(conn, match_id, puuid):
     rows = conn.execute(
-        """SELECT minute, cs, xp, gold, level FROM participant_frame_series
+        """SELECT minute, cs, xp, gold, level, minions FROM participant_frame_series
            WHERE match_id=? AND puuid=? ORDER BY minute""",
         (match_id, puuid)).fetchall()
     if not rows:
@@ -555,7 +556,38 @@ def game_curve(conn, match_id, puuid, opp_puuid=None):
         theirs = _frame_series_side(conn, match_id, opp_puuid)
         if theirs is not None:
             opp = theirs[1]
-    return {"minutes": [r["minute"] for r in rows], "me": me, "opp": opp}
+    minutes = [r["minute"] for r in rows]
+    return {"minutes": minutes, "me": me, "opp": opp,
+            "farm": _farm_benchmark(conn, match_id, puuid, minutes, me, opp)}
+
+
+def _farm_side(side, minutes, max_counts, max_golds):
+    """Minions killed + estimated minion gold for one side. Rows stored
+    before the `minions` column existed fall back to cs (which also counts
+    jungle camps) and say so."""
+    killed = side["minions"]
+    includes_jungle = any(v is None for v in killed)
+    if includes_jungle:
+        killed = side["cs"]
+    return {"minions": killed, "includes_jungle": includes_jungle,
+            "gold": minion_waves.estimate_minion_gold(minutes, killed, max_counts, max_golds)}
+
+
+def _farm_benchmark(conn, match_id, puuid, minutes, me, opp):
+    """Perfect-farm ceiling (server/minion_waves.py) next to what each side
+    actually farmed. None when the benchmark doesn't apply: a jungler, or a
+    game from before patch 26.1's wave rules."""
+    row = conn.execute(
+        """SELECT m.game_version, p.team_position FROM matches m
+           JOIN participants p ON p.match_id = m.match_id AND p.puuid = ?
+           WHERE m.match_id = ?""", (puuid, match_id)).fetchone()
+    if (row is None or row["team_position"] not in minion_waves.LANE_ROLES
+            or not minion_waves.supports_version(row["game_version"])):
+        return None
+    max_counts, max_golds = minion_waves.max_farm(minutes)
+    return {"max_minions": max_counts, "max_gold": max_golds,
+            "me": _farm_side(me, minutes, max_counts, max_golds),
+            "opp": _farm_side(opp, minutes, max_counts, max_golds) if opp else None}
 
 
 def block_games_detailed(conn):

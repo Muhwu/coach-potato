@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.65.0",
+      "date": "2026-09-23",
+      "items": [
+        "A game's full-game curve now has a Farming row: your lane minions and the gold they paid, charted against a perfect last-hitter who takes every minion from every wave (current patch wave timings, cannon waves and bounties). Where your line flattens away from the dashed ceiling is where your farming dropped, and each chart shows what share of the maximum you (and your lane opponent) reached."
+      ]
+    },
+    {
       "version": "1.64.1",
       "date": "2026-09-22",
       "items": [
@@ -28,7 +35,7 @@
       "version": "1.62.0",
       "date": "2026-09-17",
       "items": [
-        "The Blocks view is paged — 10 blocks at a time, newest first, with a pager above and below the list, so a long history no longer buries the add-game picker at the bottom of the page.",
+        "The Blocks view is paged \u2014 10 blocks at a time, newest first, with a pager above and below the list, so a long history no longer buries the add-game picker at the bottom of the page.",
         "A \u201c+ Add game\u201d button in the Blocks header opens the recent-games picker in a popup from anywhere in the view, whether or not the current block still has room."
       ]
     },
@@ -43,59 +50,59 @@
       "version": "1.60.0",
       "date": "2026-09-08",
       "items": [
-        "Settings → Appearance has a Theme setting: Auto (follow the system, as before), Light or Dark. Pick one and the app stays that way regardless of the OS setting — the comparison window follows it too, and it applies before the page paints so there's no flash of the other look on launch."
+        "Settings \u2192 Appearance has a Theme setting: Auto (follow the system, as before), Light or Dark. Pick one and the app stays that way regardless of the OS setting \u2014 the comparison window follows it too, and it applies before the page paints so there's no flash of the other look on launch."
       ]
     },
     {
       "version": "1.59.1",
       "date": "2026-08-29",
       "items": [
-        "Fixed: a game could show up two, four or five times in every list — recent games, matchups, blocks, coaching periods — and inflate the stats built from them (games played, winrate, KDA, CS/min) by the same factor. Riot doesn't guarantee that a role is unique within a team, and when two enemies came back in your role the game was counted once per enemy. The lane opponent is now picked once, whatever Riot sends. Nothing to clean up — your numbers correct themselves on the next load."
+        "Fixed: a game could show up two, four or five times in every list \u2014 recent games, matchups, blocks, coaching periods \u2014 and inflate the stats built from them (games played, winrate, KDA, CS/min) by the same factor. Riot doesn't guarantee that a role is unique within a team, and when two enemies came back in your role the game was counted once per enemy. The lane opponent is now picked once, whatever Riot sends. Nothing to clean up \u2014 your numbers correct themselves on the next load."
       ]
     },
     {
       "version": "1.59.0",
       "date": "2026-08-26",
       "items": [
-        "A coaching session's videos are now one collapsed \"Recordings & clips\" section instead of an always-open OBS panel, a separate clips box and a link you could only see in the title line. Expand it to get everything in one list — recorded sessions, files you attached, the VOD link (editable right there, no more digging into the edit dialog) and clips — with one row of buttons to add any of them.",
-        "● Record with OBS is only offered while a session has nothing recorded yet, and the OBS troubleshooting text only appears next to that button — so a session you've already recorded stays quiet.",
-        "OBS session recording can be switched off completely in Settings → Recordings. With it off, the record button, the \"Add & record\" shortcut and the connection fields all disappear.",
-        "Settings is now six tabs — Account, Coaching, Interface, Appearance, Recordings, Backup — instead of one long scroll, and the explanations throughout got shorter."
+        "A coaching session's videos are now one collapsed \"Recordings & clips\" section instead of an always-open OBS panel, a separate clips box and a link you could only see in the title line. Expand it to get everything in one list \u2014 recorded sessions, files you attached, the VOD link (editable right there, no more digging into the edit dialog) and clips \u2014 with one row of buttons to add any of them.",
+        "\u25cf Record with OBS is only offered while a session has nothing recorded yet, and the OBS troubleshooting text only appears next to that button \u2014 so a session you've already recorded stays quiet.",
+        "OBS session recording can be switched off completely in Settings \u2192 Recordings. With it off, the record button, the \"Add & record\" shortcut and the connection fields all disappear.",
+        "Settings is now six tabs \u2014 Account, Coaching, Interface, Appearance, Recordings, Backup \u2014 instead of one long scroll, and the explanations throughout got shorter."
       ]
     },
     {
       "version": "1.58.0",
       "date": "2026-08-24",
       "items": [
-        "Record a coaching session with OBS: expand a coaching period and press ● Record — OBS starts, you drop ⚑ bookmarks with a note while it rolls, and pressing ■ Stop brings the finished video into the panel with every bookmark as a chapter you can click to jump straight there. Set it up in Settings → OBS recording (turn on OBS's Tools → WebSocket Server Settings first).",
-        "Before a recording starts, the app asks OBS what container it would record into and warns if it's one browsers can't play (OBS's default .mkv) — so you can switch OBS to mp4 while it still costs nothing. Test connection in Settings shows the format too.",
-        "A coaching period can also point at a video you recorded earlier — \"Attach an existing file\" takes any path, alongside the existing recording link. Video files are never copied or moved, and forgetting a recording keeps the file where it is.",
-        "Forgetting a recording now asks a second question: also delete the video file from disk? Cancelling keeps the file (still the default) — this is the one place the app will ever delete a video.",
-        "Sessions take a category — Theory, VOD review or Live coaching out of the box, picked from a dropdown in the session popup. \"+ New category…\" adds your own, which is remembered for next time; the × beside the dropdown stops suggesting a name without touching the sessions that recorded it. The Coach field became the same kind of dropdown. New sessions start as Live coaching, since that's what most of them are — clear it or pick another, and if you delete that category from the list it stops being the default.",
-        "Fixed: the full backup silently dropped each session's coach, recording link and category — all three now survive an export/restore."
+        "Record a coaching session with OBS: expand a coaching period and press \u25cf Record \u2014 OBS starts, you drop \u2691 bookmarks with a note while it rolls, and pressing \u25a0 Stop brings the finished video into the panel with every bookmark as a chapter you can click to jump straight there. Set it up in Settings \u2192 OBS recording (turn on OBS's Tools \u2192 WebSocket Server Settings first).",
+        "Before a recording starts, the app asks OBS what container it would record into and warns if it's one browsers can't play (OBS's default .mkv) \u2014 so you can switch OBS to mp4 while it still costs nothing. Test connection in Settings shows the format too.",
+        "A coaching period can also point at a video you recorded earlier \u2014 \"Attach an existing file\" takes any path, alongside the existing recording link. Video files are never copied or moved, and forgetting a recording keeps the file where it is.",
+        "Forgetting a recording now asks a second question: also delete the video file from disk? Cancelling keeps the file (still the default) \u2014 this is the one place the app will ever delete a video.",
+        "Sessions take a category \u2014 Theory, VOD review or Live coaching out of the box, picked from a dropdown in the session popup. \"+ New category\u2026\" adds your own, which is remembered for next time; the \u00d7 beside the dropdown stops suggesting a name without touching the sessions that recorded it. The Coach field became the same kind of dropdown. New sessions start as Live coaching, since that's what most of them are \u2014 clear it or pick another, and if you delete that category from the list it stops being the default.",
+        "Fixed: the full backup silently dropped each session's coach, recording link and category \u2014 all three now survive an export/restore."
       ]
     },
     {
       "version": "1.57.0",
       "date": "2026-08-22",
       "items": [
-        "The cap on research players is gone — add as many as you want to compare yourself against (crawling each one still takes a while, since Riot's API is rate limited)",
-        "Research players: one ↻ Refresh all button fetches new games for everyone in the list, one after another in the background, and each player takes a short note beside their name (what they main, why you're watching them)",
-        "Each research player can carry a short note beside their name — what they main, why you're watching them"
+        "The cap on research players is gone \u2014 add as many as you want to compare yourself against (crawling each one still takes a while, since Riot's API is rate limited)",
+        "Research players: one \u21bb Refresh all button fetches new games for everyone in the list, one after another in the background, and each player takes a short note beside their name (what they main, why you're watching them)",
+        "Each research player can carry a short note beside their name \u2014 what they main, why you're watching them"
       ]
     },
     {
       "version": "1.56.2",
       "date": "2026-08-21",
       "items": [
-        "Fixed: the ✎ on a block's learnings opened the editor without putting the cursor in it — it now focuses the text like clicking the notes does"
+        "Fixed: the \u270e on a block's learnings opened the editor without putting the cursor in it \u2014 it now focuses the text like clicking the notes does"
       ]
     },
     {
       "version": "1.56.1",
       "date": "2026-08-21",
       "items": [
-        "Icons across the app are a size larger — they were small enough to be fiddly",
+        "Icons across the app are a size larger \u2014 they were small enough to be fiddly",
         "Text boxes and text areas everywhere now use the app's own field styling instead of the browser's bright white; the session popup was the most obvious offender",
         "A coaching period puts its dates, coach chip and recording link together on one line under the title, and the edit/delete buttons moved into the expanded panel (right-aligned) so a long title can't push them onto their own line"
       ]
@@ -105,19 +112,19 @@
       "date": "2026-08-21",
       "items": [
         "Your database is now copied aside before a new version migrates it, so a bad upgrade can't take your notes with it. Copies land in a backups/ folder next to the database (newest five kept) and are taken before any migration runs",
-        "A coaching session can hold a link to its recording — paste the weteachleague/YouTube URL in the session popup and a 🔗 appears on its row",
+        "A coaching session can hold a link to its recording \u2014 paste the weteachleague/YouTube URL in the session popup and a \ud83d\udd17 appears on its row",
         "Block learnings save when you click away, like game notes do: click the text to edit, click out to save, Esc to cancel. No more Save/Cancel buttons, and no more losing what you typed when the view refreshes underneath you",
-        "The session popup got a styling pass — aligned label/field grid, sensibly sized inputs, tidier coach chips — and the date field opens a calendar and jumps to the title once you pick a day",
+        "The session popup got a styling pass \u2014 aligned label/field grid, sensibly sized inputs, tidier coach chips \u2014 and the date field opens a calendar and jumps to the title once you pick a day",
         "Coaching periods lead with the session's title (or its date when untitled) instead of repeating the date range twice; long titles truncate and show in full on hover",
-        "Sorting moved onto the Period column as an ↑/↓ you click, and the header buttons slimmed down to ⧉ Compare, a 📤 export icon and 🎓 + Session"
+        "Sorting moved onto the Period column as an \u2191/\u2193 you click, and the header buttons slimmed down to \u29c9 Compare, a \ud83d\udce4 export icon and \ud83c\udf93 + Session"
       ]
     },
     {
       "version": "1.55.1",
       "date": "2026-08-20",
       "items": [
-        "Coaching progress: the filter row lost its padding when it moved inside the panel (Champion was hugging the edge), and the \"Selected accounts · all roles\" note sat on the bottom edge instead of centred — both fixed",
-        "Sort the coaching periods oldest-first or newest-first with the new ↑/↓ button; the choice is remembered, and the ▲/▼ comparisons still read against the previous period either way"
+        "Coaching progress: the filter row lost its padding when it moved inside the panel (Champion was hugging the edge), and the \"Selected accounts \u00b7 all roles\" note sat on the bottom edge instead of centred \u2014 both fixed",
+        "Sort the coaching periods oldest-first or newest-first with the new \u2191/\u2193 button; the choice is remembered, and the \u25b2/\u25bc comparisons still read against the previous period either way"
       ]
     },
     {
@@ -127,52 +134,52 @@
         "Coaching progress is one page again, and one table: each row is the stretch after a coaching session, so expanding it shows that session's notes, coach and clips right above the metrics that followed. No more two lists of the same sessions, and no third row of tabs",
         "The Baseline row stays as your pre-coaching reference, and the champion/queue/side filters moved inside the panel they actually filter",
         "Adding a session is a popup, reachable from the panel header instead of a form buried under the session list. Editing uses the same popup, with the notes as a full Markdown editor",
-        "Sessions can record who coached them. The field is optional, can be filled in on older sessions afterwards, and remembers coaches you've used so you can pick them again — removing one from those suggestions never changes the sessions that already name them"
+        "Sessions can record who coached them. The field is optional, can be filled in on older sessions afterwards, and remembers coaches you've used so you can pick them again \u2014 removing one from those suggestions never changes the sessions that already name them"
       ]
     },
     {
       "version": "1.54.1",
       "date": "2026-08-18",
       "items": [
-        "Fixed: a block that a new series had already finished still showed the \"active\" badge, so it looked open while offering no Close early — it now reads \"finished with series\", and \"active\" is reserved for the block your next game actually lands in (a full block no longer claims it either)"
+        "Fixed: a block that a new series had already finished still showed the \"active\" badge, so it looked open while offering no Close early \u2014 it now reads \"finished with series\", and \"active\" is reserved for the block your next game actually lands in (a full block no longer claims it either)"
       ]
     },
     {
       "version": "1.54.0",
       "date": "2026-08-17",
       "items": [
-        "Recordings get an event timeline: every kill, death, assist, structure and objective sits where it happens on the video — click one to jump straight there. The itemised list is still there behind an \"Event list\" toggle, collapsed by default",
-        "Reflection tags are suggestions, not analysis: your chosen tags sit on their own row, and at most three are offered under \"Suggested for this game\" — only things plainly true from the numbers (\"Won lane, lost game\", \"High deaths\"), never a guess at how you played. Everything else is what the free-text tag and the note are for",
+        "Recordings get an event timeline: every kill, death, assist, structure and objective sits where it happens on the video \u2014 click one to jump straight there. The itemised list is still there behind an \"Event list\" toggle, collapsed by default",
+        "Reflection tags are suggestions, not analysis: your chosen tags sit on their own row, and at most three are offered under \"Suggested for this game\" \u2014 only things plainly true from the numbers (\"Won lane, lost game\", \"High deaths\"), never a guess at how you played. Everything else is what the free-text tag and the note are for",
         "Reflection tags read properly capitalised, and a tag you've picked no longer renders dark-on-dark",
         "The heatmap legend reads kills, deaths, assists, towers, objectives",
-        "Recordings now show up on the games list under Coach → Coaching progress too, not just Overview and Blocks",
+        "Recordings now show up on the games list under Coach \u2192 Coaching progress too, not just Overview and Blocks",
         "Fixed: a block game's expanded panel showed the Side picker twice",
-        "The Lane result and Side pickers now name what \"Auto\" resolves to — \"Ahead (Auto)\", \"Strong Side (Auto)\" — instead of just saying Auto",
-        "Blocks: the current block's header gets a \"+ Game\" button opening the recent-games list in a popup — the picker at the foot of the page is a long scroll away once you have a few blocks"
+        "The Lane result and Side pickers now name what \"Auto\" resolves to \u2014 \"Ahead (Auto)\", \"Strong Side (Auto)\" \u2014 instead of just saying Auto",
+        "Blocks: the current block's header gets a \"+ Game\" button opening the recent-games list in a popup \u2014 the picker at the foot of the page is a long scroll away once you have a few blocks"
       ]
     },
     {
       "version": "1.53.0",
       "date": "2026-08-14",
       "items": [
-        "Stats now cover every role, not just top lane — your lane opponent is whoever played your position. Set a main/secondary role in Settings and use the new Role filter to narrow any view. Thanks to @bs1phc",
+        "Stats now cover every role, not just top lane \u2014 your lane opponent is whoever played your position. Set a main/secondary role in Settings and use the new Role filter to narrow any view. Thanks to @bs1phc",
         "Death map (Trends): a schematic Rift heatmap of where you die, built from match timelines. Thanks to @bs1phc",
         "Full-game gold/CS/XP/level curve per game, so you can see where a lead appeared or evaporated. Thanks to @bs1phc",
         "Per-game reflection tags plus a freeform note, kept separate from block learnings and matchup notes. Thanks to @bs1phc",
-        "Ascent VOD integration: link your local recordings to games, jump straight to a death, and chapter them automatically. Uploading to YouTube is optional — install requirements-youtube.txt for one-click upload, or use the manual path that opens the file for you. Thanks to @bs1phc",
+        "Ascent VOD integration: link your local recordings to games, jump straight to a death, and chapter them automatically. Uploading to YouTube is optional \u2014 install requirements-youtube.txt for one-click upload, or use the manual path that opens the file for you. Thanks to @bs1phc",
         "Research players moved out of Settings into their own view under Prepare, and the top bar became a rounded card with roomier nav. Thanks to @bs1phc",
-        "Fixed: hiding Series, Champion pool or Tier list in Settings → Visible tabs failed the whole save with an error",
-        "Settings: fixed a broken Recordings & YouTube / Backup section — the merge had left two overlapping copies of the backup controls, so half the page rendered wrong and the second Import button did nothing",
-        "The YouTube upload button only appears once upload is actually set up; otherwise a small ℹ explains how to enable it and takes you to Settings",
-        "The Ascent scan result moved into a popover on the 🎬 button instead of a long line of text that wrapped the top bar onto a second row"
+        "Fixed: hiding Series, Champion pool or Tier list in Settings \u2192 Visible tabs failed the whole save with an error",
+        "Settings: fixed a broken Recordings & YouTube / Backup section \u2014 the merge had left two overlapping copies of the backup controls, so half the page rendered wrong and the second Import button did nothing",
+        "The YouTube upload button only appears once upload is actually set up; otherwise a small \u2139 explains how to enable it and takes you to Settings",
+        "The Ascent scan result moved into a popover on the \ud83c\udfac button instead of a long line of text that wrapped the top bar onto a second row"
       ]
     },
     {
       "version": "1.52.0",
       "date": "2026-08-13",
       "items": [
-        "Player comparison is no longer stuck in the Playbook — the ⧉ button now also sits on every Matchups row, on each champion in My champions, and on Coaching progress (which compares totals, not per-session segments)",
-        "The comparison window shows YOUR stats as the first column, so it's actually side by side. It also opens much wider, and defaults to a roomy comparison table — stats down the side, players across the top, with the best value in each row marked (fewer deaths counts as better). \"Compact view\" switches back to the dense card layout",
+        "Player comparison is no longer stuck in the Playbook \u2014 the \u29c9 button now also sits on every Matchups row, on each champion in My champions, and on Coaching progress (which compares totals, not per-session segments)",
+        "The comparison window shows YOUR stats as the first column, so it's actually side by side. It also opens much wider, and defaults to a roomy comparison table \u2014 stats down the side, players across the top, with the best value in each row marked (fewer deaths counts as better). \"Compact view\" switches back to the dense card layout",
         "My champions has a column picker: kills/deaths/assists, gold per minute, damage per minute and average game length are all available beyond the default six"
       ]
     },
@@ -180,18 +187,18 @@
       "version": "1.51.0",
       "date": "2026-08-12",
       "items": [
-        "Fixed: the desktop app was throwing away every saved UI preference when you closed it — column choices, collapsed blocks, saved skill grids, the view each section reopens on. The native window ran in private mode, so nothing the app remembered survived a restart. It now keeps that state next to your database",
+        "Fixed: the desktop app was throwing away every saved UI preference when you closed it \u2014 column choices, collapsed blocks, saved skill grids, the view each section reopens on. The native window ran in private mode, so nothing the app remembered survived a restart. It now keeps that state next to your database",
         "Every column picker gets a \"Reset to defaults\" option, so you can get back to the standard columns without un-ticking them one at a time",
-        "Column pickers are now a ▥ icon button instead of the \"Columns\" text, matching the other icon controls in the header rows"
+        "Column pickers are now a \u25a5 icon button instead of the \"Columns\" text, matching the other icon controls in the header rows"
       ]
     },
     {
       "version": "1.50.0",
       "date": "2026-08-11",
       "items": [
-        "New Series view (Coach → Series): every challenge on one page — its goals, what each block in it taught you, and how it actually went. Each series gets closing notes: did you hit the goals, what actually changed, what's next",
-        "The top bar is now grouped into three sections — Analyze (Overview, Matchups, Trends), Coach (Coaching progress, Blocks, Champion pool) and Prepare (Playbook, Tier list, Research) — with the section's views on a second row. Each section remembers the view you last used in it, and 1/2/3 jump between sections. The bar is sticky, so it stays reachable down a long page",
-        "Champion pool is its own view under Coach instead of a field buried in Settings — it's a commitment you revise, not app configuration. The ✎ on the Blocks page opens it directly",
+        "New Series view (Coach \u2192 Series): every challenge on one page \u2014 its goals, what each block in it taught you, and how it actually went. Each series gets closing notes: did you hit the goals, what actually changed, what's next",
+        "The top bar is now grouped into three sections \u2014 Analyze (Overview, Matchups, Trends), Coach (Coaching progress, Blocks, Champion pool) and Prepare (Playbook, Tier list, Research) \u2014 with the section's views on a second row. Each section remembers the view you last used in it, and 1/2/3 jump between sections. The bar is sticky, so it stays reachable down a long page",
+        "Champion pool is its own view under Coach instead of a field buried in Settings \u2014 it's a commitment you revise, not app configuration. The \u270e on the Blocks page opens it directly",
         "\"Matchup guide\" is now called \"Playbook\", so it stops reading like the Matchups stats tab it sits next to",
         "Every view can be deep-linked by URL again, including the Tier list (#tiers was written to the address bar but never read back)",
         "The top bar's section pills and view tabs got room to breathe, and a \"?\" next to the sections explains the 1/2/3 shortcuts on hover"
@@ -201,12 +208,12 @@
       "version": "1.49.0",
       "date": "2026-08-10",
       "items": [
-        "Block series are visible as soon as you start one — the active series now sits on the champion-pool line at the top of Blocks, so a fresh two-week challenge shows up straight away instead of only appearing once a game exists",
-        "Series goals: each series carries its own Markdown goals, opened in a popup from the series bubble on any block (or the ✎ next to the active series). Write what the challenge is for, rename the series there, and older series keep their goals reachable from their own blocks",
-        "Strong side / weak side is now detected automatically: a block game's Side picker defaults to Auto and works it out from where your jungler started — you're strong side when they start on the map half opposite your lane. It also shows where both junglers began and what that made of your lane opponent, so a deficit can be read in context. You can still override it per game. New games get it automatically; run ./crawl.sh --backfill-jungle-sides to fill in older ones",
-        "Blocks: tell the app yourself whether you won the lane — each game's expanded panel gets a 'Lane result' picker (Stomped loss / Lost / Even / Won / Stomp win) for the 7m and 14m marks, set independently, plus a Strongside/Weakside flag. A result you set overrides that mark's lane column, for the games the automatic read gets wrong (a proactive dive, a disconnect, a gank the numbers can't see); leave it on Auto to keep the existing behaviour",
+        "Block series are visible as soon as you start one \u2014 the active series now sits on the champion-pool line at the top of Blocks, so a fresh two-week challenge shows up straight away instead of only appearing once a game exists",
+        "Series goals: each series carries its own Markdown goals, opened in a popup from the series bubble on any block (or the \u270e next to the active series). Write what the challenge is for, rename the series there, and older series keep their goals reachable from their own blocks",
+        "Strong side / weak side is now detected automatically: a block game's Side picker defaults to Auto and works it out from where your jungler started \u2014 you're strong side when they start on the map half opposite your lane. It also shows where both junglers began and what that made of your lane opponent, so a deficit can be read in context. You can still override it per game. New games get it automatically; run ./crawl.sh --backfill-jungle-sides to fill in older ones",
+        "Blocks: tell the app yourself whether you won the lane \u2014 each game's expanded panel gets a 'Lane result' picker (Stomped loss / Lost / Even / Won / Stomp win) for the 7m and 14m marks, set independently, plus a Strongside/Weakside flag. A result you set overrides that mark's lane column, for the games the automatic read gets wrong (a proactive dive, a disconnect, a gank the numbers can't see); leave it on Auto to keep the existing behaviour",
         "New Tier list maker (own tab): drag any champion from the full roster into S/A/B/C/D tiers (rename/recolour tiers, add/remove rows), keep multiple named lists, and it all auto-saves and rides along in your backups. Thanks to @bs1phc",
-        "Tier lists can now be saved into a champion's Matchup guide: build one in the Tier list tab, pick a champion and hit 'Save to guide' — it shows up read-only on that champion's guide page (several per champion; re-saving the same list updates its copy). Plus a new '⇄ Compare' window that puts up to 4 tier lists side by side in a 2×2 layout. Thanks to @bs1phc",
+        "Tier lists can now be saved into a champion's Matchup guide: build one in the Tier list tab, pick a champion and hit 'Save to guide' \u2014 it shows up read-only on that champion's guide page (several per champion; re-saving the same list updates its copy). Plus a new '\u21c4 Compare' window that puts up to 4 tier lists side by side in a 2\u00d72 layout. Thanks to @bs1phc",
         "The tier-list champion pool can be filtered by role, with each champion's lane(s) worked out from the games you've crawled"
       ]
     },
@@ -214,10 +221,10 @@
       "version": "1.48.0",
       "date": "2026-07-29",
       "items": [
-        "Lowering the UI opacity no longer washes text out over a background picture — translucency now stops at a readable floor, and each view's content sits on its own surface panel instead of directly on the image. Thanks to @bs1phc",
-        "The Matchup guide has a search box for the matchup list, sorts matchups with notes/guides first (each group A→Z), and shows each row's tools (📄 One Pager, ⏱ Cooldowns, ⧉ Compare, ✎ Edit) on collapsed rows too, so you don't have to expand a matchup to reach them. Thanks to @bs1phc",
-        "The Matchup guide comparison shows what each research player actually ran per recent game — summoner spells, runes (with stat shards), the game-start buy and full build in purchase order, and the ability max order (Q>W>E) — in a clean columnar pop-out with a Show spells & items toggle (up to 6 players, 3 per row)",
-        "Lane Δ @14m (ΔCS / ΔGold vs the direct lane opponent) is shown for every compared player; comparison fetches pull match timelines again to make this and the item/skill data possible, and older stored games back-fill region-correctly on the next fetch",
+        "Lowering the UI opacity no longer washes text out over a background picture \u2014 translucency now stops at a readable floor, and each view's content sits on its own surface panel instead of directly on the image. Thanks to @bs1phc",
+        "The Matchup guide has a search box for the matchup list, sorts matchups with notes/guides first (each group A\u2192Z), and shows each row's tools (\ud83d\udcc4 One Pager, \u23f1 Cooldowns, \u29c9 Compare, \u270e Edit) on collapsed rows too, so you don't have to expand a matchup to reach them. Thanks to @bs1phc",
+        "The Matchup guide comparison shows what each research player actually ran per recent game \u2014 summoner spells, runes (with stat shards), the game-start buy and full build in purchase order, and the ability max order (Q>W>E) \u2014 in a clean columnar pop-out with a Show spells & items toggle (up to 6 players, 3 per row)",
+        "Lane \u0394 @14m (\u0394CS / \u0394Gold vs the direct lane opponent) is shown for every compared player; comparison fetches pull match timelines again to make this and the item/skill data possible, and older stored games back-fill region-correctly on the next fetch",
         "Summoner spells and items are captured on new crawls; run ./crawl.sh --backfill-items to fill them in for already-stored games"
       ]
     },
@@ -225,9 +232,9 @@
       "version": "1.46.0",
       "date": "2026-07-23",
       "items": [
-        "Compare yourself against other players — enable it in Settings → Research & comparison, add players by Riot ID, then hit the ⧉ button on a Matchup guide row to open a side-by-side view of their stats, runes and recent games in that matchup. Each player toggles on/off, and their games are fetched on demand (last 60 days by default, with a \"Fetch more\" button to widen the window). Thanks to @bs1phc for the contribution",
-        "Rune win rates on the Matchup guide — each matchup now shows your win rate by keystone and by secondary tree, drawn from the runes you actually ran in those games. Thanks to @bs1phc",
-        "General runes mode (Settings → Matchup guide) — switch from per-matchup rune pages to a single champion-level rune set shown by the item build. Your per-matchup pages aren't deleted; they reappear if you switch back. Thanks to @bs1phc",
+        "Compare yourself against other players \u2014 enable it in Settings \u2192 Research & comparison, add players by Riot ID, then hit the \u29c9 button on a Matchup guide row to open a side-by-side view of their stats, runes and recent games in that matchup. Each player toggles on/off, and their games are fetched on demand (last 60 days by default, with a \"Fetch more\" button to widen the window). Thanks to @bs1phc for the contribution",
+        "Rune win rates on the Matchup guide \u2014 each matchup now shows your win rate by keystone and by secondary tree, drawn from the runes you actually ran in those games. Thanks to @bs1phc",
+        "General runes mode (Settings \u2192 Matchup guide) \u2014 switch from per-matchup rune pages to a single champion-level rune set shown by the item build. Your per-matchup pages aren't deleted; they reappear if you switch back. Thanks to @bs1phc",
         "Remove a tracked account and purge its crawled data from Settings, while keeping your sessions, block learnings and notes. Thanks to @bs1phc",
         "Table-heavy views (Matchups, Coaching progress, Trends, Blocks) now expand to fill the window when you widen it, so you can reveal more columns instead of scrolling sideways"
       ]
@@ -236,7 +243,7 @@
       "version": "1.45.0",
       "date": "2026-07-21",
       "items": [
-        "Blue/red side filter added to the Matchups, Overview, Trends and Coaching-progress filter rows — see your stats for games where you were on a specific side"
+        "Blue/red side filter added to the Matchups, Overview, Trends and Coaching-progress filter rows \u2014 see your stats for games where you were on a specific side"
       ]
     },
     {
@@ -250,15 +257,15 @@
       "version": "1.44.0",
       "date": "2026-07-21",
       "items": [
-        "Live Lookup (📡 on the Matchup guide) — finds your live game, switches to the champion you're playing, and pops open the one-pager for the matchup so your notes are one click away. Riot's live API doesn't expose lane, so the opponent is guessed from your history with a quick enemy-champion switcher to correct it"
+        "Live Lookup (\ud83d\udce1 on the Matchup guide) \u2014 finds your live game, switches to the champion you're playing, and pops open the one-pager for the matchup so your notes are one click away. Riot's live API doesn't expose lane, so the opponent is guessed from your history with a quick enemy-champion switcher to correct it"
       ]
     },
     {
       "version": "1.43.0",
       "date": "2026-07-21",
       "items": [
-        "Matchups: the column picker now adds/removes columns on the main matchups table (including metric averages like the lane Δ's), and an expanded game always shows every stat",
-        "Coaching progress: one column picker for the table — the lane Δ metrics are now available there as period averages; the expanded period panel always shows every stat"
+        "Matchups: the column picker now adds/removes columns on the main matchups table (including metric averages like the lane \u0394's), and an expanded game always shows every stat",
+        "Coaching progress: one column picker for the table \u2014 the lane \u0394 metrics are now available there as period averages; the expanded period panel always shows every stat"
       ]
     },
     {
@@ -272,7 +279,7 @@
       "version": "1.42.0",
       "date": "2026-07-21",
       "items": [
-        "Selectable date format in Settings — ISO (2026-07-20), US (7/20/2026, 12h) or EU (20/7/2026, 24h) — applied everywhere dates and times show",
+        "Selectable date format in Settings \u2014 ISO (2026-07-20), US (7/20/2026, 12h) or EU (20/7/2026, 24h) \u2014 applied everywhere dates and times show",
         "Block header redesigned: editable block name on the left (defaults to the block's date), its number beside it, the series shown as a bubble on the right, and the current block highlighted; the active series name now shows next to the + New series button"
       ]
     },
@@ -280,46 +287,46 @@
       "version": "1.41.0",
       "date": "2026-07-20",
       "items": [
-        "Click a column header to sort — on the Matchups table, the Overview champion breakdown and recent games, and the block games table. Click again to reverse; the block tables share one sort across every block"
+        "Click a column header to sort \u2014 on the Matchups table, the Overview champion breakdown and recent games, and the block games table. Click again to reverse; the block tables share one sort across every block"
       ]
     },
     {
       "version": "1.40.0",
       "date": "2026-07-20",
       "items": [
-        "Block series — group blocks into a named run (e.g. a 2-week challenge) with a \"+ New series\" button on the Blocks page; each series names your blocks and numbers them from #1. Defaults to a generated \"Since M/D/YYYY\" title you can rename",
-        "Block numbers are now continuous — deleting a block and starting a new one no longer skips a number",
-        "Block series can be turned off in Settings — blocks then just number continuously as \"#1, #2, …\""
+        "Block series \u2014 group blocks into a named run (e.g. a 2-week challenge) with a \"+ New series\" button on the Blocks page; each series names your blocks and numbers them from #1. Defaults to a generated \"Since M/D/YYYY\" title you can rename",
+        "Block numbers are now continuous \u2014 deleting a block and starting a new one no longer skips a number",
+        "Block series can be turned off in Settings \u2014 blocks then just number continuously as \"#1, #2, \u2026\""
       ]
     },
     {
       "version": "1.39.0",
       "date": "2026-07-20",
       "items": [
-        "Blocks: the lane Δ (CS/level/gold at 7 & 14 min) are now selectable columns on the games table itself, next to result/opponent/KDA; the expanded per-game panel simply shows every stat (no separate column filter)",
-        "Blocks fetch the match timeline in the background to fill in those deeper lane stats, with a ⏳ marker on games still being crawled"
+        "Blocks: the lane \u0394 (CS/level/gold at 7 & 14 min) are now selectable columns on the games table itself, next to result/opponent/KDA; the expanded per-game panel simply shows every stat (no separate column filter)",
+        "Blocks fetch the match timeline in the background to fill in those deeper lane stats, with a \u23f3 marker on games still being crawled"
       ]
     },
     {
       "version": "1.38.0",
       "date": "2026-07-20",
       "items": [
-        "New lane metrics measured directly vs your lane opponent from the match timeline: ΔCS, ΔLevel and ΔGold at ~7 and ~14 minutes — a truer 'was I ahead' signal than the old binary Riot laning flag",
-        "Every stats view (matchups, blocks, coaching progress, trends) now has a metric column picker; the new Δ metrics are off by default — tick them to show. New games capture the timeline automatically; run ./crawl.sh --backfill-lane-deltas to fill in past games"
+        "New lane metrics measured directly vs your lane opponent from the match timeline: \u0394CS, \u0394Level and \u0394Gold at ~7 and ~14 minutes \u2014 a truer 'was I ahead' signal than the old binary Riot laning flag",
+        "Every stats view (matchups, blocks, coaching progress, trends) now has a metric column picker; the new \u0394 metrics are off by default \u2014 tick them to show. New games capture the timeline automatically; run ./crawl.sh --backfill-lane-deltas to fill in past games"
       ]
     },
     {
       "version": "1.37.1",
       "date": "2026-07-20",
       "items": [
-        "Fixed duplicate items in the item-build picker (some items appeared twice) — the list now shows one entry per item"
+        "Fixed duplicate items in the item-build picker (some items appeared twice) \u2014 the list now shows one entry per item"
       ]
     },
     {
       "version": "1.37.0",
       "date": "2026-07-18",
       "items": [
-        "One Pager (📄 on a Matchup guide row) — a full-screen, distraction-free quick reference for one matchup: runes, skill order, item build, and your notes. Made for a second screen during a game; Esc closes it"
+        "One Pager (\ud83d\udcc4 on a Matchup guide row) \u2014 a full-screen, distraction-free quick reference for one matchup: runes, skill order, item build, and your notes. Made for a second screen during a game; Esc closes it"
       ]
     },
     {
@@ -333,67 +340,67 @@
       "version": "1.35.0",
       "date": "2026-07-18",
       "items": [
-        "Back up everything you've written as one .zip (Settings → Export everything): sessions, block learnings, matchup guides incl. saved skill orders, champion notes, item builds, research entries, plus all uploaded clips and screenshots — and restore it on a fresh install via Import from a backup"
+        "Back up everything you've written as one .zip (Settings \u2192 Export everything): sessions, block learnings, matchup guides incl. saved skill orders, champion notes, item builds, research entries, plus all uploaded clips and screenshots \u2014 and restore it on a fresh install via Import from a backup"
       ]
     },
     {
       "version": "1.34.0",
       "date": "2026-07-18",
       "items": [
-        "Item build per champion on the guide page — core build order (up to 6 items) plus labeled situational sections, picked from real current-patch item icons; included in JSON export/import and the PDF export",
-        "Research tab — a study journal for other players' games: freeform Markdown entries (player, champion, opponent) with attached screenshots"
+        "Item build per champion on the guide page \u2014 core build order (up to 6 items) plus labeled situational sections, picked from real current-patch item icons; included in JSON export/import and the PDF export",
+        "Research tab \u2014 a study journal for other players' games: freeform Markdown entries (player, champion, opponent) with attached screenshots"
       ]
     },
     {
       "version": "1.33.3",
       "date": "2026-07-18",
       "items": [
-        "Fixed Matchups rows getting stuck on \"Loading…\" when expanded (a function-name clash with the Champ guide silently broke the games fetch)"
+        "Fixed Matchups rows getting stuck on \"Loading\u2026\" when expanded (a function-name clash with the Champ guide silently broke the games fetch)"
       ]
     },
     {
       "version": "1.33.2",
       "date": "2026-07-18",
       "items": [
-        "Cooldown popup's \"💾 Save build\" moved to the top-right corner of the dialog, next to the view toggle, where it's easy to spot"
+        "Cooldown popup's \"\ud83d\udcbe Save build\" moved to the top-right corner of the dialog, next to the view toggle, where it's easy to spot"
       ]
     },
     {
       "version": "1.33.1",
       "date": "2026-07-18",
       "items": [
-        "Champ guide reorganization: the guide editor now contains the skill order with nested edit/remove controls (read view shows it clean, no stray buttons); the cooldown popup's save is a compact 💾 Save in the skill-order header, fixing the misaligned Q/W/E/R rows between the two sides"
+        "Champ guide reorganization: the guide editor now contains the skill order with nested edit/remove controls (read view shows it clean, no stray buttons); the cooldown popup's save is a compact \ud83d\udcbe Save in the skill-order header, fixing the misaligned Q/W/E/R rows between the two sides"
       ]
     },
     {
       "version": "1.33.0",
       "date": "2026-07-18",
       "items": [
-        "Cooldown comparison gets a \"Level matrix\" view — level × ability grid where each rank-up bubble shows the ability's (haste-reduced) cooldown from that level on; cells stay clickable for editing the build, and the view choice is remembered"
+        "Cooldown comparison gets a \"Level matrix\" view \u2014 level \u00d7 ability grid where each rank-up bubble shows the ability's (haste-reduced) cooldown from that level on; cells stay clickable for editing the build, and the view choice is remembered"
       ]
     },
     {
       "version": "1.32.0",
       "date": "2026-07-18",
       "items": [
-        "Skill order in the cooldown popup is now a full 18×4 grid (level × Q/W/E/R) — click a cell to spend that level's point, so 1-1-1 and 2-1-0 openers and anything else legal works; selections are validated against the in-game rules",
+        "Skill order in the cooldown popup is now a full 18\u00d74 grid (level \u00d7 Q/W/E/R) \u2014 click a cell to spend that level's point, so 1-1-1 and 2-1-0 openers and anything else legal works; selections are validated against the in-game rules",
         "Save your build per matchup: the cooldown popup's \"Save build to champ guide\" stores your skill order on that matchup's champ guide, preloads it next time, and shows it read-only on the guide page",
-        "Cooldown comparison (⏱) is also available on Champ guide matchup rows"
+        "Cooldown comparison (\u23f1) is also available on Champ guide matchup rows"
       ]
     },
     {
       "version": "1.31.0",
       "date": "2026-07-17",
       "items": [
-        "Champion pool management moved to Settings (replacing the separate \"My champion\" setting — your pool's first pick is your default champion now); the Blocks view shows a read-only pool summary with an edit shortcut into Settings"
+        "Champion pool management moved to Settings (replacing the separate \"My champion\" setting \u2014 your pool's first pick is your default champion now); the Blocks view shows a read-only pool summary with an edit shortcut into Settings"
       ]
     },
     {
       "version": "1.30.0",
       "date": "2026-07-17",
       "items": [
-        "Cooldown comparison popup (⏱ on a Matchups row) — your ability cooldowns side by side with the opponent's, with haste sources (items/runes/buffs granting ability haste or ultimate haste) reducing the shown values next to base",
-        "Each side has a champion level slider and a drag-to-reorder skill priority (R at 6/11/16) so cooldowns reflect actual ranks at that level — skill order is remembered per champion"
+        "Cooldown comparison popup (\u23f1 on a Matchups row) \u2014 your ability cooldowns side by side with the opponent's, with haste sources (items/runes/buffs granting ability haste or ultimate haste) reducing the shown values next to base",
+        "Each side has a champion level slider and a drag-to-reorder skill priority (R at 6/11/16) so cooldowns reflect actual ranks at that level \u2014 skill order is remembered per champion"
       ]
     },
     {
@@ -407,14 +414,14 @@
       "version": "1.28.0",
       "date": "2026-07-17",
       "items": [
-        "Champion pool chips can be drag'n'drop reordered — order is the pool's priority (main first, counters in preference order) and is used wherever the pool appears"
+        "Champion pool chips can be drag'n'drop reordered \u2014 order is the pool's priority (main first, counters in preference order) and is used wherever the pool appears"
       ]
     },
     {
       "version": "1.27.0",
       "date": "2026-07-17",
       "items": [
-        "Champ guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (📝) and rune pages (🔮)"
+        "Champ guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (\ud83d\udcdd) and rune pages (\ud83d\udd2e)"
       ]
     },
     {
@@ -430,7 +437,7 @@
       "version": "1.26.0",
       "date": "2026-07-17",
       "items": [
-        "Rune pages in the Champ guide expand for viewing (▸ on the page card) — full rune names by tree, no need to open the editor",
+        "Rune pages in the Champ guide expand for viewing (\u25b8 on the page card) \u2014 full rune names by tree, no need to open the editor",
         "Matchups with a guide now always show in the Champ guide list, even against opponents that champion hasn't faced yet (e.g. migrated or imported notes)"
       ]
     },
@@ -438,8 +445,8 @@
       "version": "1.25.0",
       "date": "2026-07-17",
       "items": [
-        "Older matchup notes (pre-champ-guide) now surface in Settings — migrate them under one of your champions, or delete them (replaces the one-time startup popup)",
-        "Default champion setting — pre-selects your champion on the Champ guide page",
+        "Older matchup notes (pre-champ-guide) now surface in Settings \u2014 migrate them under one of your champions, or delete them (replaces the one-time startup popup)",
+        "Default champion setting \u2014 pre-selects your champion on the Champ guide page",
         "Champ guide design pass: consistent Markdown editor, patch dropdown defaulting to the current patch (validated), properly sized champion icons, opponent picker only lists champions without a guide, clearer empty-state",
         "Clips section design pass: add-clip form now folds behind a + Add clip button and matches the app's form styling",
         "Fixed the Fiddlesticks champion icon never loading (match-v5 vs DDragon spelling mismatch)"
@@ -449,7 +456,7 @@
       "version": "1.24.0",
       "date": "2026-07-17",
       "items": [
-        "One-time prompt after updating: matchup notes written before the champ-guide update are no longer shown in the app — answer yes to export them as Markdown files to a folder of your choice",
+        "One-time prompt after updating: matchup notes written before the champ-guide update are no longer shown in the app \u2014 answer yes to export them as Markdown files to a folder of your choice",
         "Champ-guide import now validates rune pages and file structure (clear errors instead of accepting malformed files), and export rejects invalid champion names"
       ]
     },
@@ -457,21 +464,21 @@
       "version": "1.23.0",
       "date": "2026-07-16",
       "items": [
-        "Champ guide can be exported as a printable PDF — general notes, patch, rune pages (with icons), and notes for every matchup"
+        "Champ guide can be exported as a printable PDF \u2014 general notes, patch, rune pages (with icons), and notes for every matchup"
       ]
     },
     {
       "version": "1.22.0",
       "date": "2026-07-16",
       "items": [
-        "Accent color customization in Settings — pick any color for buttons, active tabs, links, and chart lines"
+        "Accent color customization in Settings \u2014 pick any color for buttons, active tabs, links, and chart lines"
       ]
     },
     {
       "version": "1.21.0",
       "date": "2026-07-16",
       "items": [
-        "Appearance settings — adjustable opacity (see-through panels, like a translucent terminal) and an optional background picture",
+        "Appearance settings \u2014 adjustable opacity (see-through panels, like a translucent terminal) and an optional background picture",
         "Runes actually played now show in a block game's expanded stats panel too, mirroring Overview and Champ guide"
       ]
     },
@@ -479,7 +486,7 @@
       "version": "1.20.0",
       "date": "2026-07-16",
       "items": [
-        "Removed the 10-game cap on block size — set any block size in Settings",
+        "Removed the 10-game cap on block size \u2014 set any block size in Settings",
         "Recent games (Overview and Champ guide) now show the game's time, not just the date"
       ]
     },
@@ -494,7 +501,7 @@
       "version": "1.19.0",
       "date": "2026-07-15",
       "items": [
-        "Overview tab's Recent games now records and shows the opponent's runes too, not just yours — click the ▸ Runes toggle on a game to compare both side by side",
+        "Overview tab's Recent games now records and shows the opponent's runes too, not just yours \u2014 click the \u25b8 Runes toggle on a game to compare both side by side",
         "Crawler now also captures the lane opponent's runes (not just tracked accounts); run ./crawl.sh --backfill-runes again to fill in opponent runes for matches crawled before this update"
       ]
     },
@@ -503,14 +510,14 @@
       "date": "2026-07-15",
       "items": [
         "Overview tab's Recent games table now shows the runes actually played per game",
-        "Attach short clips (upload a local video, or paste a YouTube/Twitch link) to a specific part of a coaching session or a specific game in a block — each clip gets its own label"
+        "Attach short clips (upload a local video, or paste a YouTube/Twitch link) to a specific part of a coaching session or a specific game in a block \u2014 each clip gets its own label"
       ]
     },
     {
       "version": "1.17.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide matchups are collapsed by default — click a matchup to expand its notes, runes, and recent games, instead of everything loading open at once",
+        "Champ guide matchups are collapsed by default \u2014 click a matchup to expand its notes, runes, and recent games, instead of everything loading open at once",
         "Recent games now only fetch when you expand a matchup, not for every matchup up front"
       ]
     },
@@ -525,7 +532,7 @@
       "version": "1.16.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide's matchup rows show a \"Recent games\" column on the right — real games vs that opponent, with the runes you actually played in each one",
+        "Champ guide's matchup rows show a \"Recent games\" column on the right \u2014 real games vs that opponent, with the runes you actually played in each one",
         "Crawler now records the actual rune page played per game for tracked accounts; run `./crawl.sh --backfill-runes` to fill it in for matches crawled before this update"
       ]
     },
@@ -534,17 +541,17 @@
       "date": "2026-07-15",
       "items": [
         "General notes section on the Champ guide page, for champion-wide tips that aren't tied to one matchup",
-        "Export/import a champion's whole guide as a JSON file, with an optional password (real encryption, not just obfuscation) — Export/Import menus on the Champ guide page"
+        "Export/import a champion's whole guide as a JSON file, with an optional password (real encryption, not just obfuscation) \u2014 Export/Import menus on the Champ guide page"
       ]
     },
     {
       "version": "1.14.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide moved to its own page — pick any champion (full roster, not just ones you've played) and see/edit full rune pages, patch, and notes for every matchup it has faced, or add one for a matchup you haven't played yet",
-        "Rune picker is now a full click-through builder — primary tree, keystone, 3 minor rows, secondary tree, 2 secondary minors, and 3 stat shards, with real rune icons",
+        "Champ guide moved to its own page \u2014 pick any champion (full roster, not just ones you've played) and see/edit full rune pages, patch, and notes for every matchup it has faced, or add one for a matchup you haven't played yet",
+        "Rune picker is now a full click-through builder \u2014 primary tree, keystone, 3 minor rows, secondary tree, 2 secondary minors, and 3 stat shards, with real rune icons",
         "A matchup can hold more than one rune page (e.g. alternatives you're testing)",
-        "Champ guide is scoped per (your champion, opponent) instead of just the opponent — Gwen vs Darius and Camille vs Darius get separate guides",
+        "Champ guide is scoped per (your champion, opponent) instead of just the opponent \u2014 Gwen vs Darius and Camille vs Darius get separate guides",
         "Matchups table links out to the Champ guide page for the selected \"My champion\" filter"
       ]
     },
@@ -552,14 +559,14 @@
       "version": "1.13.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide tab on matchups — record a rune keystone + secondary tree, patch version, and Markdown notes on how to play each matchup"
+        "Champ guide tab on matchups \u2014 record a rune keystone + secondary tree, patch version, and Markdown notes on how to play each matchup"
       ]
     },
     {
       "version": "1.12.0",
       "date": "2026-07-15",
       "items": [
-        "Blocks auto-close when a newly added game is too far (game time) from the block's latest game — threshold in Settings (default 3 h, 0 = off), with an optional confirmation prompt (on by default)",
+        "Blocks auto-close when a newly added game is too far (game time) from the block's latest game \u2014 threshold in Settings (default 3 h, 0 = off), with an optional confirmation prompt (on by default)",
         "Settings page grouped into sections with a sticky, more visible Save bar"
       ]
     },
@@ -574,15 +581,15 @@
       "version": "1.11.0",
       "date": "2026-07-15",
       "items": [
-        "Patch notes panel — this one! 📋 in the top bar",
-        "Adjustable block size in Settings (1–10 games, default 3)"
+        "Patch notes panel \u2014 this one! \ud83d\udccb in the top bar",
+        "Adjustable block size in Settings (1\u201310 games, default 3)"
       ]
     },
     {
       "version": "1.10.0",
       "date": "2026-07-15",
       "items": [
-        "Matchups table marks champions that have block notes (🧱) alongside manual notes (📝)"
+        "Matchups table marks champions that have block notes (\ud83e\uddf1) alongside manual notes (\ud83d\udcdd)"
       ]
     },
     {

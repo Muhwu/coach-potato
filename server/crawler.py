@@ -472,7 +472,8 @@ class Crawler:
         processed (has_timeline=1 on a tracked/comparison participant's
         metrics row, from the lane-delta backfill or an earlier crawl) but
         have no participant_frame_series rows yet — i.e. matches crawled
-        before the full-game curve chart feature existed. Needs its own
+        before the full-game curve chart feature existed — or whose rows
+        predate the `minions` column (the perfect-farm benchmark). Needs its own
         re-fetch since the raw timeline JSON isn't cached anywhere (only the
         two-mark deltas derived from it are). A timeline that's missing or
         fails again is simply left for a later run — unlike has_timeline,
@@ -485,8 +486,9 @@ class Crawler:
             """SELECT DISTINCT pm.match_id FROM participant_metrics pm
                JOIN players pl ON pl.puuid = pm.puuid
                  AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
-               LEFT JOIN participant_frame_series pfs ON pfs.match_id = pm.match_id
-               WHERE pm.has_timeline = 1 AND pfs.match_id IS NULL"""
+               WHERE pm.has_timeline = 1 AND NOT EXISTS (
+                   SELECT 1 FROM participant_frame_series pfs
+                   WHERE pfs.match_id = pm.match_id AND pfs.minions IS NOT NULL)"""
         ).fetchall()
         count = 0
         for row in rows:

@@ -471,7 +471,8 @@ def parse_frame_series(timeline_json):
     """Full-game per-minute gold/CS/XP/level series for EVERY participant in
     a match timeline (not just two marks like parse_timeline_deltas) — the
     source for the full-game curve chart. Returns {puuid: [{"minute", "cs",
-    "xp", "gold", "level"}, ...]}, one entry per timeline frame, ordered as
+    "xp", "gold", "level", "minions"}, ...]} (minions = lane minions only,
+    cs adds jungle camps), one entry per timeline frame, ordered as
     the frames appear. Empty dict without a timeline. minute = round(frame
     timestamp-ms / 60000)."""
     if not timeline_json:
@@ -489,5 +490,6 @@ def parse_frame_series(timeline_json):
             out.setdefault(puuid, []).append({
                 "minute": minute, "cs": _cs(pf), "xp": pf.get("xp"),
                 "gold": pf.get("totalGold"), "level": pf.get("level"),
+                "minions": pf.get("minionsKilled") or 0,
             })
     return out

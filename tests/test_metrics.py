@@ -215,8 +215,10 @@ def test_parse_frame_series_all_participants_per_minute():
     assert set(series) == {"me", "opp"}
     me = series["me"]
     assert [e["minute"] for e in me] == [0, 7, 14]
-    assert me[1] == {"minute": 7, "cs": 55 + 4, "xp": None, "gold": 2600, "level": 6}
-    assert series["opp"][2] == {"minute": 14, "cs": 95, "xp": None, "gold": 4300, "level": 9}
+    assert me[1] == {"minute": 7, "cs": 55 + 4, "xp": None, "gold": 2600, "level": 6,
+                     "minions": 55}
+    assert series["opp"][2] == {"minute": 14, "cs": 95, "xp": None, "gold": 4300, "level": 9,
+                                "minions": 95}
 
 
 def test_parse_frame_series_empty_without_timeline():

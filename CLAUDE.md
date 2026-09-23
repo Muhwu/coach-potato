@@ -356,6 +356,21 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   immediately useful for a lane/game read; XP/level are in the payload for a
   future metric switcher. A second `--series-2` theme color (in
   `style.css`, alongside `--series-1`) distinguishes the opponent's line.
+- **Perfect-farm benchmark** — `server/minion_waves.py` models patch-26.1
+  Summoner's Rift waves (0:30 first wave; 30 s → 25 s at 14:00 → 20 s at
+  30:00; cannon every 3rd → 2nd wave at 14:00 → every wave at 25:00; one melee
+  fewer on cannon waves from 14:00, one caster fewer from 30:00; melee 20 /
+  caster 14 / siege 50 +1 per 90 s upgrade) and returns the cumulative minions
+  + gold a perfect last-hitter has by each minute (`max_farm`, waves counted
+  `LANE_TRAVEL_S` after spawn). `stats.game_curve` adds `farm` (None for
+  JUNGLE or games before 26.1 — `supports_version` — whose rules differ):
+  the ceiling plus each side's minions and `estimate_minion_gold` (Riot gives
+  no gold-by-source, so each minute's kills are priced at that minute's
+  arriving bounty). Needs `participant_frame_series.minions` (lane minions
+  only; `cs` also counts camps) — additive column; old rows are NULL, fall
+  back to `cs` with `includes_jungle: true`, and `backfill_frame_series`
+  re-fetches them (`insert_frame_series` upserts ONLY a NULL `minions`).
+  Rendered by `farmBenchmarkSection` (app.js) under the Recent-games curve.
 - Block series: `block_series(id, title, created_at_ms)`; every `blocks` row
   has a `series_id` (added in `_migrate`; `seed_block_series` on connect
   ensures ≥1 series exists and assigns orphan/legacy blocks to it).

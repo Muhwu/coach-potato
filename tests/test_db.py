@@ -295,6 +295,29 @@ def test_frame_series_table_added_to_existing_db(tmp_path):
     c2.close()
 
 
+def test_frame_series_gains_minions_column_and_backfill_fills_only_nulls(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.sqlite"
+    raw = sqlite3.connect(path)
+    raw.execute("""CREATE TABLE participant_frame_series (match_id TEXT NOT NULL,
+        puuid TEXT NOT NULL, minute INTEGER NOT NULL, cs INTEGER, xp INTEGER,
+        gold INTEGER, level INTEGER, PRIMARY KEY (match_id, puuid, minute))""")
+    raw.execute("INSERT INTO participant_frame_series VALUES ('M', 'p', 5, 40, 1, 2, 3)")
+    raw.commit()
+    raw.close()
+    conn = db.connect(path)
+    row = conn.execute("SELECT cs, minions FROM participant_frame_series").fetchone()
+    assert (row["cs"], row["minions"]) == (40, None)
+    db.insert_frame_series(conn, [{"match_id": "M", "puuid": "p", "minute": 5,
+                                   "cs": 999, "xp": 0, "gold": 0, "level": 0, "minions": 36}])
+    row = conn.execute("SELECT cs, minions FROM participant_frame_series").fetchone()
+    assert (row["cs"], row["minions"]) == (40, 36)  # only the NULL was filled
+    db.insert_frame_series(conn, [{"match_id": "M", "puuid": "p", "minute": 5,
+                                   "cs": 0, "xp": 0, "gold": 0, "level": 0, "minions": 1}])
+    assert conn.execute("SELECT minions FROM participant_frame_series").fetchone()[0] == 36
+    conn.close()
+
+
 def test_pool_default_empty(conn):
     assert db.get_pool(conn) == {"main_blind": None, "core": [], "counter": []}
 

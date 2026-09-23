@@ -21,7 +21,7 @@ _counter = {"n": 0}
 def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_000_000_000,
               queue=420, duration=1800, my_pos="TOP", opp_pos="TOP", opp_puuid=None,
               kills=6, deaths=3, assists=9, cs=210, gold=12000, dmg=18000, puuid=None,
-              my_team=100, spell1=None, spell2=None, items=None):
+              my_team=100, spell1=None, spell2=None, items=None, game_version="14.1.1"):
     me = puuid or ME
     opp_team = 200 if my_team == 100 else 100  # my_team 100 = blue, 200 = red
     _counter["n"] += 1
@@ -64,7 +64,7 @@ def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_0
     db.insert_match(
         conn,
         {"match_id": match_id, "queue_id": queue, "game_creation_ms": when,
-         "game_duration_s": duration, "game_version": "14.1.1"},
+         "game_duration_s": duration, "game_version": game_version},
         parts,
     )
     return match_id, opp_puuid
@@ -692,12 +692,39 @@ def test_single_game_metrics_missing_row_returns_none(conn):
 
 
 def add_frame_series(conn, match_id, puuid, entries):
-    """entries: [(minute, cs, xp, gold, level), ...]."""
+    """entries: [(minute, cs, xp, gold, level[, minions]), ...]."""
     db.insert_frame_series(conn, [
-        {"match_id": match_id, "puuid": puuid, "minute": minute,
-         "cs": cs, "xp": xp, "gold": gold, "level": level}
-        for minute, cs, xp, gold, level in entries
+        {"match_id": match_id, "puuid": puuid, "minute": e[0],
+         "cs": e[1], "xp": e[2], "gold": e[3], "level": e[4],
+         "minions": e[5] if len(e) > 5 else None}
+        for e in entries
     ])
+
+
+def test_game_curve_farm_benchmark_for_a_26x_laner(conn):
+    m1, opp = add_match(conn, when=1_000, game_version="26.14.600.1")
+    add_frame_series(conn, m1, ME, [(0, 0, 0, 500, 1, 0), (1, 6, 0, 600, 1, 6),
+                                    (10, 100, 0, 3500, 8, 96)])
+    add_frame_series(conn, m1, opp, [(0, 0, 0, 500, 1), (1, 5, 0, 600, 1),
+                                     (10, 80, 0, 3000, 7)])
+    farm = stats.game_curve(conn, m1, ME, opp)["farm"]
+    assert farm["max_minions"] == [0, 6, 120]
+    assert farm["max_gold"][1] == 3 * 20 + 3 * 14
+    assert farm["me"]["minions"] == [0, 6, 96] and not farm["me"]["includes_jungle"]
+    assert farm["me"]["gold"][1] == 102  # the whole first wave
+    assert 0 < farm["me"]["gold"][2] < farm["max_gold"][2]
+    # opponent's rows predate the minions column: falls back to cs, flagged
+    assert farm["opp"]["minions"] == [0, 5, 80] and farm["opp"]["includes_jungle"]
+
+
+def test_game_curve_no_farm_benchmark_for_old_patches_or_junglers(conn):
+    old, _ = add_match(conn, when=1_000)  # 14.1.1 — pre-26.1 wave rules
+    add_frame_series(conn, old, ME, [(0, 0, 0, 500, 1, 0)])
+    assert stats.game_curve(conn, old, ME)["farm"] is None
+    jg, _ = add_match(conn, when=2_000, my_pos="JUNGLE", opp_pos="JUNGLE",
+                      game_version="26.2.1")
+    add_frame_series(conn, jg, ME, [(0, 0, 0, 500, 1, 0)])
+    assert stats.game_curve(conn, jg, ME)["farm"] is None
 
 
 def test_game_curve_returns_me_and_opp_series(conn):

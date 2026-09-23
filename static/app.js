@@ -650,12 +650,13 @@ const GC_METRICS = [
 const GC_CHART_W = 260, GC_CHART_H = 100;
 const GC_PAD = { l: 34, r: 8, t: 8, b: 18 };
 
-function gcChartSVG(def, minutes, meValues, oppValues) {
-  const mePts = minutes.map((m, i) => ({ x: m, v: meValues[i] })).filter((p) => p.v != null);
-  const oppPts = oppValues
-    ? minutes.map((m, i) => ({ x: m, v: oppValues[i] })).filter((p) => p.v != null)
+// maxValues: optional perfect-farm ceiling, drawn as a dashed reference line
+function gcChartSVG(def, minutes, meValues, oppValues, maxValues = null) {
+  const pts = (vals) => vals
+    ? minutes.map((m, i) => ({ x: m, v: vals[i] })).filter((p) => p.v != null)
     : [];
-  const allVals = [...mePts.map((p) => p.v), ...oppPts.map((p) => p.v)];
+  const mePts = pts(meValues), oppPts = pts(oppValues), maxPts = pts(maxValues);
+  const allVals = [...mePts, ...oppPts, ...maxPts].map((p) => p.v);
   if (!allVals.length) return "";
   let lo = Math.min(...allVals), hi = Math.max(...allVals);
   if (lo === hi) { lo -= 1; hi += 1; }
@@ -672,14 +673,14 @@ function gcChartSVG(def, minutes, meValues, oppValues) {
     : "";
   const maxV = Math.max(...allVals), minV = Math.min(...allVals);
   return `<figure class="trend-chart game-curve-chart">
-    <figcaption>${def.label}</figcaption>
+    <figcaption>${def.label}${def.note ? ` <span class="muted gc-note">${def.note}</span>` : ""}</figcaption>
     <svg viewBox="0 0 ${GC_CHART_W} ${GC_CHART_H}" role="img"
          aria-label="${def.label} over the game">
       <line class="tl-axis" x1="${GC_PAD.l}" x2="${GC_CHART_W - GC_PAD.r}"
             y1="${GC_CHART_H - GC_PAD.b}" y2="${GC_CHART_H - GC_PAD.b}"/>
       <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(maxV) + 3}" text-anchor="end">${fmt(maxV)}</text>
       <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(minV) + 3}" text-anchor="end">${fmt(minV)}</text>
-      ${line(mePts, "gc-line-me")}${line(oppPts, "gc-line-opp")}
+      ${line(maxPts, "gc-line-max")}${line(mePts, "gc-line-me")}${line(oppPts, "gc-line-opp")}
       <text class="tl-xlab" x="${GC_PAD.l}" y="${GC_CHART_H - 4}">0m</text>
       <text class="tl-xlab" x="${GC_CHART_W - GC_PAD.r}" y="${GC_CHART_H - 4}" text-anchor="end">${maxX}m</text>
     </svg>
@@ -702,7 +703,41 @@ function gameCurveSection(gkey) {
       ${curve.opp ? `<span class="gc-legend-opp">● Opponent</span>` : ""}
     </div>
     <div class="chart-grid">${charts}</div>
+    ${farmBenchmarkSection(curve)}
   </div>`;
+}
+
+// share of the perfect-farm ceiling at the last frame, e.g. "82%"
+function farmPct(values, maxValues) {
+  const i = values.length - 1;
+  return i >= 0 && values[i] != null && maxValues[i] ? `${Math.round(100 * values[i] / maxValues[i])}%` : "–";
+}
+
+// Lane minions and the gold they paid against a perfect last-hitter
+// (server/minion_waves.py): the dashed ceiling climbs steadily, so a
+// stretch where your line flattens away from it is a farming drop.
+function farmBenchmarkSection(curve) {
+  const farm = curve.farm;
+  if (!farm) return "";
+  const { me, opp } = farm;
+  const jungleNote = me.includes_jungle || (opp && opp.includes_jungle)
+    ? `<p class="muted gc-note">Older game data counts jungle camps in with minions — run
+        <code>./crawl.sh --backfill-frame-series</code> for lane minions only.</p>` : "";
+  const pctNote = (key, maxKey) => `you ${farmPct(me[key], farm[maxKey])}${
+    opp ? ` · opp ${farmPct(opp[key], farm[maxKey])}` : ""} of max`;
+  const charts = [
+    gcChartSVG({ label: "Minions vs perfect", decimals: 0, note: pctNote("minions", "max_minions") },
+      curve.minutes, me.minions, opp ? opp.minions : null, farm.max_minions),
+    gcChartSVG({ label: "Minion gold vs perfect", decimals: 0, note: `est. · ${pctNote("gold", "max_gold")}` },
+      curve.minutes, me.gold, opp ? opp.gold : null, farm.max_gold),
+  ].join("");
+  return `<h5 class="gc-farm-head">Farming</h5>
+    <div class="game-curve-legend">
+      <span class="gc-legend-me">● You</span>
+      ${opp ? `<span class="gc-legend-opp">● Opponent</span>` : ""}
+      <span class="gc-legend-max">┄ Every minion last-hit</span>
+    </div>
+    <div class="chart-grid">${charts}</div>${jungleNote}`;
 }
 
 // fetched when the VOD panel opens — the curve lives at the bottom of it, so

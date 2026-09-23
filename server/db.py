@@ -227,6 +227,7 @@ CREATE TABLE IF NOT EXISTS participant_frame_series (
     xp INTEGER,
     gold INTEGER,
     level INTEGER,
+    minions INTEGER,
     PRIMARY KEY (match_id, puuid, minute)
 );
 
@@ -637,6 +638,12 @@ def _migrate(conn):
         for key in metric_keys():
             if key not in pm_columns:
                 conn.execute(f"ALTER TABLE participant_metrics ADD COLUMN {key} REAL")
+    # lane minions alone (cs also counts jungle camps) — the perfect-farm
+    # benchmark compares against it; NULL on rows stored before it existed
+    # until ./crawl.sh --backfill-frame-series fills them
+    pfs_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participant_frame_series)")}
+    if pfs_columns and "minions" not in pfs_columns:
+        conn.execute("ALTER TABLE participant_frame_series ADD COLUMN minions INTEGER")
     conn.commit()
 
 
@@ -1151,19 +1158,24 @@ def insert_participant_runes(conn, match_id, puuid, runes):
 
 
 def insert_frame_series(conn, rows):
-    """Bulk-insert per-minute gold/CS/XP/level series rows into
+    """Bulk-insert per-minute gold/CS/XP/level/minions series rows into
     participant_frame_series. rows: iterable of {match_id, puuid, minute, cs,
-    xp, gold, level}. INSERT OR IGNORE (matching insert_match's convention) â€”
-    reprocessing an already-stored match (e.g. a repeat backfill run) is
-    always safe and never overwrites."""
-    rows = list(rows)
+    xp, gold, level[, minions]}. An existing row is never overwritten, except
+    that a NULL `minions` (stored before that column existed) is filled in —
+    so reprocessing an already-stored match (e.g. a repeat backfill run) is
+    always safe."""
+    rows = [{"minions": None, **r} for r in rows]
     if not rows:
         return
     with conn:
         conn.executemany(
-            """INSERT OR IGNORE INTO participant_frame_series
-               (match_id, puuid, minute, cs, xp, gold, level)
-               VALUES (:match_id, :puuid, :minute, :cs, :xp, :gold, :level)""",
+            """INSERT INTO participant_frame_series
+               (match_id, puuid, minute, cs, xp, gold, level, minions)
+               VALUES (:match_id, :puuid, :minute, :cs, :xp, :gold, :level, :minions)
+               ON CONFLICT (match_id, puuid, minute) DO UPDATE
+                 SET minions = excluded.minions
+                 WHERE participant_frame_series.minions IS NULL
+                   AND excluded.minions IS NOT NULL""",
             rows)
 
 
