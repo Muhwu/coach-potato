@@ -81,15 +81,19 @@ def api_clear_diagnostics_errors():
 # stats), separate from the full crawl but sharing the same Riot rate budget.
 TIMELINE_STATE = {"running": False, "done": 0, "total": 0, "error": None,
                   "error_detail": None}
+# Background re-fetch of timelines for the per-minute frame series (full-game
+# curve + Trends' farming panel) — the in-app face of --backfill-frame-series.
+FRAME_SERIES_STATE = {"running": False, "done": 0, "total": 0, "error": None,
+                      "error_detail": None}
 
 
 def _riot_job_running():
     """True while any background job is making Riot API calls — a full crawl,
-    the block-timeline backfill, or a comparison-player fetch. None may run at
+    the block-timeline or frame-series backfill, or a comparison-player fetch. None may run at
     once or they'd each drive their own rate limiter and together exceed Riot's
     limits. (COMPARISON_CRAWL is defined lower down; guard for import order.)"""
     return (CRAWL_STATE["running"] or TIMELINE_STATE["running"]
-            or COMPARISON_CRAWL["running"])
+            or FRAME_SERIES_STATE["running"] or COMPARISON_CRAWL["running"])
 
 
 def _champion_ids():
@@ -3676,6 +3680,62 @@ def api_backfill_block_timelines():
                            "error_detail": None})
     threading.Thread(target=_run_timeline_backfill, daemon=True).start()
     return {"started": True, "pending": pending}
+
+
+def _run_frame_series_backfill():
+    api_key = None
+    try:
+        from .crawler import Crawler
+        from .riot_client import RateLimiter, RiotClient
+
+        conn = db.connect(get_db_path())
+        settings = config.resolve_settings(conn)
+        if not settings["configured"]:
+            raise RuntimeError("not configured")
+        api_key = settings["riot_api_key"]
+        client = RiotClient(api_key, platform=settings["platform"],
+                            limiter=RateLimiter())
+
+        def status_cb(msg):  # "frame-series backfill: 3/8 matches"
+            _, _, tail = msg.partition(": ")
+            done, _, total = tail.replace(" matches", "").partition("/")
+            FRAME_SERIES_STATE["done"] = int(done or 0)
+            FRAME_SERIES_STATE["total"] = int(total or 0)
+
+        Crawler(client, conn, status_cb=status_cb).backfill_frame_series()
+        conn.close()
+        FRAME_SERIES_STATE["error"] = None
+        FRAME_SERIES_STATE["error_detail"] = None
+    except Exception as exc:  # surfaced via /api/stats/frame-series-status
+        FRAME_SERIES_STATE["error"] = str(exc)
+        FRAME_SERIES_STATE["error_detail"] = _error_payload(
+            exc, context="frame-series backfill", secret=api_key)
+    finally:
+        FRAME_SERIES_STATE["running"] = False
+
+
+@app.post("/api/stats/backfill-frame-series")
+def api_backfill_frame_series():
+    """Kick off a background re-fetch of match timelines for games with no
+    per-minute series yet, or one stored before lane minions were split from
+    jungle camps (crawler.backfill_frame_series). No-op (not an error) if
+    nothing is pending or a Riot job is already running."""
+    conn = get_conn()
+    try:
+        pending = db.count_frame_series_backfill(conn)
+    finally:
+        conn.close()
+    if _riot_job_running() or not pending:
+        return {"started": False, "pending": pending, "busy": _riot_job_running()}
+    FRAME_SERIES_STATE.update({"running": True, "done": 0, "total": pending,
+                               "error": None, "error_detail": None})
+    threading.Thread(target=_run_frame_series_backfill, daemon=True).start()
+    return {"started": True, "pending": pending}
+
+
+@app.get("/api/stats/frame-series-status")
+def api_frame_series_status():
+    return FRAME_SERIES_STATE
 
 
 @app.get("/api/blocks/timeline-status")

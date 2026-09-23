@@ -1320,6 +1320,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 tr.recent-row { cursor: pointer; }
 tr.recent-row:hover > td { background: var(--accent-wash); }
 .farm-trend-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.farm-backfill { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; font-size: 12px; }
 .farm-milestones { font-size: 12px; color: var(--text-secondary); margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
 #chart-tip {
   position: absolute;

@@ -363,7 +363,10 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   caster 14 / siege 50 +1 per 90 s upgrade) and returns the cumulative minions
   + gold a perfect last-hitter has by each minute (`max_farm`, waves counted
   `LANE_TRAVEL_S` after spawn). `stats.game_curve` adds `farm` (None for
-  JUNGLE or games before 26.1 — `supports_version` — whose rules differ):
+  JUNGLE or games before 26.1 — `supports_version` — whose rules differ;
+  **match-v5 `gameVersion` uses Riot's internal numbering, 10 behind the
+  year-based patch names: patch 26.1 is `"16.1.x"`, 25.x was `15.x`** — so
+  compare against `MIN_PATCH = (16, 1)`, never 26):
   the ceiling plus each side's minions and `estimate_minion_gold` (Riot gives
   no gold-by-source, so each minute's kills are priced at that minute's
   arriving bounty). Needs `participant_frame_series.minions` (lane minions
@@ -377,7 +380,11 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `GET /api/stats/farm-curve` (Trends filters minus bucket) averages each
   minute over the games that lasted that long (`games` per minute; trends.js
   drops minutes reached by < 25% of games) and reuses `gcChartSVG` at a
-  larger `def.w/h` with per-minute `def.tip` hover text.
+  larger `def.w/h` with per-minute `def.tip` hover text. It also reports
+  `missing` (eligible games with no series) and offers "Fetch per-minute
+  data" → `POST /api/stats/backfill-frame-series` (background
+  `backfill_frame_series`, newest first, `FRAME_SERIES_STATE` polled via
+  `/api/stats/frame-series-status`, part of `_riot_job_running()`).
 - Block series: `block_series(id, title, created_at_ms)`; every `blocks` row
   has a `series_id` (added in `_migrate`; `seed_block_series` on connect
   ensures ≥1 series exists and assigns orphan/legacy blocks to it).

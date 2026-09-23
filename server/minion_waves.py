@@ -28,14 +28,17 @@ FIRST_WAVE_S = 30
 LANE_TRAVEL_S = 30  # spawn → last-hittable in lane, approximate
 MELEE_GOLD, CASTER_GOLD, SIEGE_BASE_GOLD = 20, 14, 50
 UPGRADE_EVERY_S = 90
-MIN_PATCH = (26, 1)
+# match-v5's gameVersion keeps Riot's internal numbering, which runs 10 behind
+# the year-based patch names: patch 26.1 arrives as "16.1.xxx"
+MIN_PATCH = (16, 1)
 
 # roles whose farm is lane minions; a jungler's CS is camps, not waves
 LANE_ROLES = {"TOP", "MIDDLE", "BOTTOM", "UTILITY"}
 
 
 def supports_version(game_version):
-    """True for a match-v5 gameVersion ("26.14.612.1234") on or after 26.1."""
+    """True for a match-v5 gameVersion ("16.14.612.1234" = patch 26.14) on or
+    after patch 26.1."""
     try:
         major, minor = (int(p) for p in (game_version or "").split(".")[:2])
     except ValueError:

@@ -697,8 +697,8 @@ function gameCurveSection(gkey) {
   if (!curveUi.cache.has(gkey)) return `<p class="muted">Loading…</p>`;
   const curve = curveUi.cache.get(gkey);
   if (!curve) {
-    return `<p class="muted">No full-game curve recorded — crawl again or run
-      <code>./crawl.sh --backfill-frame-series</code>.</p>`;
+    return `<p class="muted">No full-game curve recorded — Trends → Farming vs perfect →
+      “Fetch per-minute data” fetches it (or <code>./crawl.sh --backfill-frame-series</code>).</p>`;
   }
   const charts = GC_METRICS.map((def) =>
     gcChartSVG(def, curve.minutes, curve.me[def.key], curve.opp ? curve.opp[def.key] : null)
@@ -727,8 +727,9 @@ function farmBenchmarkSection(curve) {
   if (!farm) return "";
   const { me, opp } = farm;
   const jungleNote = me.includes_jungle || (opp && opp.includes_jungle)
-    ? `<p class="muted gc-note">Older game data counts jungle camps in with minions — run
-        <code>./crawl.sh --backfill-frame-series</code> for lane minions only.</p>` : "";
+    ? `<p class="muted gc-note">This game was stored before lane minions were tracked on their
+        own, so jungle camps are counted too — Trends → Farming vs perfect → “Fetch per-minute
+        data” fixes it.</p>` : "";
   const pctNote = (key, maxKey) => `you ${farmPct(me[key], farm[maxKey])}${
     opp ? ` · opp ${farmPct(opp[key], farm[maxKey])}` : ""} of max`;
   const charts = [

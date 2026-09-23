@@ -473,23 +473,18 @@ class Crawler:
         metrics row, from the lane-delta backfill or an earlier crawl) but
         have no participant_frame_series rows yet — i.e. matches crawled
         before the full-game curve chart feature existed — or whose rows
-        predate the `minions` column (the perfect-farm benchmark). Needs its own
+        predate the `minions` column (the perfect-farm benchmark). Newest
+        first, so a long run fills the games you're most likely to look at
+        before the old ones. Needs its own
         re-fetch since the raw timeline JSON isn't cached anywhere (only the
         two-mark deltas derived from it are). A timeline that's missing or
         fails again is simply left for a later run — unlike has_timeline,
         there's no per-row "attempted" marker here, so a permanently-gone
         timeline would keep resurfacing on repeat calls; harmless in
-        practice since this is a manual, on-demand CLI action (not part of
-        the automatic crawl loop) and genuinely-missing timelines are rare.
+        practice since this is a manual, on-demand action (CLI flag or the
+        Trends farming panel's button, not part of the automatic crawl loop) and genuinely-missing timelines are rare.
         Returns matches processed."""
-        rows = self.conn.execute(
-            """SELECT DISTINCT pm.match_id FROM participant_metrics pm
-               JOIN players pl ON pl.puuid = pm.puuid
-                 AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
-               WHERE pm.has_timeline = 1 AND NOT EXISTS (
-                   SELECT 1 FROM participant_frame_series pfs
-                   WHERE pfs.match_id = pm.match_id AND pfs.minions IS NOT NULL)"""
-        ).fetchall()
+        rows = db.frame_series_backfill_matches(self.conn)
         count = 0
         for row in rows:
             if limit is not None and count >= limit:

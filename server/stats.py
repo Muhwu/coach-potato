@@ -760,7 +760,9 @@ def farm_curve(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=Non
     26.1+, a recorded frame series). Per minute: `games` = how many games
     lasted that long, so the caller can trim the long-game tail where the
     average is carried by a handful of games. `includes_jungle` counts games
-    whose rows predate the `minions` column and fell back to cs."""
+    whose rows predate the `minions` column and fell back to cs; `missing`
+    counts eligible games with no series at all (both are what the panel's
+    backfill button fixes)."""
     base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms, champion=champion,
                                   queues=queues, side=side, require_opponent=False,
                                   roles=roles)
@@ -770,15 +772,20 @@ def farm_curve(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=Non
         FROM ({base}) b
         JOIN matches m ON m.match_id = b.match_id
         JOIN participants me ON me.match_id = b.match_id AND me.puuid = b.my_puuid
-        JOIN participant_frame_series f ON f.match_id = b.match_id AND f.puuid = b.my_puuid
+        LEFT JOIN participant_frame_series f
+            ON f.match_id = b.match_id AND f.puuid = b.my_puuid
         ORDER BY b.match_id, b.my_puuid, f.minute""", params).fetchall()
-    games = {}
+    games, missing = {}, 0
     for r in rows:
-        if (r["team_position"] in minion_waves.LANE_ROLES
+        if not (r["team_position"] in minion_waves.LANE_ROLES
                 and minion_waves.supports_version(r["game_version"])):
-            games.setdefault((r["match_id"], r["my_puuid"]), []).append(r)
+            continue
+        if r["minute"] is None:  # eligible, but no per-minute series stored
+            missing += 1
+            continue
+        games.setdefault((r["match_id"], r["my_puuid"]), []).append(r)
     if not games:
-        return {"games": 0, "includes_jungle": 0, "minutes": []}
+        return {"games": 0, "includes_jungle": 0, "missing": missing, "minutes": []}
     top = max(r["minute"] for g in games.values() for r in g)
     max_counts, max_golds = minion_waves.max_farm(list(range(top + 1)))
     sums = {}  # minute -> [games, minions, gold]
@@ -798,7 +805,7 @@ def farm_curve(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=Non
             acc[1] += k
             acc[2] += gd
     return {
-        "games": len(games), "includes_jungle": includes_jungle,
+        "games": len(games), "includes_jungle": includes_jungle, "missing": missing,
         "minutes": [{"minute": m, "games": n, "minions": mi / n, "gold": gd / n,
                      "max_minions": max_counts[m], "max_gold": max_golds[m]}
                     for m, (n, mi, gd) in sorted(sums.items())],

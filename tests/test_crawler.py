@@ -549,6 +549,25 @@ def test_backfill_frame_series_fills_missing_only(conn):
     assert client.timeline_calls == 0
 
 
+def test_backfill_frame_series_refills_pre_minions_rows_newest_first(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    client = FakeClient([m1, m2])
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    # EUW1_1 has a series stored before the minions column existed
+    db.insert_frame_series(conn, [{"match_id": "EUW1_1", "puuid": TRACKED_PUUID,
+                                   "minute": 0, "cs": 0, "xp": 0, "gold": 500, "level": 1}])
+    assert db.count_frame_series_backfill(conn) == 2
+    assert [r["match_id"] for r in db.frame_series_backfill_matches(conn)] == ["EUW1_2", "EUW1_1"]
+    client.timelines = {t["metadata"]["matchId"]: t
+                        for t in (timeline_json("EUW1_1"), timeline_json("EUW1_2"))}
+    assert crawler.backfill_frame_series() == 2
+    assert conn.execute("""SELECT COUNT(*) FROM participant_frame_series
+                           WHERE minions IS NULL""").fetchone()[0] == 0
+    assert db.count_frame_series_backfill(conn) == 0
+
+
 def test_backfill_metrics_fetches_missing_only(conn):
     m1 = match_json("EUW1_1", 1_700_000_000_000)
     m2 = match_json("EUW1_2", 1_700_000_100_000)

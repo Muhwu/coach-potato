@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.66.1",
+      "date": "2026-09-23",
+      "items": [
+        "Fixed: the farming charts stayed empty for every game \u2014 Riot's match data labels patch 26.x as 16.x, and the check for current-patch wave rules was looking for 26.",
+        "Trends \u2192 Farming vs perfect gained a \u201cFetch per-minute data\u201d button for games crawled before per-minute data existed (or before lane minions were counted separately from jungle camps). It runs in the background, newest games first, and the charts refresh when it finishes."
+      ]
+    },
+    {
       "version": "1.66.0",
       "date": "2026-09-23",
       "items": [

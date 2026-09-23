@@ -702,7 +702,7 @@ def add_frame_series(conn, match_id, puuid, entries):
 
 
 def test_game_curve_farm_benchmark_for_a_26x_laner(conn):
-    m1, opp = add_match(conn, when=1_000, game_version="26.14.600.1")
+    m1, opp = add_match(conn, when=1_000, game_version="16.14.600.1")
     add_frame_series(conn, m1, ME, [(0, 0, 0, 500, 1, 0), (1, 6, 0, 600, 1, 6),
                                     (10, 100, 0, 3500, 8, 96)])
     add_frame_series(conn, m1, opp, [(0, 0, 0, 500, 1), (1, 5, 0, 600, 1),
@@ -722,7 +722,7 @@ def test_game_curve_no_farm_benchmark_for_old_patches_or_junglers(conn):
     add_frame_series(conn, old, ME, [(0, 0, 0, 500, 1, 0)])
     assert stats.game_curve(conn, old, ME)["farm"] is None
     jg, _ = add_match(conn, when=2_000, my_pos="JUNGLE", opp_pos="JUNGLE",
-                      game_version="26.2.1")
+                      game_version="16.2.1")
     add_frame_series(conn, jg, ME, [(0, 0, 0, 500, 1, 0)])
     assert stats.game_curve(conn, jg, ME)["farm"] is None
 
@@ -754,17 +754,18 @@ def test_game_curve_none_when_puuid_has_no_series(conn):
 
 
 def test_farm_curve_averages_eligible_games_per_minute(conn):
-    g1, _ = add_match(conn, when=1_000, game_version="26.3.1")
+    g1, _ = add_match(conn, when=1_000, game_version="16.3.1")
     add_frame_series(conn, g1, ME, [(0, 0, 0, 500, 1, 0), (1, 6, 0, 600, 1, 6),
                                     (2, 12, 0, 700, 2, 12)])
-    g2, _ = add_match(conn, when=2_000, game_version="26.4.1")
+    g2, _ = add_match(conn, when=2_000, game_version="16.4.1")
     add_frame_series(conn, g2, ME, [(0, 0, 0, 500, 1, 0), (1, 4, 0, 600, 1)])  # pre-column row
     old, _ = add_match(conn, when=3_000)  # 14.1: no benchmark, left out
     add_frame_series(conn, old, ME, [(0, 0, 0, 500, 1, 0), (1, 99, 0, 600, 1, 99)])
-    jg, _ = add_match(conn, when=4_000, my_pos="JUNGLE", opp_pos="JUNGLE", game_version="26.4.1")
+    jg, _ = add_match(conn, when=4_000, my_pos="JUNGLE", opp_pos="JUNGLE", game_version="16.4.1")
     add_frame_series(conn, jg, ME, [(0, 0, 0, 500, 1, 0), (1, 99, 0, 600, 1, 99)])
+    add_match(conn, when=5_000, game_version="16.4.1")  # eligible, no series yet
     out = stats.farm_curve(conn, [ME])
-    assert out["games"] == 2 and out["includes_jungle"] == 1
+    assert out["games"] == 2 and out["includes_jungle"] == 1 and out["missing"] == 1
     by_min = {r["minute"]: r for r in out["minutes"]}
     assert by_min[1]["games"] == 2 and by_min[1]["minions"] == 5  # (6 + 4) / 2
     assert by_min[1]["max_minions"] == 6 and by_min[1]["max_gold"] == 102

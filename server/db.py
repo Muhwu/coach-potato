@@ -1179,6 +1179,29 @@ def insert_frame_series(conn, rows):
             rows)
 
 
+_FRAME_SERIES_BACKFILL_SQL = """
+    SELECT pm.match_id, MAX(m.game_creation_ms) AS created
+    FROM participant_metrics pm
+    JOIN matches m ON m.match_id = pm.match_id
+    JOIN players pl ON pl.puuid = pm.puuid
+      AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
+    WHERE pm.has_timeline = 1 AND NOT EXISTS (
+        SELECT 1 FROM participant_frame_series pfs
+        WHERE pfs.match_id = pm.match_id AND pfs.minions IS NOT NULL)
+    GROUP BY pm.match_id"""
+
+
+def frame_series_backfill_matches(conn):
+    """Matches whose timeline was processed (has_timeline=1 on a tracked/
+    comparison participant) but that have no frame series yet, or only rows
+    from before the `minions` column — newest first."""
+    return conn.execute(_FRAME_SERIES_BACKFILL_SQL + " ORDER BY created DESC").fetchall()
+
+
+def count_frame_series_backfill(conn):
+    return conn.execute(f"SELECT COUNT(*) FROM ({_FRAME_SERIES_BACKFILL_SQL})").fetchone()[0]
+
+
 def replace_map_events(conn, match_id, puuid, events, source="timeline"):
     """Replace this source's stored map events for one (match, puuid) with
     `events` (list of {event_type, x, y, timestamp_ms, detail} dicts).

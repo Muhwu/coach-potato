@@ -37,9 +37,11 @@ def test_max_farm_counts_waves_once_they_reach_lane():
 
 
 def test_supports_version():
-    assert mw.supports_version("26.1.123.4")
-    assert mw.supports_version("27.0.1")
-    assert not mw.supports_version("25.24.1")
+    # match-v5 reports patch 26.x as 16.x (internal numbering)
+    assert mw.supports_version("16.1.123.4")
+    assert mw.supports_version("16.19.700.1")
+    assert mw.supports_version("17.0.1")
+    assert not mw.supports_version("15.24.1")  # a 2025 patch
     assert not mw.supports_version("14.1.1")
     assert not mw.supports_version(None) and not mw.supports_version("junk")
 

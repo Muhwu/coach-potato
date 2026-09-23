@@ -110,7 +110,73 @@ async function loadFarmTrend(params) {
     return;
   }
   if (seq !== trendState.farmSeq) return;
+  trendState.farmParams = params;
   renderFarmTrend(target, data);
+  wireFarmBackfill(target);
+}
+
+// Games crawled before per-minute data existed (or before lane minions were
+// split from jungle camps) need their timeline fetched again — one Riot call
+// per game, so a long history takes a while; the job runs newest first.
+function farmBackfillHtml(data) {
+  const todo = (data.missing || 0) + (data.includes_jungle || 0);
+  if (!todo) return "";
+  const parts = [];
+  if (data.missing) parts.push(`${data.missing} game${data.missing === 1 ? " has" : "s have"} no per-minute data yet`);
+  if (data.includes_jungle) parts.push(`${data.includes_jungle} count${data.includes_jungle === 1 ? "s" : ""} jungle camps in with lane minions`);
+  return `<div class="farm-backfill">
+    <span class="muted">Of the games matching these filters, ${parts.join(" and ")}.</span>
+    <button class="preset" id="farm-backfill-btn">Fetch per-minute data</button>
+    <span id="farm-backfill-status" class="muted"></span>
+  </div>`;
+}
+
+function wireFarmBackfill(target) {
+  const btn = target.querySelector("#farm-backfill-btn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const status = $("#farm-backfill-status");
+    try {
+      const r = await fetch("/api/stats/backfill-frame-series", { method: "POST" });
+      if (!r.ok) throw await apiErrorFrom(r);
+      const res = await r.json();
+      if (!res.started) {
+        clearApiError(status, res.busy
+          ? "Another data fetch is running — try again when it finishes."
+          : "Nothing left to fetch.");
+        btn.disabled = false;
+        return;
+      }
+      pollFarmBackfill();
+    } catch (err) {
+      showApiError(status, err.message, err.detail);
+      btn.disabled = false;
+    }
+  });
+  getJSON("/api/stats/frame-series-status").then((s) => { if (s.running) pollFarmBackfill(); })
+    .catch(() => {});
+}
+
+async function pollFarmBackfill() {
+  if (trendState.farmPolling) return;
+  trendState.farmPolling = true;
+  try {
+    for (;;) {
+      const s = await getJSON("/api/stats/frame-series-status");
+      const status = $("#farm-backfill-status"), btn = $("#farm-backfill-btn");
+      if (btn) btn.disabled = s.running;
+      if (!s.running) {
+        if (s.error) { if (status) showApiError(status, `Fetch stopped — ${s.error}`, s.error_detail); }
+        else if (trendState.farmParams) loadFarmTrend(trendState.farmParams);
+        return;
+      }
+      if (status) clearApiError(status, `Fetching timelines… ${s.done}/${s.total} games (newest first)`);
+      await new Promise((res) => setTimeout(res, 3000));
+    }
+  } finally {
+    trendState.farmPolling = false;
+  }
 }
 
 function renderFarmTrend(target, data) {
@@ -119,7 +185,7 @@ function renderFarmTrend(target, data) {
   const rows = (data.minutes || []).filter((r) => r.games >= floor);
   if (rows.length < 2) {
     target.innerHTML = `<div class="empty">No laning games from patch 26.1 on with a recorded
-      per-minute timeline for these filters.</div>`;
+      per-minute timeline for these filters.</div>${farmBackfillHtml(data)}`;
     return;
   }
   const minutes = rows.map((r) => r.minute);
@@ -144,10 +210,7 @@ function renderFarmTrend(target, data) {
     return `<span><b>${m}m</b> ${Math.round(r.minions)}/${r.max_minions} CS
       · ${pct(r.minions, r.max_minions)}%</span>`;
   }).join("");
-  const jungle = data.includes_jungle
-    ? `<p class="muted gc-note">${data.includes_jungle} of these games were stored before lane
-        minions were tracked separately and count jungle camps too — run
-        <code>./crawl.sh --backfill-frame-series</code> to fix them.</p>` : "";
+  const jungle = farmBackfillHtml(data);
   target.innerHTML = `
     <div class="game-curve-legend">
       <span class="gc-legend-me">● Your average</span>

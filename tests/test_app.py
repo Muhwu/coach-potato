@@ -522,7 +522,7 @@ def test_farm_curve_endpoint(client):
     import os
     game = client.get("/api/stats/summary").json()["recent"][0]
     conn = db.connect(os.environ["LOL_DB_PATH"])
-    conn.execute("UPDATE matches SET game_version='26.5.1' WHERE match_id=?", (game["match_id"],))
+    conn.execute("UPDATE matches SET game_version='16.5.1' WHERE match_id=?", (game["match_id"],))
     conn.commit()
     db.insert_frame_series(conn, [
         {"match_id": game["match_id"], "puuid": game["my_puuid"], "minute": m,
@@ -532,6 +532,11 @@ def test_farm_curve_endpoint(client):
     assert data["games"] == 1
     assert data["minutes"][1]["minions"] == 6 and data["minutes"][1]["max_minions"] == 6
     assert client.get("/api/stats/farm-curve?champion=Nobody").json()["games"] == 0
+
+
+def test_frame_series_backfill_is_a_noop_with_nothing_pending(client):
+    assert client.post("/api/stats/backfill-frame-series").json()["started"] is False
+    assert client.get("/api/stats/frame-series-status").json()["running"] is False
 
 
 def test_settings_auto_crawl_round_trip_and_default(client):
