@@ -752,6 +752,59 @@ def map_events(conn, puuids, from_ms=None, to_ms=None, champion=None, roles=None
     return [dict(r) for r in conn.execute(sql, params)]
 
 
+def farm_curve(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=None,
+               side=None, roles=None):
+    """Average lane farm per game minute across the filtered games, next to
+    the perfect-farm ceiling (server/minion_waves.py) — the Trends "Farming"
+    charts. Only games the benchmark applies to count (a lane role, patch
+    26.1+, a recorded frame series). Per minute: `games` = how many games
+    lasted that long, so the caller can trim the long-game tail where the
+    average is carried by a handful of games. `includes_jungle` counts games
+    whose rows predate the `minions` column and fell back to cs."""
+    base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms, champion=champion,
+                                  queues=queues, side=side, require_opponent=False,
+                                  roles=roles)
+    rows = conn.execute(f"""
+        SELECT b.match_id, b.my_puuid, m.game_version, me.team_position,
+               f.minute, f.minions, f.cs
+        FROM ({base}) b
+        JOIN matches m ON m.match_id = b.match_id
+        JOIN participants me ON me.match_id = b.match_id AND me.puuid = b.my_puuid
+        JOIN participant_frame_series f ON f.match_id = b.match_id AND f.puuid = b.my_puuid
+        ORDER BY b.match_id, b.my_puuid, f.minute""", params).fetchall()
+    games = {}
+    for r in rows:
+        if (r["team_position"] in minion_waves.LANE_ROLES
+                and minion_waves.supports_version(r["game_version"])):
+            games.setdefault((r["match_id"], r["my_puuid"]), []).append(r)
+    if not games:
+        return {"games": 0, "includes_jungle": 0, "minutes": []}
+    top = max(r["minute"] for g in games.values() for r in g)
+    max_counts, max_golds = minion_waves.max_farm(list(range(top + 1)))
+    sums = {}  # minute -> [games, minions, gold]
+    includes_jungle = 0
+    for g in games.values():
+        minutes = [r["minute"] for r in g]
+        fallback = any(r["minions"] is None for r in g)
+        includes_jungle += fallback
+        killed = [r["cs"] if fallback else r["minions"] for r in g]
+        gold = minion_waves.estimate_minion_gold(
+            minutes, killed, [max_counts[m] for m in minutes], [max_golds[m] for m in minutes])
+        for m, k, gd in zip(minutes, killed, gold):
+            if k is None:
+                continue
+            acc = sums.setdefault(m, [0, 0, 0])
+            acc[0] += 1
+            acc[1] += k
+            acc[2] += gd
+    return {
+        "games": len(games), "includes_jungle": includes_jungle,
+        "minutes": [{"minute": m, "games": n, "minions": mi / n, "gold": gd / n,
+                     "max_minions": max_counts[m], "max_gold": max_golds[m]}
+                    for m, (n, mi, gd) in sorted(sums.items())],
+    }
+
+
 def champion_roles(conn, secondary_share=0.2):
     """Each champion's lane(s), computed empirically from EVERY participant in
     every stored match (not just tracked games) — {champion_id: [team_position,

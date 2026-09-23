@@ -370,7 +370,14 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   only; `cs` also counts camps) — additive column; old rows are NULL, fall
   back to `cs` with `includes_jungle: true`, and `backfill_frame_series`
   re-fetches them (`insert_frame_series` upserts ONLY a NULL `minions`).
-  Rendered by `farmBenchmarkSection` (app.js) under the Recent-games curve.
+  Rendered by `farmBenchmarkSection` (app.js) under the Recent-games curve
+  (that per-game panel opens from the row itself or its "Details" button —
+  `tr.recent-row` clicks forward to `.vod-toggle`). Trends' "Farming vs
+  perfect" panel is the aggregate: `stats.farm_curve` behind
+  `GET /api/stats/farm-curve` (Trends filters minus bucket) averages each
+  minute over the games that lasted that long (`games` per minute; trends.js
+  drops minutes reached by < 25% of games) and reuses `gcChartSVG` at a
+  larger `def.w/h` with per-minute `def.tip` hover text.
 - Block series: `block_series(id, title, created_at_ms)`; every `blocks` row
   has a `series_id` (added in `_migrate`; `seed_block_series` on connect
   ensures ≥1 series exists and assigns orphan/legacy blocks to it).

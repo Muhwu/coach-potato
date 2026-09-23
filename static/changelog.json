@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.66.0",
+      "date": "2026-09-23",
+      "items": [
+        "Trends has a new \u201cFarming vs perfect\u201d panel: your average lane minions and minion gold at every minute of the game, over all games matching the filters, plotted against what a perfect last-hitter would have. Hover any minute for the exact numbers; the CS at 5/10/15/20/25/30 minutes and your share of the maximum are listed underneath.",
+        "Overview \u2192 Recent games: click anywhere on a game's row (or its \u201cDetails\u201d button, formerly \u201c\ud83c\udfac VOD\u201d) to open it \u2014 reflection, VOD, the full-game curve and the farming charts."
+      ]
+    },
+    {
       "version": "1.65.0",
       "date": "2026-09-23",
       "items": [

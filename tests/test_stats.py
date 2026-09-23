@@ -753,6 +753,25 @@ def test_game_curve_none_when_puuid_has_no_series(conn):
     assert stats.game_curve(conn, "EUW1_nope", ME) is None
 
 
+def test_farm_curve_averages_eligible_games_per_minute(conn):
+    g1, _ = add_match(conn, when=1_000, game_version="26.3.1")
+    add_frame_series(conn, g1, ME, [(0, 0, 0, 500, 1, 0), (1, 6, 0, 600, 1, 6),
+                                    (2, 12, 0, 700, 2, 12)])
+    g2, _ = add_match(conn, when=2_000, game_version="26.4.1")
+    add_frame_series(conn, g2, ME, [(0, 0, 0, 500, 1, 0), (1, 4, 0, 600, 1)])  # pre-column row
+    old, _ = add_match(conn, when=3_000)  # 14.1: no benchmark, left out
+    add_frame_series(conn, old, ME, [(0, 0, 0, 500, 1, 0), (1, 99, 0, 600, 1, 99)])
+    jg, _ = add_match(conn, when=4_000, my_pos="JUNGLE", opp_pos="JUNGLE", game_version="26.4.1")
+    add_frame_series(conn, jg, ME, [(0, 0, 0, 500, 1, 0), (1, 99, 0, 600, 1, 99)])
+    out = stats.farm_curve(conn, [ME])
+    assert out["games"] == 2 and out["includes_jungle"] == 1
+    by_min = {r["minute"]: r for r in out["minutes"]}
+    assert by_min[1]["games"] == 2 and by_min[1]["minions"] == 5  # (6 + 4) / 2
+    assert by_min[1]["max_minions"] == 6 and by_min[1]["max_gold"] == 102
+    assert by_min[2]["games"] == 1 and by_min[2]["minions"] == 12
+    assert stats.farm_curve(conn, [ME], champion="Nobody")["minutes"] == []
+
+
 def test_filter_options(conn):
     _, opp = add_match(conn, my_champ="Garen", queue=420)
     add_match(conn, my_champ="Kled", queue=440)

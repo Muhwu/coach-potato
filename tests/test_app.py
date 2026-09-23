@@ -518,6 +518,22 @@ def test_game_curve_endpoint(client):
         "/api/stats/game-curve?match_id=EUW1_nope&puuid=x").status_code == 404
 
 
+def test_farm_curve_endpoint(client):
+    import os
+    game = client.get("/api/stats/summary").json()["recent"][0]
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    conn.execute("UPDATE matches SET game_version='26.5.1' WHERE match_id=?", (game["match_id"],))
+    conn.commit()
+    db.insert_frame_series(conn, [
+        {"match_id": game["match_id"], "puuid": game["my_puuid"], "minute": m,
+         "cs": 6 * m, "xp": 0, "gold": 0, "level": 1, "minions": 6 * m} for m in (0, 1)])
+    conn.close()
+    data = client.get("/api/stats/farm-curve").json()
+    assert data["games"] == 1
+    assert data["minutes"][1]["minions"] == 6 and data["minutes"][1]["max_minions"] == 6
+    assert client.get("/api/stats/farm-curve?champion=Nobody").json()["games"] == 0
+
+
 def test_settings_auto_crawl_round_trip_and_default(client):
     data = client.get("/api/settings").json()
     assert data["auto_crawl_hours"] == 3      # default: every few hours

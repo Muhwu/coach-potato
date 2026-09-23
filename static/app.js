@@ -647,7 +647,7 @@ const GC_METRICS = [
   { key: "gold", label: "Gold", decimals: 0 },
   { key: "cs", label: "CS", decimals: 0 },
 ];
-const GC_CHART_W = 260, GC_CHART_H = 100;
+const GC_W = 260, GC_H = 100;
 const GC_PAD = { l: 34, r: 8, t: 8, b: 18 };
 
 // maxValues: optional perfect-farm ceiling, drawn as a dashed reference line
@@ -663,6 +663,9 @@ function gcChartSVG(def, minutes, meValues, oppValues, maxValues = null) {
   const span = hi - lo;
   lo -= span * 0.08; hi += span * 0.08;
   const maxX = Math.max(...minutes, 1);
+  // def.w/def.h: a larger canvas (Trends' farming charts); def.tip(i): hover
+  // text for minute index i, shown on an invisible hit target per point
+  const GC_CHART_W = def.w || GC_W, GC_CHART_H = def.h || GC_H;
   const iw = GC_CHART_W - GC_PAD.l - GC_PAD.r, ih = GC_CHART_H - GC_PAD.t - GC_PAD.b;
   const x = (m) => GC_PAD.l + (m / maxX) * iw;
   const y = (v) => GC_PAD.t + ih - ((v - lo) / (hi - lo)) * ih;
@@ -681,6 +684,9 @@ function gcChartSVG(def, minutes, meValues, oppValues, maxValues = null) {
       <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(maxV) + 3}" text-anchor="end">${fmt(maxV)}</text>
       <text class="tl-ylab" x="${GC_PAD.l - 4}" y="${y(minV) + 3}" text-anchor="end">${fmt(minV)}</text>
       ${line(maxPts, "gc-line-max")}${line(mePts, "gc-line-me")}${line(oppPts, "gc-line-opp")}
+      ${def.tip ? minutes.map((m, i) => `<rect class="tl-hit" x="${(x(m) - iw / minutes.length / 2).toFixed(1)}"
+          y="${GC_PAD.t}" width="${(iw / minutes.length).toFixed(1)}" height="${ih}"><title>${
+          escapeHtml(def.tip(i))}</title></rect>`).join("") : ""}
       <text class="tl-xlab" x="${GC_PAD.l}" y="${GC_CHART_H - 4}">0m</text>
       <text class="tl-xlab" x="${GC_CHART_W - GC_PAD.r}" y="${GC_CHART_H - 4}" text-anchor="end">${maxX}m</text>
     </svg>
@@ -788,7 +794,7 @@ function renderRecent(recent) {
     { key: "kda", label: "K/D/A", type: "num", get: kdaRatio },
     { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
     { key: "runes", label: "Runes", sortable: false },
-    { key: "vod", label: "VOD", sortable: false },
+    { key: "vod", label: "Game", sortable: false },
     { key: "block", label: "", sortable: false },
   ];
   const body = sortRows(recent, recentUi.sort, cols).map((g) => {
@@ -797,7 +803,8 @@ function renderRecent(recent) {
     const vodOpen = recentUi.vodOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
     const tagCount = reflectionTagCount(g.match_id, g.my_puuid);
-    let html = `<tr>
+    let html = `<tr class="recent-row" data-gkey="${gkey}"
+        title="Click to open this game: reflection, VOD, full-game curve and farming">
       <td>${fmtDateTime(g.game_creation_ms)}</td>
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
       <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
@@ -814,9 +821,9 @@ function renderRecent(recent) {
       <td><button class="preset seg-toggle vod-toggle" data-gkey="${gkey}"
         data-match="${g.match_id}" data-puuid="${g.my_puuid}" data-opp="${g.opp_puuid ?? ""}"
         aria-expanded="${vodOpen}"
-        title="Reflection, the recorded VOD with its map and chapters, and the full-game curve${
+        title="Reflection, the recorded VOD with its map and chapters, the full-game curve and farming${
           tagCount ? ` — ${tagCount} reflection tag${tagCount === 1 ? "" : "s"}` : ""}"
-        >${vodOpen ? "▾" : "▸"} 🎬 VOD${tagCount ? ` <span class="vod-tagcount">${tagCount}</span>` : ""}</button></td>
+        >${vodOpen ? "▾" : "▸"} Details${tagCount ? ` <span class="vod-tagcount">${tagCount}</span>` : ""}</button></td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`;
@@ -857,6 +864,13 @@ function renderRecent(recent) {
       const gkey = btn.dataset.gkey;
       recentUi.runesOpen.has(gkey) ? recentUi.runesOpen.delete(gkey) : recentUi.runesOpen.add(gkey);
       renderRecent(recent);
+    }));
+  // the whole row opens the game, not just its Details button — clicks on
+  // the row's own controls (runes, + Block, links) keep doing their thing
+  target.querySelectorAll("tr.recent-row").forEach((tr) =>
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("button, a, input, select, textarea")) return;
+      tr.querySelector(".vod-toggle")?.click();
     }));
   target.querySelectorAll(".vod-toggle").forEach((btn) =>
     btn.addEventListener("click", async () => {

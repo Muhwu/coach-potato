@@ -80,6 +80,9 @@ async function loadTrends() {
   if (trendState.queue) params.set("queue", trendState.queue);
   if (trendState.side) params.set("side", trendState.side);
   addRoleParams(params); // shared role filter (app.js)
+  const farmParams = new URLSearchParams(params);
+  farmParams.delete("bucket");
+  loadFarmTrend(farmParams);
   const data = await getJSON(`/api/stats/trends?${params}`);
   if (seq !== trendState.seq) return; // superseded by a newer load
   trendState.data = data;
@@ -87,6 +90,72 @@ async function loadTrends() {
   renderTrendTable();
   trendState.heatmapEvents = null; // filters changed — stale
   if (trendState.heatmapOpen) loadHeatmap();
+}
+
+// ---------- farming vs the perfect-farm ceiling ----------
+// /api/stats/farm-curve averages each game minute over the games that lasted
+// that long; minutes reached by under a quarter of the games are dropped, so
+// the tail isn't a couple of 40-minute outliers.
+
+const FARM_MILESTONES = [5, 10, 15, 20, 25, 30];
+
+async function loadFarmTrend(params) {
+  const seq = (trendState.farmSeq = (trendState.farmSeq || 0) + 1);
+  const target = $("#farm-trend-body");
+  let data;
+  try {
+    data = await getJSON(`/api/stats/farm-curve?${params}`);
+  } catch (err) {
+    if (seq === trendState.farmSeq) showApiError(target, err.message, err.detail);
+    return;
+  }
+  if (seq !== trendState.farmSeq) return;
+  renderFarmTrend(target, data);
+}
+
+function renderFarmTrend(target, data) {
+  target.classList.remove("status-error");
+  const floor = Math.max(1, Math.ceil(data.games * 0.25));
+  const rows = (data.minutes || []).filter((r) => r.games >= floor);
+  if (rows.length < 2) {
+    target.innerHTML = `<div class="empty">No laning games from patch 26.1 on with a recorded
+      per-minute timeline for these filters.</div>`;
+    return;
+  }
+  const minutes = rows.map((r) => r.minute);
+  const pct = (v, max) => (max ? Math.round((100 * v) / max) : 0);
+  const tip = (key, maxKey, unit) => (i) => {
+    const r = rows[i];
+    return `${r.minute}m — you ${Math.round(r[key])}${unit} of ${r[maxKey]}${unit} possible ` +
+      `(${pct(r[key], r[maxKey])}%), ${r.games} game${r.games === 1 ? "" : "s"}`;
+  };
+  const size = { w: 420, h: 170 };
+  const charts = [
+    gcChartSVG({ label: "Minions: average vs perfect", decimals: 0, ...size,
+                 tip: tip("minions", "max_minions", "") },
+      minutes, rows.map((r) => r.minions), null, rows.map((r) => r.max_minions)),
+    gcChartSVG({ label: "Minion gold: average vs perfect", note: "estimated", decimals: 0, ...size,
+                 tip: tip("gold", "max_gold", "g") },
+      minutes, rows.map((r) => r.gold), null, rows.map((r) => r.max_gold)),
+  ].join("");
+  const byMin = new Map(rows.map((r) => [r.minute, r]));
+  const milestones = FARM_MILESTONES.filter((m) => byMin.has(m)).map((m) => {
+    const r = byMin.get(m);
+    return `<span><b>${m}m</b> ${Math.round(r.minions)}/${r.max_minions} CS
+      · ${pct(r.minions, r.max_minions)}%</span>`;
+  }).join("");
+  const jungle = data.includes_jungle
+    ? `<p class="muted gc-note">${data.includes_jungle} of these games were stored before lane
+        minions were tracked separately and count jungle camps too — run
+        <code>./crawl.sh --backfill-frame-series</code> to fix them.</p>` : "";
+  target.innerHTML = `
+    <div class="game-curve-legend">
+      <span class="gc-legend-me">● Your average</span>
+      <span class="gc-legend-max">┄ Every minion last-hit</span>
+      <span class="muted">${data.games} game${data.games === 1 ? "" : "s"}</span>
+    </div>
+    <div class="farm-trend-charts">${charts}</div>
+    <div class="farm-milestones">${milestones}</div>${jungle}`;
 }
 
 // ---------- charts ----------

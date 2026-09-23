@@ -1236,6 +1236,25 @@ def api_map_events(request: Request, from_ms: int | None = None, to_ms: int | No
         conn.close()
 
 
+@app.get("/api/stats/farm-curve")
+def api_farm_curve(request: Request):
+    """Average lane minions / minion gold per game minute vs the perfect-farm
+    ceiling (Trends "Farming"). Same filters as /api/stats/trends."""
+    params = dict(request.query_params)
+    from_ms, to_ms = parse_time_range(params)
+    queues = [int(q) for q in request.query_params.getlist("queue")] or None
+    conn = get_conn()
+    try:
+        puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
+        return stats.farm_curve(
+            conn, puuids, from_ms=from_ms, to_ms=to_ms,
+            champion=params.get("champion") or None, queues=queues,
+            side=params.get("side") or None,
+            roles=request.query_params.getlist("role") or None)
+    finally:
+        conn.close()
+
+
 def _validate_champion(champion: str):
     # match-v5 names differ in case from DDragon ids (FiddleSticks vs
     # Fiddlesticks) — validate case-insensitively, store the name as given
