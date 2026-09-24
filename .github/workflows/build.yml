@@ -79,7 +79,9 @@ jobs:
           [[ "${{ matrix.binary }}" == *.zip ]] && EXT=".zip"
           OUT="${{ matrix.artifact }}${EXT}"
           cp "${{ matrix.binary }}" "$OUT"
-          gh release create "$GITHUB_REF_NAME" --generate-notes 2>/dev/null || true
+          gh release create "$GITHUB_REF_NAME" --generate-notes \
+            --notes "**New here?** You'll need a free Riot API key — [step-by-step guide](https://github.com/${{ github.repository }}/blob/main/docs/riot-api-key.md)." \
+            2>/dev/null || true
           gh release upload "$GITHUB_REF_NAME" "$OUT" --clobber
       - name: Attach Windows installer to release
         if: matrix.os == 'windows-latest' && startsWith(github.ref, 'refs/tags/')

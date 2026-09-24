@@ -20,6 +20,9 @@ browser), and walk you through setup — API key, accounts, and server — in an
 in-app **Settings** view (⚙). Data lives in your OS app-data directory, so it
 survives upgrades.
 
+**First run:** you'll need a free Riot API key —
+[here's how to get one](docs/riot-api-key.md) (about five minutes).
+
 - **Download** the latest build from the repo's
   [Releases](../../releases) page:
   - **Windows** — `CoachPotatoSetup.exe` (per-user installer, no admin/UAC) or
@@ -81,22 +84,26 @@ derived from it automatically.
 
 ## Getting a Riot API key
 
-Two kinds of key work, both free from <https://developer.riotgames.com>:
+Coach Potato needs your own (free) Riot API key — the app ships without one by
+design. **👉 [Step-by-step guide with screenshots](docs/riot-api-key.md)**. In
+short:
 
-- **Personal API key (recommended).** Register a *personal product*
-  ("Coach Potato — personal match-history tool" is a fine description;
-  approval is lightweight). You get a **persistent key** that doesn't
-  expire — set it once in the app's Settings and forget it.
-- **Development key (quick start).** Available instantly on the portal
-  front page, but **expires every 24 h**. When it does, crawls fail with a
-  clear "API key expired" message — paste a fresh key in Settings
-  (already-crawled data is unaffected; browsing the UI needs no key).
+1. Sign in at <https://developer.riotgames.com> and click **Register product**.
+2. Choose **Personal API key**.
+3. Describe it — e.g. "Coach Potato - personal coaching app"; a one-line
+   description of personal progress tracking is enough.
+4. Open the approved product, copy the **API Key** (`RGAPI-…`; click **New API
+   key** if it's empty), and paste it into Coach Potato's **Settings → Account**.
 
-Keys are stored locally and only ever sent to Riot's API. Every user brings
-their own key — the app ships without one by design.
+A personal key **doesn't expire**. The *development key* on the portal's front
+page works instantly too, but **expires every 24 h** — fine for a quick try;
+when it runs out, crawls fail with a clear "API key expired" message and you
+paste a fresh one (already-crawled data is unaffected; browsing needs no key).
 
-Dev-key rate limits (20 req/s, 100 req/2 min) are respected automatically, so a
-full first crawl of a large history takes roughly 2 minutes per ~100 matches.
+Keys are stored locally and only ever sent to Riot's API.
+
+Rate limits (20 req/s, 100 req/2 min) are respected automatically, so a full
+first crawl of a large history takes roughly 2 minutes per ~100 matches.
 
 ## Overview & matchups
 

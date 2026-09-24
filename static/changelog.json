@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.67.1",
+      "date": "2026-09-24",
+      "items": [
+        "New to Coach Potato? Settings now links to a step-by-step guide (with screenshots) for getting a free Riot API key that doesn't expire."
+      ]
+    },
+    {
       "version": "1.67.0",
       "date": "2026-09-24",
       "items": [
