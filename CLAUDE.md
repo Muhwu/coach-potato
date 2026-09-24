@@ -400,12 +400,11 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   first game (it used to be derivable only from a block's `series_title`).
   `closing_notes` is the end-of-series retrospective (did the goals land, what
   actually changed), same partial-update rules.
-  The **Series view** (`#series-view`, `initSeriesView`/`renderSeriesView` in
-  blocks.js, under Coach) is the whole arc of a challenge on one page: goals →
-  each block's learnings (read-only there; they're edited on the block itself,
-  the title links across via `focusBlock`) → closing notes. It reuses
-  `/api/blocks` rather than adding an endpoint — that payload already carries
-  every series plus every block's learnings.
+  There is no separate Series view any more (merged into Learnings in
+  v1.67 — `#series` deep links redirect there, and `"series"` stays in
+  `HIDEABLE_VIEWS` only so older saved `hidden_views` still validate): the
+  whole arc of a challenge is the Learnings view's "By series" mode, whose
+  series header edits the name, goals and closing notes in place.
   UI: the ACTIVE series sits on the champion-pool line (`#series-current` in
   the `#pool-summary` panel, `renderCurrentSeries` in blocks.js) — the one row
   always on screen. Goals live in a popup (`openSeriesModal`/
@@ -474,9 +473,12 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   this is where you review. It has NO endpoint of its own: it renders the same
   `/api/blocks` payload blocks.js already loads (`blockState.blocks`/`.series`),
   so `initLearnings` just calls the shared `loadBlocks()`. Two modes
-  (`cp-learn-mode`): "By block" (a card per block, grouped by series, with that
-  series' goals above and closing notes below, so learnings read inside the
-  intent that produced them) and **"All bullets"** (`learningItems()` splits each
+  (`cp-learn-mode`): "By series" (stored key `blocks`; a card per block,
+  grouped by series, with that series' goals above and closing notes below, so
+  learnings read inside the intent that produced them — the series header has
+  the editable name, active badge and W–L, goals/closing notes are
+  click-to-edit via `learnSeriesField` + `patchSeries`, and EVERY series shows,
+  block-less ones included, unless a search/champion filter narrows to blocks) and **"All bullets"** (`learningItems()` splits each
   blob at its column-0 bullets — prose paragraphs count as items too, so nothing
   written is dropped — and streams every item flat with a chip back to its
   block). Filters (search + series + champion + newest/oldest) are client-side

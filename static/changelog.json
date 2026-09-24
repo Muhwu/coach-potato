@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.67.0",
+      "date": "2026-09-24",
+      "items": [
+        "Series and Learnings are now one tab: Learnings. Its \u201cBy series\u201d mode shows each challenge end to end \u2014 name, active badge and win\u2013loss in the header, then its goals, every block's learnings and how it went \u2014 and all of it is editable right there: rename the series in place, click the goals or closing notes to write them. A newly started series with no games yet shows too, so its goals can be written before the first game."
+      ]
+    },
+    {
       "version": "1.66.1",
       "date": "2026-09-23",
       "items": [

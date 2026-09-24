@@ -3249,13 +3249,13 @@ const WIDE_VIEWS = new Set(["matchups", "progress", "trends", "blocks"]);
 const NAV_SECTIONS = [
   { key: "analyze", label: "Analyze", views: ["overview", "matchups", "trends"] },
   { key: "coach", label: "Coach",
-    views: ["progress", "blocks", "series", "learnings", "pool"] },
+    views: ["progress", "blocks", "learnings", "pool"] },
   { key: "prepare", label: "Prepare",
     views: ["guide", "tiers", "research", "players"] },
 ];
 const VIEW_LABELS = {
   overview: "Overview", matchups: "Matchups", trends: "Trends",
-  progress: "Coaching progress", blocks: "Blocks", series: "Series",
+  progress: "Coaching progress", blocks: "Blocks",
   learnings: "Learnings", pool: "Champion pool",
   guide: "Playbook", tiers: "Tier list", research: "Research",
   players: "Research players",
@@ -3326,7 +3326,6 @@ function setMainView(view) {
   if (view === "research") initResearch();
   if (view === "players") initPlayers();
   if (view === "tiers") initTiers();
-  if (view === "series") initSeriesView();
   if (view === "learnings") initLearnings();
   if (view === "pool") initPool();
   if (view === "settings") initSettings();
@@ -4396,7 +4395,8 @@ async function init(firstLoad = true) {
   // every view is deep-linkable by its own key (#tiers used to be written to
   // the URL but never read back, so the Tier list couldn't be linked to)
   if (firstLoad) {
-    const target = location.hash.slice(1);
+    // #series was its own view until it merged into Learnings (v1.67)
+    const target = location.hash.slice(1) === "series" ? "learnings" : location.hash.slice(1);
     if ([...ALL_VIEWS, "settings"].includes(target) && target !== "overview") {
       setMainView(target);
     }

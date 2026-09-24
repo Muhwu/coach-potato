@@ -992,29 +992,6 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   background: var(--accent-wash); border: 1px solid var(--series-1);
   max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* Series view: goals → what each block taught → how it went */
-.series-card { margin-bottom: 16px; }
-.series-card-current { border-left: 3px solid var(--series-1); }
-.series-card-title {
-  font-size: 15px; font-weight: 650; flex: 1; min-width: 8em; max-width: 24em;
-  padding: 3px 6px; border: 1px solid transparent; border-radius: 6px;
-  background: transparent; color: var(--text-primary);
-}
-.series-card-title:hover { border-color: var(--border); }
-.series-card-title:focus { border-color: var(--series-1); background: var(--page); outline: none; }
-.series-field { margin-bottom: 14px; }
-.series-field:last-child { margin-bottom: 0; }
-.series-field h4 { margin: 0 0 4px; }
-.series-field textarea { width: 100%; }
-.series-blocks { display: flex; flex-direction: column; gap: 10px; }
-.series-block { border-left: 2px solid var(--grid); padding-left: 10px; }
-.series-block-head { display: flex; align-items: center; gap: 8px; }
-.series-block-link {
-  border: none; background: none; padding: 0; font: inherit; font-weight: 600;
-  color: var(--series-1); cursor: pointer; text-align: left;
-}
-.series-block-link:hover { text-decoration: underline; }
-
 .series-modal { min-width: min(560px, 86vw); max-width: 720px; }
 .series-modal .section-head { margin-bottom: 10px; }
 .series-modal-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -2083,6 +2060,17 @@ footer {
 }
 .learn-series-frame h4 { margin: 0 0 4px; font-size: 13px; color: var(--text-secondary); }
 .learn-series-frame .md-body { font-size: 13px; }
+.learn-series-body { cursor: text; min-height: 1em; }
+.learn-series-frame textarea { width: 100%; }
+.learn-series-frame-empty { border-left-style: dashed; }
+.learn-series-current { border-left: 3px solid var(--series-1); padding-left: 10px; }
+.learn-series-title {
+  font-size: 15px; font-weight: 650; color: var(--text-primary);
+  border: 1px solid transparent; border-radius: 6px; background: none;
+  padding: 2px 6px; max-width: 100%; box-sizing: content-box;
+}
+.learn-series-title:hover { border-color: var(--border); }
+.learn-series-title:focus { border-color: var(--series-1); background: var(--page); outline: none; }
 
 .learn-cards { display: flex; flex-direction: column; gap: 10px; }
 .learn-card {

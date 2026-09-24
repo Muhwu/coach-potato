@@ -1,6 +1,9 @@
 "use strict";
 /* Learnings view: every block's learnings in one place, for a holistic read
-   rather than the working surface the Blocks view is. Reads the SAME
+   rather than the working surface the Blocks view is. It is also where a
+   series (a challenge) is reviewed end to end — its name, goals and "How it
+   went" are edited in its header here; that used to be a separate Series
+   view that showed the same thing with the editing the other way round. Reads the SAME
    /api/blocks payload blocks.js already loads (blockState.blocks/.series) —
    no endpoint of its own; the learnings-only Markdown export is the one
    server-side piece. Uses globals from app.js ($, escapeHtml, renderNotes,
@@ -19,6 +22,7 @@ const learnState = {
   champion: "",
   showEmpty: false,
   editing: null,  // block id whose learnings are open for inline editing
+  editingSeries: null,  // {id, field: "goals"|"closing_notes"} open for editing
   collapsed: new Set(JSON.parse(localStorage.getItem("cp-learn-collapsed") || "[]")),
 };
 
@@ -198,36 +202,71 @@ function learnBlockCard(block) {
   </div>`;
 }
 
+// Goals / "How it went" — the same click-to-edit / blur-to-save contract as
+// a block's learnings
+const SERIES_FIELDS = {
+  goals: { heading: "Goals", empty: "No goals set — click to write what this series is for.",
+           placeholder: "What is this series for? e.g. – 70 CS by 10 min, – no solo deaths" },
+  closing_notes: { heading: "How it went",
+                   empty: "No closing notes yet — click to write them when the challenge ends.",
+                   placeholder: "Did you hit the goals? What actually changed, and what's next?" },
+};
+
+function learnSeriesField(series, field) {
+  const def = SERIES_FIELDS[field];
+  const editing = learnState.editingSeries
+    && learnState.editingSeries.id === series.id && learnState.editingSeries.field === field;
+  const text = (series[field] || "").trim();
+  if (editing) {
+    return `<div class="learn-series-frame">
+      <h4>${def.heading}</h4>
+      <textarea class="learn-series-textarea" data-id="${series.id}" data-field="${field}" rows="6"
+        placeholder="${escapeHtml(def.placeholder)}">${escapeHtml(series[field] || "")}</textarea>
+      <span class="muted learnings-hint">Markdown · click away to save · Esc to cancel</span>
+    </div>`;
+  }
+  return `<div class="learn-series-frame${text ? "" : " learn-series-frame-empty"}">
+    <h4>${def.heading}</h4>
+    <div class="md-body learn-series-body" data-id="${series.id}" data-field="${field}"
+      title="Click to edit">${text ? renderNotes(series[field])
+        : `<p class="muted">${escapeHtml(def.empty)}</p>`}</div>
+  </div>`;
+}
+
 function learnSeriesGroup(series, blocks) {
   const collapsed = learnState.collapsed.has(series.id);
   const written = blocks.filter((b) => b.learnings.trim());
   const empty = blocks.length - written.length;
   const shown = learnState.showEmpty ? blocks : written;
+  const games = blocks.flatMap((b) => b.games);
+  const wins = games.filter((g) => g.win).length;
+  const isCurrent = series.id === blockState.currentSeriesId;
   const head = `<div class="learn-series-head">
     <button class="preset seg-toggle learn-series-toggle" data-id="${series.id}"
       aria-expanded="${!collapsed}" title="${collapsed ? "Expand" : "Collapse"} this series">
       ${collapsed ? "▸" : "▾"}</button>
-    <h3>${escapeHtml(series.title || "Series")}</h3>
-    <span class="muted">${written.length} of ${blocks.length}
-      ${blocks.length === 1 ? "block" : "blocks"} with learnings</span>
+    <input type="text" class="learn-series-title" data-id="${series.id}"
+      value="${escapeHtml(series.title || "")}" placeholder="Series name" title="Series name"
+      size="${Math.max(12, (series.title || "").length + 2)}"
+      aria-label="Series name">
+    ${isCurrent ? `<span class="block-badge">active</span>` : ""}
+    <span class="muted">${blocks.length} ${blocks.length === 1 ? "block" : "blocks"}
+      · ${games.length ? `${wins}–${games.length - wins}` : "no games yet"}
+      · ${written.length} with learnings</span>
   </div>`;
-  if (collapsed) return `<section class="learn-series">${head}</section>`;
-  const goals = (series.goals || "").trim()
-    ? `<div class="learn-series-frame"><h4>Goals</h4>
-       <div class="md-body">${renderNotes(series.goals)}</div></div>` : "";
-  const closing = (series.closing_notes || "").trim()
-    ? `<div class="learn-series-frame"><h4>How it went</h4>
-       <div class="md-body">${renderNotes(series.closing_notes)}</div></div>` : "";
-  const body = shown.length
-    ? shown.map(learnBlockCard).join("")
-    : `<p class="muted">No learnings written in this series yet.</p>`;
+  if (collapsed) return `<section class="learn-series${isCurrent ? " learn-series-current" : ""}">${head}</section>`;
+  const body = !blocks.length
+    ? `<p class="muted">No blocks in this series yet.</p>`
+    : shown.length
+      ? shown.map(learnBlockCard).join("")
+      : `<p class="muted">No learnings written in this series yet.</p>`;
   const hidden = !learnState.showEmpty && empty
     ? `<p class="muted learn-empty-note">${empty} ${empty === 1 ? "block" : "blocks"}
        without learnings hidden</p>` : "";
-  return `<section class="learn-series">
-    ${head}${goals}
+  return `<section class="learn-series${isCurrent ? " learn-series-current" : ""}">
+    ${head}${learnSeriesField(series, "goals")}
     <div class="learn-cards">${body}</div>
-    ${hidden}${closing}
+    ${hidden}${learnSeriesField(series, "closing_notes")}
   </section>`;
 }
 
@@ -278,10 +317,20 @@ function renderLearnings() {
         if (!bySeries.has(block.series_id)) bySeries.set(block.series_id, []);
         bySeries.get(block.series_id).push(block);
       }
-      // series order follows the block order so "oldest first" reads forwards
-      const ids = [...bySeries.keys()];
-      const groups = ids.map((id) => learnSeriesGroup(
-        seriesById(id) || { id, title: "", goals: "", closing_notes: "" }, bySeries.get(id)));
+      // Every series shows while nothing narrows the blocks — a challenge
+      // just started has no blocks yet, and this is where its goals get
+      // written. A search or champion filter is about blocks, so there only
+      // series with a matching block remain.
+      const narrowed = learnState.search.trim() || learnState.champion;
+      let seriesList = blockState.series.slice();  // newest first from the API
+      if (learnState.order === "oldest") seriesList.reverse();
+      if (learnState.series) seriesList = seriesList.filter((x) => x.id === +learnState.series);
+      if (narrowed) seriesList = seriesList.filter((x) => bySeries.has(x.id));
+      // blocks whose series row is somehow missing still get a group
+      for (const id of bySeries.keys()) {
+        if (!seriesById(id)) seriesList.push({ id, title: "", goals: "", closing_notes: "" });
+      }
+      const groups = seriesList.map((x) => learnSeriesGroup(x, bySeries.get(x.id) || []));
       target.innerHTML = groups.join("") || `<div class="muted">Nothing matches those filters.</div>`;
     } else {
       const shown = learnState.showEmpty ? matching : matching.filter((b) => b.learnings.trim());
@@ -305,6 +354,47 @@ function wireLearnings(target) {
       persistLearnCollapsed();
       renderLearnings();
     }));
+  target.querySelectorAll(".learn-series-title").forEach((input) =>
+    input.addEventListener("change", async () => {
+      const id = +input.dataset.id;
+      if (!await patchSeries(id, { title: input.value })) return;  // blocks.js
+      const series = seriesById(id);
+      if (series) series.title = input.value.trim();
+      renderCurrentSeries();  // blocks.js — the active series on the pool line
+      renderLearnFilters();   // the Series filter lists names
+    }));
+  const openSeriesEditor = (id, field) => {
+    learnState.editingSeries = { id: +id, field };
+    renderLearnings();
+    const input = $("#learn-list").querySelector(
+      `.learn-series-textarea[data-id="${id}"][data-field="${field}"]`);
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  };
+  target.querySelectorAll(".learn-series-body").forEach((el) =>
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("a")) return;
+      openSeriesEditor(el.dataset.id, el.dataset.field);
+    }));
+  target.querySelectorAll(".learn-series-textarea").forEach((input) => {
+    let cancelled = false;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { cancelled = true; input.blur(); }
+    });
+    input.addEventListener("blur", async () => {
+      const id = +input.dataset.id, field = input.dataset.field;
+      if (!cancelled && await patchSeries(id, { [field]: input.value })) {
+        const series = seriesById(id);
+        if (series) series[field] = input.value;
+        renderCurrentSeries();
+      }
+      cancelled = false;
+      learnState.editingSeries = null;
+      renderLearnings();
+    });
+  });
   target.querySelectorAll(".learn-block-link").forEach((btn) =>
     btn.addEventListener("click", () => focusBlock(+btn.dataset.id)));
   const openEditor = (id) => {
