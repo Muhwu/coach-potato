@@ -736,6 +736,14 @@
       <select id="learn-series"></select>
     </div>
     <div class="filter-group">
+      <label class="filter-label" for="learn-status">Status</label>
+      <select id="learn-status">
+        <option value="">All</option>
+        <option value="active">Active</option>
+        <option value="closed">Closed</option>
+      </select>
+    </div>
+    <div class="filter-group">
       <label class="filter-label" for="learn-champion">Champion</label>
       <select id="learn-champion"></select>
     </div>
@@ -753,6 +761,8 @@
         >By series</button>
       <button type="button" class="preset" data-mode="bullets"
         title="Every learning you have written, as one stream">All bullets</button>
+      <button type="button" class="preset" data-mode="closing"
+        title="Each series' closing notes beside its goals">Closing notes</button>
     </div>
   </section>
 

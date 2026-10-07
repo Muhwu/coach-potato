@@ -378,6 +378,90 @@ def test_start_new_series_moves_empty_open_block(conn):
     assert row["series_id"] == new_sid
 
 
+def test_close_series_finishes_its_block_and_next_game_starts_a_new_series(conn):
+    ids = _seed_block_matches(conn, 2)
+    b1 = db.add_game_to_block(conn, ids[0], "me")
+    sid = db.current_series_id(conn)
+    assert db.close_series(conn, sid, "- hit the CS goal") == "ok"
+    assert db.open_series_id(conn) is None
+    row = next(r for r in db.list_block_series(conn) if r["id"] == sid)
+    assert row["closed_at_ms"] is not None
+    assert row["closing_notes"] == "- hit the CS goal"
+    assert db.close_series(conn, sid) == "closed"
+    assert db.close_series(conn, 999) == "missing"
+    # the open block was finished where it stood, so the next game opens a new
+    # block — in a NEW series, never in the closed one
+    b2 = db.add_game_to_block(conn, ids[1], "me")
+    assert b2 != b1
+    new_sid = conn.execute("SELECT series_id FROM blocks WHERE id=?", (b2,)).fetchone()[0]
+    assert new_sid != sid and db.open_series_id(conn) == new_sid
+
+
+def test_close_series_drops_only_an_untouched_empty_block(conn):
+    db.create_block(conn)
+    db.close_series(conn, db.current_series_id(conn))
+    assert conn.execute("SELECT COUNT(*) FROM blocks").fetchone()[0] == 0
+    block = db.create_block(conn)  # joins a freshly opened series
+    db.update_block(conn, block, learnings="written before any game")
+    db.close_series(conn, db.current_series_id(conn))
+    assert conn.execute("SELECT learnings FROM blocks").fetchone()[0] == "written before any game"
+    assert db._open_block(conn) is None
+
+
+def test_close_series_without_notes_keeps_existing_closing_notes(conn):
+    sid = db.current_series_id(conn)
+    db.update_block_series(conn, sid, closing_notes="drafted earlier")
+    db.close_series(conn, sid)
+    assert db.list_block_series(conn)[0]["closing_notes"] == "drafted earlier"
+
+
+def test_reopen_series_only_while_no_other_series_is_active(conn):
+    first = db.current_series_id(conn)
+    db.close_series(conn, first)
+    assert db.reopen_series(conn, first) == "ok"
+    assert db.open_series_id(conn) == first
+    assert db.reopen_series(conn, first) == "open"
+    second = db.start_new_series(conn, "next")  # closes `first`
+    assert db.open_series_id(conn) == second
+    assert db.reopen_series(conn, first) == "conflict"
+    assert db.reopen_series(conn, 999) == "missing"
+
+
+def test_start_new_series_closes_the_previous_one(conn):
+    first = db.current_series_id(conn)
+    db.start_new_series(conn, "next")
+    rows = {r["id"]: r for r in db.list_block_series(conn)}
+    assert rows[first]["closed_at_ms"] is not None
+
+
+def test_closed_column_backfill_closes_all_but_the_newest_series(tmp_path):
+    path = tmp_path / "old.sqlite"
+    c = db.connect(path)
+    first = db.current_series_id(c)
+    second = db.start_new_series(c, "two")
+    c.execute("UPDATE block_series SET created_at_ms=5000 WHERE id=?", (second,))
+    c.execute("ALTER TABLE block_series DROP COLUMN closed_at_ms")
+    c.commit()
+    c.close()
+    c = db.connect(path)
+    rows = {r["id"]: r for r in db.list_block_series(c)}
+    assert rows[first]["closed_at_ms"] == 5000  # ended when its successor started
+    assert rows[second]["closed_at_ms"] is None
+    assert db.open_series_id(c) == second
+    c.close()
+
+
+def test_connect_does_not_open_a_series_after_the_last_was_closed(tmp_path):
+    path = tmp_path / "db.sqlite"
+    c = db.connect(path)
+    db.close_series(c, db.current_series_id(c))
+    c.close()
+    c = db.connect(path)
+    assert db.open_series_id(c) is None
+    assert c.execute("SELECT COUNT(*) FROM block_series").fetchone()[0] == 1
+    c.close()
+
+
 def test_seed_block_series_backfills_legacy_blocks(tmp_path):
     """Upgrading a db whose blocks predate series: every block must be assigned
     to a default series so indexing/labels work."""

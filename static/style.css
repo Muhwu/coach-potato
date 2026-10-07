@@ -998,6 +998,9 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .series-modal-title input { flex: 1; min-width: 8em; }
 .series-modal .md-body { max-height: 50vh; overflow-y: auto; }
 .series-modal textarea { width: 100%; }
+.series-modal h4 { margin: 14px 0 4px; font-size: 13px; color: var(--text-secondary); }
+.series-modal-actions { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
+.series-close-form > p { margin: 0 0 8px; }
 .import-all-row { display: flex; align-items: center; gap: 8px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 

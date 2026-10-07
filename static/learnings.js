@@ -8,17 +8,22 @@
    no endpoint of its own; the learnings-only Markdown export is the one
    server-side piece. Uses globals from app.js ($, escapeHtml, renderNotes,
    champIcon, displayName, fmtDate) and blocks.js (blockState, loadBlocks,
-   blockDate, blockIndex, focusBlock, seriesById). */
+   blockDate, blockIndex, focusBlock, seriesById, seriesClosed, openSeriesModal,
+   reopenSeries, refreshAfterSeriesChange). */
 
 const learnState = {
   wired: false,
   // "blocks" = one card per block, grouped by series; "bullets" = every
   // top-level bullet as its own line, which is how learnings are actually
-  // written and the only way a year of them reads in one sitting
+  // written and the only way a year of them reads in one sitting; "closing" =
+  // each series' closing notes beside its goals, the challenge-level read
   mode: localStorage.getItem("cp-learn-mode") || "blocks",
   order: localStorage.getItem("cp-learn-order") || "newest",
   search: "",
   series: "",
+  // "" = every series, "active" / "closed" — closed series are the finished
+  // challenges, which is where closing notes live
+  status: localStorage.getItem("cp-learn-status") || "",
   champion: "",
   showEmpty: false,
   editing: null,  // block id whose learnings are open for inline editing
@@ -39,6 +44,11 @@ async function initLearnings() {
     });
     $("#learn-series").addEventListener("change", (e) => {
       learnState.series = e.target.value;
+      renderLearnings();
+    });
+    $("#learn-status").addEventListener("change", (e) => {
+      learnState.status = e.target.value;
+      localStorage.setItem("cp-learn-status", learnState.status);
       renderLearnings();
     });
     $("#learn-champion").addEventListener("change", (e) => {
@@ -122,9 +132,26 @@ function highlightLearnMatches(root) {
 
 // ---------- filtering ----------
 
+function learnStatusMatches(series) {
+  if (!learnState.status || !blockState.seriesEnabled) return true;
+  const closed = seriesClosed(series);  // blocks.js
+  return learnState.status === "closed" ? closed : !closed;
+}
+
+// the series the filters leave, in display order
+function learnSeriesList() {
+  let list = blockState.series.slice();  // newest first from the API
+  if (learnState.order === "oldest") list.reverse();
+  if (learnState.series) list = list.filter((x) => x.id === +learnState.series);
+  return list.filter(learnStatusMatches);
+}
+
 function learnBlocks() {
   let blocks = blockState.blocks.slice();  // newest first from the API
   if (learnState.series) blocks = blocks.filter((b) => b.series_id === +learnState.series);
+  if (learnState.status && blockState.seriesEnabled) {
+    blocks = blocks.filter((b) => learnStatusMatches(seriesById(b.series_id) || {}));
+  }
   if (learnState.champion) {
     blocks = blocks.filter((b) => b.games.some((g) => g.my_champion === learnState.champion));
   }
@@ -144,9 +171,13 @@ function renderLearnFilters() {
   const series = $("#learn-series");
   series.innerHTML = `<option value="">All series</option>` + blockState.series
     .map((s) => `<option value="${s.id}"${+learnState.series === s.id ? " selected" : ""}>${
-      escapeHtml(s.title || "Series")}</option>`).join("");
+      escapeHtml(s.title || "Series")}${seriesClosed(s) ? " (closed)" : ""}</option>`).join("");
   series.parentElement.classList.toggle("hidden", !blockState.seriesEnabled
                                                   || blockState.series.length < 2);
+  $("#learn-status").value = learnState.status;
+  $("#learn-status").parentElement.classList.toggle("hidden", !blockState.seriesEnabled);
+  $("#learn-mode").querySelector('[data-mode="closing"]')
+    .classList.toggle("hidden", !blockState.seriesEnabled);
   const champion = $("#learn-champion");
   champion.innerHTML = `<option value="">All champions</option>` + learnChampions()
     .map((c) => `<option value="${c}"${c === learnState.champion ? " selected" : ""}>${
@@ -202,13 +233,13 @@ function learnBlockCard(block) {
   </div>`;
 }
 
-// Goals / "How it went" — the same click-to-edit / blur-to-save contract as
+// Goals / closing notes — the same click-to-edit / blur-to-save contract as
 // a block's learnings
 const SERIES_FIELDS = {
   goals: { heading: "Goals", empty: "No goals set — click to write what this series is for.",
            placeholder: "What is this series for? e.g. – 70 CS by 10 min, – no solo deaths" },
-  closing_notes: { heading: "How it went",
-                   empty: "No closing notes yet — click to write them when the challenge ends.",
+  closing_notes: { heading: "Closing notes",
+                   empty: "No closing notes yet — click to write how it went.",
                    placeholder: "Did you hit the goals? What actually changed, and what's next?" },
 };
 
@@ -241,6 +272,7 @@ function learnSeriesGroup(series, blocks) {
   const games = blocks.flatMap((b) => b.games);
   const wins = games.filter((g) => g.win).length;
   const isCurrent = series.id === blockState.currentSeriesId;
+  const closed = seriesClosed(series);
   const head = `<div class="learn-series-head">
     <button class="preset seg-toggle learn-series-toggle" data-id="${series.id}"
       aria-expanded="${!collapsed}" title="${collapsed ? "Expand" : "Collapse"} this series">
@@ -249,10 +281,11 @@ function learnSeriesGroup(series, blocks) {
       value="${escapeHtml(series.title || "")}" placeholder="Series name" title="Series name"
       size="${Math.max(12, (series.title || "").length + 2)}"
       aria-label="Series name">
-    ${isCurrent ? `<span class="block-badge">active</span>` : ""}
+    ${learnSeriesBadges(series)}
     <span class="muted">${blocks.length} ${blocks.length === 1 ? "block" : "blocks"}
       · ${games.length ? `${wins}–${games.length - wins}` : "no games yet"}
       · ${written.length} with learnings</span>
+    ${learnSeriesActions(series)}
   </div>`;
   if (collapsed) return `<section class="learn-series${isCurrent ? " learn-series-current" : ""}">${head}</section>`;
   const body = !blocks.length
@@ -266,8 +299,54 @@ function learnSeriesGroup(series, blocks) {
   return `<section class="learn-series${isCurrent ? " learn-series-current" : ""}">
     ${head}${learnSeriesField(series, "goals")}
     <div class="learn-cards">${body}</div>
-    ${hidden}${learnSeriesField(series, "closing_notes")}
+    ${hidden}${closed || (series.closing_notes || "").trim()
+      ? learnSeriesField(series, "closing_notes") : ""}
   </section>`;
+}
+
+function learnSeriesBadges(series) {
+  const isCurrent = series.id === blockState.currentSeriesId;
+  return `${isCurrent ? `<span class="block-badge">active</span>` : ""}${seriesClosed(series)
+    ? `<span class="block-badge block-closed">closed ${escapeHtml(fmtDate(series.closed_at_ms))}</span>`
+    : ""}`;
+}
+
+// close out the active series (the popup asks for the closing notes), or
+// reopen a closed one while nothing else is active
+function learnSeriesActions(series) {
+  if (!seriesClosed(series)) {
+    return `<span class="learn-card-actions"><button class="preset learn-series-close"
+      data-id="${series.id}" title="End this series and write its closing notes"
+      >Close series…</button></span>`;
+  }
+  if (blockState.currentSeriesId === null) {
+    return `<span class="learn-card-actions"><button class="preset learn-series-reopen"
+      data-id="${series.id}" title="Make this the active series again">Reopen</button></span>`;
+  }
+  return "";
+}
+
+// "Closing notes" mode: one card per series — its goals beside how it went,
+// so the outcome reads against the intent
+function learnClosingCard(series) {
+  const blocks = blockState.blocks.filter((b) => b.series_id === series.id);
+  const games = blocks.flatMap((b) => b.games);
+  const wins = games.filter((g) => g.win).length;
+  return `<section class="learn-series${series.id === blockState.currentSeriesId ? " learn-series-current" : ""}">
+    <div class="learn-series-head">
+      <h3>${escapeHtml(series.title || "Series")}</h3>
+      ${learnSeriesBadges(series)}
+      <span class="muted">${blocks.length} ${blocks.length === 1 ? "block" : "blocks"}
+        · ${games.length ? `${wins}–${games.length - wins}` : "no games"}</span>
+      ${learnSeriesActions(series)}
+    </div>
+    ${(series.goals || "").trim() ? learnSeriesField(series, "goals") : ""}
+    ${learnSeriesField(series, "closing_notes")}
+  </section>`;
+}
+
+function learnSeriesTextMatches(series) {
+  return learnMatches(series.title) || learnMatches(series.goals) || learnMatches(series.closing_notes);
 }
 
 function learnBulletRow(block, item) {
@@ -298,7 +377,19 @@ function renderLearnings() {
     + `${blocks.length === 1 ? "block" : "blocks"} with learnings · ${totalItems} `
     + `${totalItems === 1 ? "entry" : "entries"}`;
 
-  if (learnState.mode === "bullets") {
+  if (learnState.mode === "closing" && blockState.seriesEnabled) {
+    // a series' closing notes are the point here — ones not written yet only
+    // show for closed series (that's the gap worth noticing) unless searching
+    const list = learnSeriesList().filter((x) => (x.closing_notes || "").trim()
+      ? learnSeriesTextMatches(x) : seriesClosed(x) && !learnState.search.trim());
+    const withNotes = list.filter((x) => (x.closing_notes || "").trim()).length;
+    summary.textContent = `${withNotes} ${withNotes === 1 ? "series" : "series"} with closing notes`;
+    target.innerHTML = list.length
+      ? list.map(learnClosingCard).join("")
+      : `<div class="muted">${learnState.search.trim()
+        ? "No closing notes match that search."
+        : "No closing notes yet — close a series (Close series… on its header) to write them."}</div>`;
+  } else if (learnState.mode === "bullets") {
     const rows = blocks.flatMap((block) => learningItems(block.learnings)
       .filter(learnMatches)
       .map((item) => learnBulletRow(block, item)));
@@ -321,11 +412,13 @@ function renderLearnings() {
       // just started has no blocks yet, and this is where its goals get
       // written. A search or champion filter is about blocks, so there only
       // series with a matching block remain.
+      // A search also keeps a series whose name, goals or closing notes match.
       const narrowed = learnState.search.trim() || learnState.champion;
-      let seriesList = blockState.series.slice();  // newest first from the API
-      if (learnState.order === "oldest") seriesList.reverse();
-      if (learnState.series) seriesList = seriesList.filter((x) => x.id === +learnState.series);
-      if (narrowed) seriesList = seriesList.filter((x) => bySeries.has(x.id));
+      let seriesList = learnSeriesList();
+      if (narrowed) {
+        seriesList = seriesList.filter((x) => bySeries.has(x.id)
+          || (!learnState.champion && learnSeriesTextMatches(x)));
+      }
       // blocks whose series row is somehow missing still get a group
       for (const id of bySeries.keys()) {
         if (!seriesById(id)) seriesList.push({ id, title: "", goals: "", closing_notes: "" });
@@ -341,7 +434,7 @@ function renderLearnings() {
   }
   $("#learn-show-empty").textContent = learnState.showEmpty
     ? "Hide blocks without learnings" : "Show blocks without learnings";
-  $("#learn-show-empty").classList.toggle("hidden", learnState.mode === "bullets");
+  $("#learn-show-empty").classList.toggle("hidden", learnState.mode !== "blocks");
   wireLearnings(target);
   target.querySelectorAll(".md-body").forEach(highlightLearnMatches);
 }
@@ -353,6 +446,12 @@ function wireLearnings(target) {
       learnState.collapsed.has(id) ? learnState.collapsed.delete(id) : learnState.collapsed.add(id);
       persistLearnCollapsed();
       renderLearnings();
+    }));
+  target.querySelectorAll(".learn-series-close").forEach((btn) =>
+    btn.addEventListener("click", () => openSeriesModal(+btn.dataset.id, { editing: "close" })));
+  target.querySelectorAll(".learn-series-reopen").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (await reopenSeries(+btn.dataset.id)) await refreshAfterSeriesChange();  // blocks.js
     }));
   target.querySelectorAll(".learn-series-title").forEach((input) =>
     input.addEventListener("change", async () => {
@@ -441,11 +540,28 @@ function wireLearnings(target) {
 // the same shape as /api/blocks/learnings.md, but for what's on screen: the
 // filters are the review, so the copy should follow them
 function learningsMarkdown() {
+  if (learnState.mode === "closing" && blockState.seriesEnabled) {
+    const lines = ["# Series closing notes", ""];
+    for (const series of learnSeriesList()) {
+      if (!(series.closing_notes || "").trim() || !learnSeriesTextMatches(series)) continue;
+      lines.push(`## ${series.title || "Series"}`, "");
+      if ((series.goals || "").trim()) lines.push("**Goals**", "", series.goals.trim(), "");
+      lines.push("**Closing notes**", "", series.closing_notes.trim(), "");
+    }
+    return lines.join("\n").trim();
+  }
   const lines = ["# Block learnings", ""];
   const blocks = learnBlocks().filter((b) => b.learnings.trim() && learnMatches(b.learnings));
   let series = null;
+  const closeSeries = () => {
+    const row = series !== null && seriesById(series);
+    if (row && (row.closing_notes || "").trim()) {
+      lines.push("**Closing notes**", "", row.closing_notes.trim(), "");
+    }
+  };
   for (const block of blocks) {
     if (blockState.seriesEnabled && block.series_id !== series) {
+      closeSeries();
       series = block.series_id;
       const row = seriesById(series);
       lines.push(`## ${(row && row.title) || "Series"}`, "");
@@ -456,6 +572,7 @@ function learningsMarkdown() {
                + `(${wins}–${block.games.length - wins})`, "");
     lines.push(block.learnings.trim(), "");
   }
+  if (blockState.seriesEnabled) closeSeries();
   return lines.join("\n").trim();
 }
 

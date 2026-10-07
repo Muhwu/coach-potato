@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.68.0",
+      "date": "2026-10-08",
+      "items": [
+        "Series can now be closed out. Open a series (its name on the champion-pool line, a block's series bubble, or its header in Learnings) and choose Close series… to write its closing notes as you end it; the block in progress is finished where it stands and your next game starts a new series. Closed series show a closed badge and can be reopened if nothing else is active.",
+        "Learnings has a Status filter (active / closed series) and a new “Closing notes” mode that lists every series' closing notes beside its goals — searchable, and included in Copy and Export .md."
+      ]
+    },
+    {
       "version": "1.67.1",
       "date": "2026-09-24",
       "items": [

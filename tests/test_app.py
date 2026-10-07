@@ -2057,6 +2057,23 @@ def test_block_series_goals_survive_a_new_series(client):
     assert series[first]["goals"] == "first goals"  # older series keeps its goals
 
 
+def test_close_and_reopen_series_endpoints(client):
+    sid = client.get("/api/blocks").json()["current_series_id"]
+    r = client.post(f"/api/blocks/series/{sid}/close", json={"closing_notes": "went well"})
+    assert r.status_code == 200
+    assert r.json()["closed_at_ms"] is not None and r.json()["closing_notes"] == "went well"
+    body = client.get("/api/blocks").json()
+    assert body["current_series_id"] is None  # nothing active until a new one
+    assert body["series"][0]["closed_at_ms"] is not None
+    assert client.post(f"/api/blocks/series/{sid}/close").status_code == 409
+    assert client.post("/api/blocks/series/9999/close").status_code == 404
+    assert client.post(f"/api/blocks/series/{sid}/reopen").status_code == 200
+    assert client.get("/api/blocks").json()["current_series_id"] == sid
+    assert client.post(f"/api/blocks/series/{sid}/reopen").status_code == 409
+    client.post("/api/blocks/series", json={"title": "next"})  # closes sid
+    assert client.post(f"/api/blocks/series/{sid}/reopen").status_code == 409
+
+
 def test_series_closing_notes_round_trip_and_independence(client):
     sid = client.get("/api/blocks").json()["current_series_id"]
     assert client.get("/api/blocks").json()["series"][0]["closing_notes"] == ""

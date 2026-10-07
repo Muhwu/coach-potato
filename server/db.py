@@ -151,7 +151,8 @@ CREATE TABLE IF NOT EXISTS block_series (
     title TEXT NOT NULL DEFAULT '',
     goals TEXT NOT NULL DEFAULT '',
     closing_notes TEXT NOT NULL DEFAULT '',
-    created_at_ms INTEGER
+    created_at_ms INTEGER,
+    closed_at_ms INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS blocks (
@@ -488,6 +489,16 @@ def _migrate(conn):
         if "closing_notes" not in series_columns:  # the series retrospective
             conn.execute(
                 "ALTER TABLE block_series ADD COLUMN closing_notes TEXT NOT NULL DEFAULT ''")
+        if "closed_at_ms" not in series_columns:  # a series can be closed out
+            conn.execute("ALTER TABLE block_series ADD COLUMN closed_at_ms INTEGER")
+            # Before this, starting a new series implicitly ended the previous
+            # one — so every series but the newest counts as closed, stamped
+            # when its successor was started. Runs once, with the column.
+            conn.execute(
+                """UPDATE block_series SET closed_at_ms = COALESCE(
+                       (SELECT MIN(n.created_at_ms) FROM block_series n
+                        WHERE n.id > block_series.id), created_at_ms)
+                   WHERE id < (SELECT MAX(id) FROM block_series)""")
     block_columns = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
     if block_columns:
         if "pool_snapshot" not in block_columns:
@@ -1523,16 +1534,25 @@ def create_block_series(conn, title=None):
     return cursor.lastrowid
 
 
+def open_series_id(conn):
+    """The active series: the newest one not closed out, or None when every
+    series has been closed (the next game then starts a fresh one)."""
+    row = conn.execute(
+        """SELECT id FROM block_series WHERE closed_at_ms IS NULL
+           ORDER BY id DESC LIMIT 1""").fetchone()
+    return row["id"] if row else None
+
+
 def current_series_id(conn):
-    """Newest series' id, creating a default one if none exists yet."""
-    row = conn.execute("SELECT id FROM block_series ORDER BY id DESC LIMIT 1").fetchone()
-    return row["id"] if row else create_block_series(conn)
+    """The series new blocks join — the active one, creating a default series
+    when none is open (none yet, or the last one was closed out)."""
+    return open_series_id(conn) or create_block_series(conn)
 
 
 def list_block_series(conn):
-    """All block series, newest first (the current one is the newest)."""
+    """All block series, newest first."""
     return conn.execute(
-        """SELECT id, title, goals, closing_notes, created_at_ms
+        """SELECT id, title, goals, closing_notes, created_at_ms, closed_at_ms
            FROM block_series ORDER BY id DESC""").fetchall()
 
 
@@ -1559,27 +1579,96 @@ def update_block_series(conn, series_id, title=None, goals=None, closing_notes=N
 
 def seed_block_series(conn):
     """Ensure a series exists and every block belongs to one — runs on connect
-    (idempotent). First upgrade: all existing blocks join the default series."""
-    sid = current_series_id(conn)
+    (idempotent). First upgrade: all existing blocks join the default series.
+    Never opens a series just because the last one was closed out — that only
+    happens when a game actually needs one."""
+    row = conn.execute("SELECT MAX(id) AS id FROM block_series").fetchone()
+    sid = row["id"] if row["id"] is not None else create_block_series(conn)
     with conn:
         conn.execute("UPDATE blocks SET series_id=? WHERE series_id IS NULL", (sid,))
+
+
+def _finish_open_block(conn, series_id=None):
+    """Finish the in-progress block so the next game starts clean. With
+    `series_id`, only a block belonging to that series. Returns the open
+    block's id when it was empty and left alone (the caller decides where it
+    goes), else None."""
+    open_block = _open_block(conn)
+    if open_block is None:
+        return None
+    row = conn.execute(
+        """SELECT series_id, (SELECT COUNT(*) FROM block_games WHERE block_id=b.id) AS c
+           FROM blocks b WHERE b.id=?""", (open_block,)).fetchone()
+    if series_id is not None and row["series_id"] != series_id:
+        return None
+    if row["c"]:
+        snapshot_pool_to_block(conn, open_block)  # close it out where it stood
+        return None
+    return open_block
 
 
 def start_new_series(conn, title=None):
     """Begin a fresh series so subsequent blocks number from #1 under it. Any
     in-progress (open) block is finalized if it has games, or moved into the
-    new series if empty, so the next game starts the new series cleanly."""
-    open_block = _open_block(conn)
+    new series if empty, so the next game starts the new series cleanly. Only
+    one series is active at a time, so the previous one is closed out (its
+    closing notes can still be written afterwards)."""
+    empty_block = _finish_open_block(conn)
+    with conn:
+        conn.execute(f"UPDATE block_series SET closed_at_ms={_now_expr()} "
+                     "WHERE closed_at_ms IS NULL")
     new_sid = create_block_series(conn, title)
-    if open_block is not None:
-        count = conn.execute(
-            "SELECT COUNT(*) c FROM block_games WHERE block_id=?", (open_block,)).fetchone()["c"]
-        if count:
-            snapshot_pool_to_block(conn, open_block)  # close it out under the old series
-        else:
-            with conn:  # empty open block — just move it into the new series
-                conn.execute("UPDATE blocks SET series_id=? WHERE id=?", (new_sid, open_block))
+    if empty_block is not None:
+        with conn:  # empty open block — just move it into the new series
+            conn.execute("UPDATE blocks SET series_id=? WHERE id=?", (new_sid, empty_block))
     return new_sid
+
+
+def close_series(conn, series_id, closing_notes=None):
+    """Close out a series (the end of a challenge), optionally writing its
+    closing notes in the same step. Its in-progress block is finished where it
+    stands — or dropped if it's an empty, untouched placeholder — so the next
+    game starts a new series instead of landing in a closed one. Returns
+    "ok", "missing" or "closed" (already closed)."""
+    row = conn.execute(
+        "SELECT closed_at_ms FROM block_series WHERE id=?", (series_id,)).fetchone()
+    if row is None:
+        return "missing"
+    if row["closed_at_ms"] is not None:
+        return "closed"
+    empty_block = _finish_open_block(conn, series_id)
+    if empty_block is not None:
+        block = conn.execute("SELECT title, learnings FROM blocks WHERE id=?",
+                             (empty_block,)).fetchone()
+        if (block["title"] or "").strip() or (block["learnings"] or "").strip():
+            snapshot_pool_to_block(conn, empty_block)  # keep what was written
+        else:
+            delete_block(conn, empty_block)
+    with conn:
+        conn.execute(f"UPDATE block_series SET closed_at_ms={_now_expr()} WHERE id=?",
+                     (series_id,))
+        if closing_notes is not None:
+            conn.execute("UPDATE block_series SET closing_notes=? WHERE id=?",
+                         (closing_notes, series_id))
+    return "ok"
+
+
+def reopen_series(conn, series_id):
+    """Undo a close. Only one series is active at a time, so this is refused
+    while another series is open. Blocks finished by the close stay finished;
+    the next game starts a new block in the reopened series. Returns "ok",
+    "missing", "open" (it already is) or "conflict"."""
+    row = conn.execute(
+        "SELECT closed_at_ms FROM block_series WHERE id=?", (series_id,)).fetchone()
+    if row is None:
+        return "missing"
+    if row["closed_at_ms"] is None:
+        return "open"
+    if open_series_id(conn) is not None:
+        return "conflict"
+    with conn:
+        conn.execute("UPDATE block_series SET closed_at_ms=NULL WHERE id=?", (series_id,))
+    return "ok"
 
 
 def create_block(conn):

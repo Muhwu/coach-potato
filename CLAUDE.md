@@ -400,6 +400,22 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   first game (it used to be derivable only from a block's `series_title`).
   `closing_notes` is the end-of-series retrospective (did the goals land, what
   actually changed), same partial-update rules.
+  **A series can be closed out** (`block_series.closed_at_ms`): `db.close_series`
+  (`POST /api/blocks/series/{id}/close`, optional `closing_notes` written in the
+  same step) finishes that series' in-progress block (pool snapshot; an empty
+  untouched placeholder block is deleted instead) so the next game never lands
+  in a closed series; `db.reopen_series` (`.../reopen`) is refused (409) while
+  another series is open. At most ONE series is open: `start_new_series` closes
+  the previous one, and the column's one-time migration closes every series but
+  the newest (stamped with its successor's `created_at_ms`).
+  `db.open_series_id` is the active one or None; `current_series_id` (used by
+  `create_block`) lazily opens a fresh series when none is — `seed_block_series`
+  deliberately does NOT, so restarting the app after a close stays "none
+  active". `/api/blocks` `current_series_id` is therefore nullable. UI: the
+  series popup (`renderSeriesModal`, `editing` = null/"goals"/"closing_notes"/
+  "close") has Close series…/Reopen; Learnings has the same buttons on series
+  headers, a Status filter (`cp-learn-status`) and a third "Closing notes"
+  mode (`learnClosingCard`).
   There is no separate Series view any more (merged into Learnings in
   v1.67 — `#series` deep links redirect there, and `"series"` stays in
   `HIDEABLE_VIEWS` only so older saved `hidden_views` still validate): the

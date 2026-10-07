@@ -1808,7 +1808,9 @@ def api_blocks():
         series = [dict(r) for r in db.list_block_series(conn)]
         return {"blocks": _blocks_payload(conn), "block_size": db.get_block_size(conn),
                 "series": series,
-                "current_series_id": series[0]["id"] if series else None,
+                # None once the active series has been closed out — the next
+                # game then starts a fresh one
+                "current_series_id": db.open_series_id(conn),
                 "series_enabled": db.get_settings(conn).get("block_series_enabled") != "0"}
     finally:
         conn.close()
@@ -1850,6 +1852,46 @@ def api_update_block_series(series_id: int, body: dict):
             raise HTTPException(404, "no such series")
         row = next((r for r in db.list_block_series(conn) if r["id"] == series_id), None)
         return dict(row) if row else {"updated": True}
+    finally:
+        conn.close()
+
+
+@app.post("/api/blocks/series/{series_id}/close")
+def api_close_block_series(series_id: int, body: dict | None = None):
+    """Close out a series — the end of a challenge — optionally writing its
+    `closing_notes` (the retrospective) in the same step. The in-progress block
+    is finished where it stands, so the next game starts a new series."""
+    closing_notes = (body or {}).get("closing_notes")
+    conn = get_conn()
+    try:
+        result = db.close_series(
+            conn, series_id, None if closing_notes is None else str(closing_notes))
+        if result == "missing":
+            raise HTTPException(404, "no such series")
+        if result == "closed":
+            raise HTTPException(409, "that series is already closed")
+        row = next(r for r in db.list_block_series(conn) if r["id"] == series_id)
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@app.post("/api/blocks/series/{series_id}/reopen")
+def api_reopen_block_series(series_id: int):
+    """Undo a close. Refused (409) while another series is active — only one
+    series runs at a time."""
+    conn = get_conn()
+    try:
+        result = db.reopen_series(conn, series_id)
+        if result == "missing":
+            raise HTTPException(404, "no such series")
+        if result == "open":
+            raise HTTPException(409, "that series isn't closed")
+        if result == "conflict":
+            raise HTTPException(
+                409, "another series is active — close it first to reopen this one")
+        row = next(r for r in db.list_block_series(conn) if r["id"] == series_id)
+        return dict(row)
     finally:
         conn.close()
 
@@ -2277,7 +2319,8 @@ def api_blocks_learnings_md(series_id: int | None = None):
         for series in series_rows:
             written = [b for b in blocks
                        if b["series_id"] == series["id"] and b["learnings"].strip()]
-            if not written and not (series["goals"] or "").strip():
+            if (not written and not (series["goals"] or "").strip()
+                    and not (series["closing_notes"] or "").strip()):
                 continue
             parts.append(f"\n## {series['title'] or 'Series'}\n")
             if (series["goals"] or "").strip():
@@ -2285,7 +2328,7 @@ def api_blocks_learnings_md(series_id: int | None = None):
             for block in written:
                 parts.extend(block_section(block, 3))
             if (series["closing_notes"] or "").strip():
-                parts.append(f"\n**How it went**\n\n{series['closing_notes'].strip()}\n")
+                parts.append(f"\n**Closing notes**\n\n{series['closing_notes'].strip()}\n")
     else:
         for block in blocks:
             if block["learnings"].strip():

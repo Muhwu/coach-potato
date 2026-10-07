@@ -102,10 +102,13 @@ async function initBlocks() {
     // the pool editor itself lives in Settings (wired by initSettings) —
     // Blocks only shows the read-only summary with an edit shortcut
     $("#new-series-btn").addEventListener("click", startNewSeries);
+    // with no active series (the last one was closed out) the chip offers to
+    // start the next one instead
     $("#series-current-name").addEventListener("click", () =>
-      openSeriesModal(blockState.currentSeriesId));
+      blockState.currentSeriesId === null
+        ? startNewSeries() : openSeriesModal(blockState.currentSeriesId));
     $("#series-edit-btn").addEventListener("click", () =>
-      openSeriesModal(blockState.currentSeriesId, { editing: true }));
+      openSeriesModal(blockState.currentSeriesId, { editing: "goals" }));
     $("#pool-edit-btn").addEventListener("click", () => setMainView("pool"));
     $("#blocks-add-game").addEventListener("click", openAddGameModal);
     $("#copy-discord").addEventListener("click", () => {
@@ -663,7 +666,9 @@ async function patchSeries(seriesId, body) {
 
 async function startNewSeries() {
   const suggested = `Since ${fmtDate(Date.now())}`;  // app.js — honours the date-format setting
-  const title = prompt("Name this block series (blocks in it number from #1):", suggested);
+  const active = seriesById(blockState.currentSeriesId);
+  const title = prompt("Name this block series (blocks in it number from #1)"
+    + (active ? ` — "${active.title || "Series"}" will be closed:` : ":"), suggested);
   if (title === null) return; // cancelled
   await fetch("/api/blocks/series", {
     method: "POST",
@@ -677,28 +682,90 @@ function seriesById(seriesId) {
   return blockState.series.find((s) => s.id === seriesId) || null;
 }
 
+async function closeSeries(seriesId, closingNotes) {
+  const response = await fetch(`/api/blocks/series/${seriesId}/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ closing_notes: closingNotes }),
+  });
+  return response.ok;
+}
+
+async function reopenSeries(seriesId) {
+  const response = await fetch(`/api/blocks/series/${seriesId}/reopen`, { method: "POST" });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    alert(body.detail || "Couldn't reopen that series.");
+  }
+  return response.ok;
+}
+
+// a series can be closed out (the end of a challenge) — then it's history,
+// and closing notes are what it's remembered by
+function seriesClosed(series) {
+  return !!(series && series.closed_at_ms);
+}
+
 // The active series sits on the champion-pool line — the one row that's always
 // on screen — so a series started with "+ New series" is visible immediately,
 // before any game has landed in it. Its goals live in the popup below.
 function renderCurrentSeries() {
   const box = $("#series-current");
   const series = seriesById(blockState.currentSeriesId);
-  const show = blockState.seriesEnabled && series !== null;
+  const show = blockState.seriesEnabled && (series !== null || blockState.series.length > 0);
   box.classList.toggle("hidden", !show);
   if (!show) return;
-  $("#series-current-name").textContent = series.title || "Series";
-  $("#series-current-name").title = series.goals
-    ? "Series goals" : "No goals set yet — click to add";
+  const name = $("#series-current-name");
+  if (series === null) {  // the last series was closed out
+    name.textContent = "None active — start one";
+    name.title = "Your last series is closed. Start a new one, or the next game you add starts one for you.";
+    $("#series-current-goals").classList.add("hidden");
+    $("#series-edit-btn").classList.add("hidden");
+    return;
+  }
+  name.textContent = series.title || "Series";
+  name.title = series.goals ? "Series goals" : "No goals set yet — click to add";
   $("#series-current-goals").classList.toggle("hidden", !series.goals);
+  $("#series-edit-btn").classList.remove("hidden");
 }
 
-// Series goals popup — opened from the pool line or from a block's series
-// bubble, so an older series' goals stay reachable from its own blocks.
-function openSeriesModal(seriesId, { editing = false } = {}) {
+// Series popup — opened from the pool line or from a block's series bubble, so
+// an older series stays reachable from its own blocks. It's also where a series
+// is closed out, writing its closing notes on the way. `editing` is which
+// part is open: null, "goals", "closing_notes" or "close" (the close form).
+function openSeriesModal(seriesId, { editing = null } = {}) {
   if (!seriesById(seriesId)) return;
   blockState.seriesModal = { id: seriesId, editing };
   renderSeriesModal();
   $("#modal-overlay").classList.remove("hidden");
+}
+
+const SERIES_MODAL_FIELDS = {
+  goals: { heading: "Goals", empty: "No goals set for this series yet.", edit: "✎ Edit goals",
+           placeholder: "What is this series for? e.g. – 70 CS by 10 min, – no solo deaths" },
+  closing_notes: { heading: "Closing notes", empty: "No closing notes written yet.",
+                   edit: "✎ Edit closing notes",
+                   placeholder: "How did it go? Did you hit the goals? What actually changed, and what's next?" },
+};
+
+function seriesModalField(series, field, editing) {
+  const def = SERIES_MODAL_FIELDS[field];
+  if (editing === field) {
+    return `<h4>${def.heading}</h4>
+      <textarea class="series-field-input" id="series-${field}-input" rows="8"
+        placeholder="${escapeHtml(def.placeholder)}">${escapeHtml(series[field] || "")}</textarea>
+      <div class="session-actions">
+        <button class="preset series-field-save" data-field="${field}">Save</button>
+        <button class="preset series-cancel">Cancel</button>
+        <span class="muted series-status"></span>
+      </div>`;
+  }
+  return `<h4>${def.heading}</h4>
+    <div class="md-body">${(series[field] || "").trim()
+      ? renderNotes(series[field]) : `<p class="muted">${def.empty}</p>`}</div>
+    <div class="session-actions">
+      <button class="preset series-field-edit" data-field="${field}">${def.edit}</button>
+    </div>`;
 }
 
 function renderSeriesModal() {
@@ -706,25 +773,42 @@ function renderSeriesModal() {
   const series = state && seriesById(state.id);
   if (!series) return;
   const isCurrent = series.id === blockState.currentSeriesId;
-  const body = state.editing
-    ? `<label class="filter-label" for="series-goals-input">Goals (Markdown)</label>
-       <textarea id="series-goals-input" rows="10"
-         placeholder="What is this series for? e.g. – 70 CS by 10 min, – no solo deaths"
-         >${escapeHtml(series.goals || "")}</textarea>
-       <div class="session-actions">
-         <button class="preset" id="series-goals-save">Save</button>
-         <button class="preset" id="series-goals-cancel">Cancel</button>
-         <span class="muted" id="series-goals-status"></span>
-       </div>`
-    : `<div class="md-body">${series.goals
-         ? renderNotes(series.goals)
-         : `<p class="muted">No goals set for this series yet.</p>`}</div>
-       <div class="session-actions">
-         <button class="preset" id="series-goals-edit">✎ Edit goals</button>
-       </div>`;
+  const closed = seriesClosed(series);
+  let body;
+  if (state.editing === "close") {
+    body = `<div class="series-close-form">
+      <p class="muted">Closing ends this series: its in-progress block is finished where it
+        stands, and the next game you add starts a new series. You can still edit the
+        closing notes afterwards, in this popup or in Learnings.</p>
+      <h4>Closing notes</h4>
+      <textarea id="series-close-input" rows="10"
+        placeholder="${escapeHtml(SERIES_MODAL_FIELDS.closing_notes.placeholder)}"
+        >${escapeHtml(series.closing_notes || "")}</textarea>
+      <div class="session-actions">
+        <button class="preset" id="series-close-confirm">Close series</button>
+        <button class="preset series-cancel">Cancel</button>
+        <span class="muted series-status"></span>
+      </div>
+    </div>`;
+  } else {
+    // closing notes only matter once a series is over (or drafted early)
+    const showClosing = closed || (series.closing_notes || "").trim()
+      || state.editing === "closing_notes";
+    const actions = [];
+    if (!closed) {
+      actions.push(`<button class="preset" id="series-close-start"
+        title="End this series and write how it went">Close series…</button>`);
+    } else if (blockState.currentSeriesId === null) {
+      actions.push(`<button class="preset" id="series-reopen"
+        title="Make this the active series again">Reopen</button>`);
+    }
+    body = `${seriesModalField(series, "goals", state.editing)}
+      ${showClosing ? seriesModalField(series, "closing_notes", state.editing) : ""}
+      ${actions.length ? `<div class="session-actions series-modal-actions">${actions.join("")}</div>` : ""}`;
+  }
   $("#modal-box").innerHTML = `<div class="series-modal">
     <div class="section-head">
-      <h3>Series goals</h3>
+      <h3>${state.editing === "close" ? "Close series" : "Series"}</h3>
       <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
     </div>
     <div class="series-modal-title">
@@ -732,14 +816,30 @@ function renderSeriesModal() {
       <input type="text" id="series-title-input" value="${escapeHtml(series.title || "")}"
         placeholder="Series name">
       ${isCurrent ? `<span class="block-badge">active</span>` : ""}
+      ${closed ? `<span class="block-badge block-closed"
+        title="Closed ${escapeHtml(fmtDate(series.closed_at_ms))}">closed ${
+        escapeHtml(fmtDate(series.closed_at_ms))}</span>` : ""}
     </div>
     ${body}
   </div>`;
   wireSeriesModal(series.id);
 }
 
+// after a close/reopen the active series changes — Blocks and Learnings both
+// read blockState, so reload once and redraw whichever is showing
+async function refreshAfterSeriesChange() {
+  await loadBlocks();
+  if (typeof renderLearnings === "function" && !$("#learnings-view").classList.contains("hidden")) {
+    renderLearnings();  // learnings.js
+  }
+}
+
 function wireSeriesModal(seriesId) {
   const box = $("#modal-box");
+  const setEditing = (editing) => {
+    blockState.seriesModal.editing = editing;
+    renderSeriesModal();
+  };
   box.querySelector("#modal-close").addEventListener("click", closeModal);
   box.querySelector("#series-title-input").addEventListener("change", async (e) => {
     await patchSeries(seriesId, { title: e.target.value });
@@ -748,33 +848,43 @@ function wireSeriesModal(seriesId) {
     renderCurrentSeries();
     renderBlocks();  // series bubbles on the block cards follow the rename
   });
-  const editBtn = box.querySelector("#series-goals-edit");
-  if (editBtn) {
-    editBtn.addEventListener("click", () => {
-      blockState.seriesModal.editing = true;
-      renderSeriesModal();
-    });
-  }
-  const cancel = box.querySelector("#series-goals-cancel");
-  if (cancel) {
-    cancel.addEventListener("click", () => {
-      blockState.seriesModal.editing = false;
-      renderSeriesModal();
-    });
-  }
-  const save = box.querySelector("#series-goals-save");
-  if (save) {
-    save.addEventListener("click", async () => {
-      const value = box.querySelector("#series-goals-input").value;
-      if (!await patchSeries(seriesId, { goals: value })) {
-        box.querySelector("#series-goals-status").textContent = "save failed";
+  box.querySelectorAll(".series-field-edit").forEach((btn) =>
+    btn.addEventListener("click", () => setEditing(btn.dataset.field)));
+  box.querySelectorAll(".series-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => setEditing(null)));
+  box.querySelectorAll(".series-field-save").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const field = btn.dataset.field;
+      const value = box.querySelector(`#series-${field}-input`).value;
+      if (!await patchSeries(seriesId, { [field]: value })) {
+        box.querySelector(".series-status").textContent = "save failed";
         return;  // keep what they typed
       }
       const series = seriesById(seriesId);
-      if (series) series.goals = value;
-      blockState.seriesModal.editing = false;
-      renderSeriesModal();
+      if (series) series[field] = value;
+      setEditing(null);
       renderCurrentSeries();
+    }));
+  const closeStart = box.querySelector("#series-close-start");
+  if (closeStart) closeStart.addEventListener("click", () => setEditing("close"));
+  const confirmClose = box.querySelector("#series-close-confirm");
+  if (confirmClose) {
+    confirmClose.addEventListener("click", async () => {
+      const notes = box.querySelector("#series-close-input").value;
+      if (!await closeSeries(seriesId, notes)) {
+        box.querySelector(".series-status").textContent = "couldn't close the series";
+        return;  // keep what they typed
+      }
+      await refreshAfterSeriesChange();
+      setEditing(null);
+    });
+  }
+  const reopen = box.querySelector("#series-reopen");
+  if (reopen) {
+    reopen.addEventListener("click", async () => {
+      if (!await reopenSeries(seriesId)) return;
+      await refreshAfterSeriesChange();
+      renderSeriesModal();
     });
   }
 }
@@ -830,7 +940,7 @@ function blockCard(block, isCurrent) {
         title="Closed before reaching ${blockState.blockSize} games">closed early</span>` : ""}
       ${!block.closed && block.complete && block.games.length < blockState.blockSize
         ? `<span class="block-badge block-closed"
-            title="Starting a new series finished this block where it stood, so the next game starts clean under the new series">finished with series</span>` : ""}
+            title="Starting or closing a series finished this block where it stood, so the next game starts clean under a new series">finished with series</span>` : ""}
       <span class="muted">${block.games.length}/${blockState.blockSize} games
         ${block.games.length ? `· ${wins}–${block.games.length - wins}` : ""}</span>
       <span class="session-actions block-head-right">
