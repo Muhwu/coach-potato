@@ -991,9 +991,6 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-copy-image { display: inline-flex; align-items: center; }
 .copy-icon { display: block; height: 1em; width: 1em; margin: 0.125em 0; }
 .snapshot-host { position: fixed; left: -10000px; top: 0; pointer-events: none; }
-/* a little breathing room around the card, so the pasted image doesn't sit
-   flush against the edge of a chat preview */
-.snapshot-frame { padding: 14px; background: var(--page-solid); width: max-content; }
 .block-snapshot {
   --surface-1: var(--surface-1-solid);
   --page: var(--page-solid);
@@ -1003,8 +1000,15 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-snapshot .table-wrap { overflow: visible; }
 /* wide notes column: keeps notes to a line or two instead of a tall image */
 .block-snapshot .notes-col, .block-snapshot td.notes-cell { min-width: 380px; max-width: 640px; }
+/* roomier insets than the live card, so nothing sits flush against the edge
+   of a chat preview; every section shares the same 22px content edge,
+   learnings callout included */
+.block-snapshot .session-head, .block-snapshot .block-pool { padding: 12px 22px; }
+.block-snapshot th, .block-snapshot td { padding: 10px 12px; }
+.block-snapshot th:first-child, .block-snapshot td:first-child { padding-left: 22px; }
+.block-snapshot th:last-child, .block-snapshot td:last-child { padding-right: 22px; }
 .snapshot-learnings {
-  margin: 12px 14px 14px;
+  margin: 14px 22px 22px;
   padding: 10px 16px 12px;
   background: var(--accent-wash);
   border: 1px solid var(--border);
@@ -1015,7 +1019,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .snapshot-learnings .md-body > :last-child { margin-bottom: 0; }
 .block-snapshot td.notes-cell .md-body > :first-child { margin-top: 0; }
 .block-snapshot td.notes-cell .md-body > :last-child { margin-bottom: 0; }
-.block-snapshot .snapshot-title { font-size: 15px; padding: 3px 6px; }
+.block-snapshot .snapshot-title { font-size: 15px; }
 /* active series on the champion-pool line: always on screen, so a series with
    no games yet is still visible; both it and the block bubbles open the goals */
 .series-current-inline { display: flex; align-items: center; gap: 6px; margin-left: auto; }

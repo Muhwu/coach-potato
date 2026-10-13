@@ -4,7 +4,7 @@
       "version": "1.69.1",
       "date": "2026-10-13",
       "items": [
-        "The block table's Date column is now off by default (a block is named after its date anyway) — turn it back on from the column picker. The copied block image also has a little margin around it so it doesn't sit flush against the edge when pasted."
+        "The block table's Date column is now off by default (a block is named after its date anyway) — turn it back on from the column picker. The copied block image has roomier padding inside, so its text no longer sits flush against the edge when pasted."
       ]
     },
     {

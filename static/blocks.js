@@ -246,7 +246,7 @@ function blockSnapshotHtml(block) {
       <h4>Learnings</h4>
       <div class="md-body">${renderNotes(block.learnings)}</div>
     </div>` : "";
-  return `<div class="snapshot-frame"><div class="session-card block-card block-snapshot">
+  return `<div class="session-card block-card block-snapshot">
     <div class="session-head">
       <strong class="snapshot-title">${escapeHtml(blockDate(block))}</strong>
       <span class="muted">${block.games.length} games${
@@ -258,7 +258,7 @@ function blockSnapshotHtml(block) {
     ${blockRankLine(block)}
     ${table}
     ${learnings}
-  </div></div>`;
+  </div>`;
 }
 
 // the universal "copy" glyph (two overlapping sheets) — inline SVG in
@@ -276,7 +276,7 @@ async function renderBlockSnapshot(block) {
   host.querySelectorAll("img").forEach((img) => img.removeAttribute("loading"));
   document.body.appendChild(host);
   try {
-    const card = host.firstElementChild; // the frame: card plus its margin
+    const card = host.firstElementChild;
     await Promise.all([...card.querySelectorAll("img")].map((img) =>
       img.complete ? null : new Promise((done) => { img.onload = img.onerror = done; })));
     return await modernScreenshot.domToBlob(card, { scale: 2, type: "image/png" });
