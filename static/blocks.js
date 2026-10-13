@@ -36,7 +36,8 @@ function persistCollapsed() {
 }
 
 const BLOCK_COLS = [
-  { key: "date", label: "Date" },
+  // off by default: a block's name already defaults to its date
+  { key: "date", label: "Date", off: true },
   { key: "account", label: "Account" },
   { key: "me", label: "Me" },
   { key: "opponent", label: "Opponent" },
@@ -86,6 +87,18 @@ function visibleBlockGameCols() {
     cls: k === "notes" ? "notes-col" : "", ...BLOCK_GAME_SORT[k],
   }));
 }
+// Date became default-off after installs had already saved a column choice
+// (which colPrefs prefers over the defaults) — hide it once for them too,
+// keeping the rest of their selection, and leave it alone after that.
+try {
+  if (!localStorage.getItem("cp-cols-blocks-date-off")) {
+    const saved = JSON.parse(localStorage.getItem("cp-cols-blocks-v3"));
+    if (Array.isArray(saved)) {
+      localStorage.setItem("cp-cols-blocks-v3", JSON.stringify(saved.filter((k) => k !== "date")));
+    }
+    localStorage.setItem("cp-cols-blocks-date-off", "1");
+  }
+} catch { /* storage unavailable: defaults apply */ }
 // v3 storage key: new delta columns get their intended defaults for existing installs
 const blockCols = colPrefs("cp-cols-blocks-v3", BLOCK_COLS.map((c) => c.key),
   BLOCK_COLS.filter((c) => !c.off).map((c) => c.key));
@@ -233,7 +246,7 @@ function blockSnapshotHtml(block) {
       <h4>Learnings</h4>
       <div class="md-body">${renderNotes(block.learnings)}</div>
     </div>` : "";
-  return `<div class="session-card block-card block-snapshot">
+  return `<div class="snapshot-frame"><div class="session-card block-card block-snapshot">
     <div class="session-head">
       <strong class="snapshot-title">${escapeHtml(blockDate(block))}</strong>
       <span class="muted">${block.games.length} games${
@@ -245,7 +258,7 @@ function blockSnapshotHtml(block) {
     ${blockRankLine(block)}
     ${table}
     ${learnings}
-  </div>`;
+  </div></div>`;
 }
 
 // the universal "copy" glyph (two overlapping sheets) — inline SVG in
@@ -263,7 +276,7 @@ async function renderBlockSnapshot(block) {
   host.querySelectorAll("img").forEach((img) => img.removeAttribute("loading"));
   document.body.appendChild(host);
   try {
-    const card = host.firstElementChild;
+    const card = host.firstElementChild; // the frame: card plus its margin
     await Promise.all([...card.querySelectorAll("img")].map((img) =>
       img.complete ? null : new Promise((done) => { img.onload = img.onerror = done; })));
     return await modernScreenshot.domToBlob(card, { scale: 2, type: "image/png" });

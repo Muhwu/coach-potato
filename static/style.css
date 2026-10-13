@@ -991,6 +991,9 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-copy-image { display: inline-flex; align-items: center; }
 .copy-icon { display: block; height: 1em; width: 1em; margin: 0.125em 0; }
 .snapshot-host { position: fixed; left: -10000px; top: 0; pointer-events: none; }
+/* a little breathing room around the card, so the pasted image doesn't sit
+   flush against the edge of a chat preview */
+.snapshot-frame { padding: 14px; background: var(--page-solid); width: max-content; }
 .block-snapshot {
   --surface-1: var(--surface-1-solid);
   --page: var(--page-solid);
