@@ -127,25 +127,64 @@ async function initBlocks() {
 }
 
 // Discord renders bold/lists/inline-code but not tables, so this uses
-// plain lines with ✅/❌ result marks.
+// plain lines with ✅/❌ result marks — one per game, carrying the columns
+// currently shown in the block table, in its current sort order.
+function laneText(game, mark) {
+  const manual = manualLaneResult(game, mark);
+  if (manual) return LANE_RESULT_MARKS[manual].symbol;
+  const value = mark === 7 ? game.lane_adv_early : game.lane_adv_late;
+  return value == null ? "–" : value >= 1 ? "✓" : "✗";
+}
+
+function deltaText(value, decimals) {
+  if (value == null) return "–";
+  return `${value > 0 ? "+" : ""}${value.toFixed(decimals)}`;
+}
+
+const DISCORD_GAME_TEXT = {
+  date: (g) => fmtDate(g.game_creation_ms),
+  account: (g) => g.account,
+  me: (g) => champDisplay(g.my_champion) +
+    (blockCols.has("opponent") && g.opp_champion ? ` vs ${champDisplay(g.opp_champion)}` : ""),
+  opponent: (g) => (blockCols.has("me") ? null
+    : g.opp_champion ? `vs ${champDisplay(g.opp_champion)}` : null),
+  lane7: (g) => `lane@7 ${laneText(g, 7)}`,
+  lane14: (g) => `lane@14 ${laneText(g, 14)}`,
+  cs_diff_7: (g) => `ΔCS@7 ${deltaText(g.cs_diff_7, 1)}`,
+  level_diff_7: (g) => `ΔLvl@7 ${deltaText(g.level_diff_7, 0)}`,
+  gold_diff_7: (g) => `ΔGold@7 ${deltaText(g.gold_diff_7, 0)}`,
+  cs_diff_14: (g) => `ΔCS@14 ${deltaText(g.cs_diff_14, 1)}`,
+  level_diff_14: (g) => `ΔLvl@14 ${deltaText(g.level_diff_14, 0)}`,
+  gold_diff_14: (g) => `ΔGold@14 ${deltaText(g.gold_diff_14, 0)}`,
+  kda: (g) => `${g.kills}/${g.deaths}/${g.assists}`,
+  cs: (g) => `${(g.cs * 60 / g.game_duration_s).toFixed(1)} cs/m`,
+};
+
+function blockHeading(block) {
+  const title = block.title ? ` — ${block.title}` : "";
+  const heading = blockState.seriesEnabled
+    ? `${block.series_title} #${block.series_index}` : `Block #${block.global_index}`;
+  return heading + title;
+}
+
 function discordMarkdown(blocks) {
   const lines = [];
   for (const block of blocks) {
     const wins = block.games.filter((g) => g.win).length;
-    const title = block.title ? ` — ${block.title}` : "";
-    const heading = blockState.seriesEnabled
-      ? `${block.series_title} #${block.series_index}` : `Block #${block.global_index}`;
-    lines.push(`**${heading}${title}** (${wins}–${block.games.length - wins})`);
-    if (block.pool) {
+    lines.push(`**${blockHeading(block)}** (${wins}–${block.games.length - wins})`);
+    if (block.pool && (block.pool.main_blind || block.pool.core.length || block.pool.counter.length)) {
       lines.push(`Pool: ★ ${champDisplay(block.pool.main_blind) || "–"}` +
         ` · Core: ${block.pool.core.map(champDisplay).join(", ") || "–"}` +
         ` · Counters: ${block.pool.counter.map(champDisplay).join(", ") || "–"}`);
     }
-    for (const g of block.games) {
-      const opp = g.opp_champion ? ` vs ${champDisplay(g.opp_champion)}` : "";
-      const notes = g.notes ? ` — ${g.notes.replace(/\n+/g, " / ")}` : "";
-      lines.push(`${g.win ? "✅" : "❌"} ${fmtDate(g.game_creation_ms)} · ` +
-        `${champDisplay(g.my_champion)}${opp} · ${g.kills}/${g.deaths}/${g.assists}${notes}`);
+    for (const g of sortRows(block.games, blockState.gameSort, BLOCK_GAME_COLS_ALL)) {
+      const parts = GAME_COL_KEYS
+        .filter((k) => blockCols.has(k) && DISCORD_GAME_TEXT[k])
+        .map((k) => DISCORD_GAME_TEXT[k](g))
+        .filter(Boolean);
+      const notes = blockCols.has("notes") && g.notes
+        ? ` — ${g.notes.replace(/\n+/g, " / ")}` : "";
+      lines.push(`${g.win ? "✅" : "❌"} ${parts.join(" · ")}${notes}`);
     }
     if (block.learnings) {
       lines.push("**Learnings**", block.learnings.trim());
@@ -155,15 +194,98 @@ function discordMarkdown(blocks) {
   return lines.join("\n").trim();
 }
 
-async function copyDiscordMarkdown(blocks) {
+let exportStatusTimer = null;
+function flashExportStatus(text) {
   const status = $("#blocks-export-status");
+  status.textContent = text;
+  clearTimeout(exportStatusTimer);
+  exportStatusTimer = setTimeout(() => { status.textContent = ""; }, 3000);
+}
+
+async function copyDiscordMarkdown(blocks) {
   try {
     await navigator.clipboard.writeText(discordMarkdown(blocks));
-    status.textContent = "copied ✓";
+    flashExportStatus("copied ✓");
   } catch {
-    status.textContent = "copy failed — clipboard unavailable";
+    flashExportStatus("copy failed — clipboard unavailable");
   }
-  setTimeout(() => { status.textContent = ""; }, 2500);
+}
+
+// Static, non-interactive card for one block: heading, pool, rank line, the
+// games table with the visible columns in the current sort, and learnings.
+// No toggles/remove buttons/⏳ markers/editors — it's a picture to share.
+function blockSnapshotHtml(block) {
+  const wins = block.games.filter((g) => g.win).length;
+  const cols = visibleBlockGameCols();
+  const title = block.title || blockDate(block);
+  const series = blockState.seriesEnabled && block.series_title
+    ? `<span class="block-series-bubble">${escapeHtml(block.series_title)}</span>` : "";
+  const games = sortRows(block.games, blockState.gameSort, BLOCK_GAME_COLS_ALL);
+  const rows = games.map((g) => {
+    const cells = blockGameCells(g, true);
+    return `<tr>${cols.map((c) => cells[c.key]).join("")}</tr>`;
+  }).join("");
+  const table = block.games.length ? `<div class="table-wrap block-games"><table>
+      <thead><tr>${cols.map((c) => `<th class="${c.cls}">${c.label}</th>`).join("")}</tr></thead>
+      <tbody>${rows}</tbody></table></div>` : "";
+  const learnings = block.learnings ? `<div class="session-body">
+      <h4>Learnings</h4>
+      <div class="md-body">${renderNotes(block.learnings)}</div>
+    </div>` : "";
+  return `<div class="session-card block-card block-snapshot">
+    <div class="session-head">
+      <strong class="snapshot-title">${escapeHtml(title)}</strong>
+      <span class="block-index">#${blockIndex(block)}</span>
+      <span class="muted">${block.games.length} games${
+        block.games.length ? ` · ${wins}–${block.games.length - wins}` : ""}</span>
+      <span class="block-head-right">${series}</span>
+    </div>
+    ${blockPoolChips(block.pool)}
+    ${blockRankLine(block)}
+    ${table}
+    ${learnings}
+  </div>`;
+}
+
+async function renderBlockSnapshot(block) {
+  const host = document.createElement("div");
+  host.className = "snapshot-host";
+  host.innerHTML = blockSnapshotHtml(block);
+  // offscreen icons must load eagerly, or the capture can run before them
+  host.querySelectorAll("img").forEach((img) => img.removeAttribute("loading"));
+  document.body.appendChild(host);
+  try {
+    const card = host.firstElementChild;
+    await Promise.all([...card.querySelectorAll("img")].map((img) =>
+      img.complete ? null : new Promise((done) => { img.onload = img.onerror = done; })));
+    return await modernScreenshot.domToBlob(card, { scale: 2, type: "image/png" });
+  } finally {
+    host.remove();
+  }
+}
+
+// Copy the block as a PNG. ClipboardItem gets the blob as a PROMISE, created
+// synchronously inside the click — Safari/WKWebView refuse a clipboard write
+// that happens after an await. Webviews without image clipboard support (or
+// that refuse it) fall back to downloading the PNG (downloadBlob: guide.js).
+async function copyBlockImage(block) {
+  const fileName = `block-${blockIndex(block)}.png`;
+  const blobPromise = renderBlockSnapshot(block);
+  flashExportStatus("rendering…");
+  try {
+    if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
+      throw new Error("no image clipboard");
+    }
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise })]);
+    flashExportStatus("image copied ✓ — paste into Discord");
+  } catch {
+    try {
+      downloadBlob(await blobPromise, fileName);
+      flashExportStatus(`clipboard unavailable — saved ${fileName} instead`);
+    } catch {
+      flashExportStatus("couldn't render the block image");
+    }
+  }
 }
 
 function closeMenus() {
@@ -579,9 +701,11 @@ async function maybeBackfillBlockTimelines() {
   poll();
 }
 
-function blockGameRow(g) {
-  const statsOpen = blockState.expandedGameStats.has(g.entry_id);
-  const cells = {
+// One cell per game column. `snapshot` renders the static, non-interactive
+// version used by the copy-as-image card (notes as rendered Markdown, never
+// the inline editor or its "notes…" placeholder).
+function blockGameCells(g, snapshot = false) {
+  return {
     date: `<td>${fmtDate(g.game_creation_ms)}</td>`,
     account: `<td>${escapeHtml(g.account)}</td>`,
     me: `<td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>`,
@@ -597,12 +721,19 @@ function blockGameRow(g) {
     cs_diff_14: deltaCell(g, g.cs_diff_14, 1),
     level_diff_14: deltaCell(g, g.level_diff_14, 0),
     gold_diff_14: deltaCell(g, g.gold_diff_14, 0),
-    notes: `<td class="notes-cell">${blockState.editingNotes === g.entry_id
+    notes: snapshot
+      ? `<td class="notes-cell">${g.notes ? `<div class="md-body">${renderNotes(g.notes)}</div>` : ""}</td>`
+      : `<td class="notes-cell">${blockState.editingNotes === g.entry_id
       ? `<textarea class="game-notes" data-entry="${g.entry_id}" rows="1"
            placeholder="notes… (Markdown, Enter saves, Shift+Enter new line)">${escapeHtml(g.notes)}</textarea>`
       : `<div class="notes-display" data-entry="${g.entry_id}" title="Click to edit">${
           g.notes ? renderNotes(g.notes) : `<span class="muted">notes…</span>`}</div>`}</td>`,
   };
+}
+
+function blockGameRow(g) {
+  const statsOpen = blockState.expandedGameStats.has(g.entry_id);
+  const cells = blockGameCells(g);
   const visible = GAME_COL_KEYS.filter((k) => blockCols.has(k));
   // always-visible cue (independent of the Δ columns) that deeper timeline
   // stats for this game are still being fetched
@@ -956,7 +1087,9 @@ function blockCard(block, isCurrent) {
           <div class="col-menu">
             <a href="/api/blocks/export.md?block_id=${block.id}" download>Export .md</a>
             <a href="/api/blocks/export.csv?block_id=${block.id}" download>Export .csv</a>
-            <button class="block-discord" data-id="${block.id}" type="button">Copy for Discord</button>
+            <button class="block-discord-image" data-id="${block.id}" type="button"
+              title="The table as you see it — visible columns, current sort">Copy as image (Discord)</button>
+            <button class="block-discord" data-id="${block.id}" type="button">Copy as text (Discord)</button>
           </div>
         </details>
         <button class="preset icon-btn block-delete" data-id="${block.id}"
@@ -1191,6 +1324,12 @@ function renderBlocks() {
       if (!confirm("Remove this game from the block?")) return;
       await fetch(`/api/blocks/games/${btn.dataset.entry}`, { method: "DELETE" });
       loadBlocks();
+    }));
+  target.querySelectorAll(".block-discord-image").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const block = blockState.blocks.find((b) => b.id === +btn.dataset.id);
+      if (block) copyBlockImage(block);
+      closeMenus();
     }));
   target.querySelectorAll(".block-discord").forEach((btn) =>
     btn.addEventListener("click", () => {

@@ -81,3 +81,14 @@ def test_every_settings_panel_has_a_tab_and_vice_versa():
     tabs = set(re.findall(r'class="settings-tab" data-tab="([^"]+)"', html))
     panels = set(re.findall(r'class="settings-panel" data-tab="([^"]+)"', html))
     assert tabs and tabs == panels
+
+
+def test_vendored_scripts_exist():
+    """index.html loads vendor/ scripts without a CDN fallback, so a missing
+    file fails silently at runtime (e.g. the block copy-as-image menu item
+    needs vendor/modern-screenshot.min.js for its `modernScreenshot` global)."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    vendored = re.findall(r'<script src="(vendor/[^"]+\.js)"></script>', html)
+    assert "vendor/modern-screenshot.min.js" in vendored
+    for path in vendored:
+        assert (STATIC / path).is_file(), f"missing vendored script {path}"

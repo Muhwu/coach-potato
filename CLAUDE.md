@@ -478,6 +478,14 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `blockState.page`, pager rendered above AND below the list by
   `blockPagerHtml`) — `/api/blocks` still returns everything, so exports,
   the Discord copy and the picker's "already in a block" set stay whole-history.
+  Each block's 📤 menu has **Copy as image (Discord)** (`copyBlockImage` in
+  blocks.js): `blockSnapshotHtml` builds a static card (visible columns,
+  current sort, via the shared `blockGameCells(g, snapshot=true)`), mounted
+  offscreen in `.snapshot-host` with surfaces forced solid, captured by vendored
+  `static/vendor/modern-screenshot.min.js` (`modernScreenshot.domToBlob`; DDragon
+  sends `Access-Control-Allow-Origin: *`, which is what lets icons draw). The
+  ClipboardItem is handed the blob PROMISE synchronously in the click (Safari/
+  WKWebView reject a write after an await); no image clipboard → PNG download.
   `focusBlock` jumps to the page holding that block (`blockPageOf`), and
   adding a game resets to page 1 (`reloadBlocksFromStart`) since the game
   lands in the current block. `openAddGameModal` (the same recent-games

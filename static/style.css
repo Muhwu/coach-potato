@@ -984,6 +984,23 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 /* current block: subtle accent tint + left border so it stands out */
 .block-card.block-current { border-left: 3px solid var(--series-1); }
 .block-card.block-current > .session-head { background: var(--accent-wash); }
+/* copy-as-image card (blockSnapshotHtml): rendered offscreen, then captured.
+   Surfaces are forced SOLID so a low UI opacity / background picture never
+   bleeds into the shared image, and the table is laid out at its natural
+   width — .table-wrap would otherwise clip it behind a scrollbar. */
+.snapshot-host { position: fixed; left: -10000px; top: 0; pointer-events: none; }
+.block-snapshot {
+  --surface-1: var(--surface-1-solid);
+  --page: var(--page-solid);
+  width: max-content; min-width: 520px; max-width: 1040px;
+  margin: 0; color: var(--text-primary);
+}
+.block-snapshot .table-wrap { overflow: visible; }
+.block-snapshot .notes-col, .block-snapshot td.notes-cell { min-width: 200px; max-width: 360px; }
+.block-snapshot td.notes-cell .md-body > :first-child { margin-top: 0; }
+.block-snapshot td.notes-cell .md-body > :last-child { margin-bottom: 0; }
+.block-snapshot .snapshot-title { font-size: 15px; padding: 3px 6px; }
+.block-snapshot .block-series-bubble { cursor: default; }
 /* active series on the champion-pool line: always on screen, so a series with
    no games yet is still visible; both it and the block bubbles open the goals */
 .series-current-inline { display: flex; align-items: center; gap: 6px; margin-left: auto; }
