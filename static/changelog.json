@@ -4,7 +4,7 @@
       "version": "1.69.0",
       "date": "2026-10-13",
       "items": [
-        "Blocks can be shared to Discord as a picture: the new copy button in each block's header (also in its 📤 menu as Copy as image) puts a clean card of the block on your clipboard — the table exactly as you see it (your visible columns, in your current sort, with champion icons and W/L colours), plus the pool, rank line and learnings. Paste straight into Discord; if your clipboard can't take images it saves a PNG instead.",
+        "Blocks can be shared to Discord as a picture: the new copy button in each block's header (also in its 📤 menu as Copy as image) puts a clean card of the block on your clipboard — the table exactly as you see it (your visible columns, in your current sort, with champion icons and W/L colours), plus the pool, rank line and learnings. Paste it into Discord or anywhere else; if your clipboard can't take images it saves a PNG instead.",
         "Copy as text (Discord) now follows the block table too: each game line carries your visible columns, in the current sort order."
       ]
     },

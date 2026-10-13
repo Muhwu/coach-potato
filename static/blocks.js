@@ -285,7 +285,7 @@ async function copyBlockImage(block) {
       throw new Error("no image clipboard");
     }
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise })]);
-    flashExportStatus("image copied ✓ — paste into Discord");
+    flashExportStatus("image copied ✓");
   } catch {
     try {
       downloadBlob(await blobPromise, fileName);
@@ -1091,7 +1091,7 @@ function blockCard(block, isCurrent) {
           Close early</button>` : ""}
         ${block.games.length ? `<button class="preset icon-btn block-copy-image block-discord-image"
           data-id="${block.id}" type="button" aria-label="Copy block ${blockIndex(block)} as an image"
-          title="Copy as image — paste into Discord">${COPY_ICON}</button>` : ""}
+          title="Copy as image">${COPY_ICON}</button>` : ""}
         <details class="col-picker">
           <summary class="preset icon-btn" title="Export this block"
             aria-label="Export block ${block.id}">📤</summary>
