@@ -211,8 +211,8 @@ async function copyDiscordMarkdown(blocks) {
   }
 }
 
-// Static, non-interactive card for one block: date + record (no block title
-// or series name), pool, rank line, the games table with the visible columns
+// Static, non-interactive card for one block: date + record + series bubble
+// (no block title), pool, rank line, the games table with the visible columns
 // in the current sort, and the learnings set off in their own callout.
 // No toggles/remove buttons/⏳ markers/editors — it's a picture to share.
 function blockSnapshotHtml(block) {
@@ -238,6 +238,8 @@ function blockSnapshotHtml(block) {
       <strong class="snapshot-title">${escapeHtml(blockDate(block))}</strong>
       <span class="muted">${block.games.length} games${
         block.games.length ? ` · ${wins}–${block.games.length - wins}` : ""}</span>
+      ${blockState.seriesEnabled && block.series_title ? `<span class="block-head-right">
+        <span class="block-series-bubble">${escapeHtml(block.series_title)}</span></span>` : ""}
     </div>
     ${blockPoolChips(block.pool)}
     ${blockRankLine(block)}
@@ -245,6 +247,13 @@ function blockSnapshotHtml(block) {
     ${learnings}
   </div>`;
 }
+
+// the universal "copy" glyph (two overlapping sheets) — inline SVG in
+// currentColor, since no emoji reads as "copy" consistently across OSes
+const COPY_ICON = `<svg class="copy-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="9" y="9" width="12" height="12" rx="2"/>
+  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
 async function renderBlockSnapshot(block) {
   const host = document.createElement("div");
@@ -1080,6 +1089,9 @@ function blockCard(block, isCurrent) {
         ${isCurrent && !block.complete && block.games.length ? `<button class="preset block-close"
           data-id="${block.id}" title="Close this block before it reaches ${blockState.blockSize} games">
           Close early</button>` : ""}
+        ${block.games.length ? `<button class="preset icon-btn block-copy-image block-discord-image"
+          data-id="${block.id}" type="button" aria-label="Copy block ${blockIndex(block)} as an image"
+          title="Copy as image — paste into Discord">${COPY_ICON}</button>` : ""}
         <details class="col-picker">
           <summary class="preset icon-btn" title="Export this block"
             aria-label="Export block ${block.id}">📤</summary>

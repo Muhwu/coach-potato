@@ -478,7 +478,8 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `blockState.page`, pager rendered above AND below the list by
   `blockPagerHtml`) — `/api/blocks` still returns everything, so exports,
   the Discord copy and the picker's "already in a block" set stay whole-history.
-  Each block's 📤 menu has **Copy as image (Discord)** (`copyBlockImage` in
+  Each block's header copy button (`COPY_ICON`, left of 📤) and its 📤 menu's
+  **Copy as image (Discord)** both run `copyBlockImage` (in
   blocks.js): `blockSnapshotHtml` builds a static card (visible columns,
   current sort, via the shared `blockGameCells(g, snapshot=true)`), mounted
   offscreen in `.snapshot-host` with surfaces forced solid, captured by vendored
