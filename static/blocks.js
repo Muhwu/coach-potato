@@ -211,34 +211,33 @@ async function copyDiscordMarkdown(blocks) {
   }
 }
 
-// Static, non-interactive card for one block: heading, pool, rank line, the
-// games table with the visible columns in the current sort, and learnings.
+// Static, non-interactive card for one block: date + record (no block title
+// or series name), pool, rank line, the games table with the visible columns
+// in the current sort, and the learnings set off in their own callout.
 // No toggles/remove buttons/⏳ markers/editors — it's a picture to share.
 function blockSnapshotHtml(block) {
   const wins = block.games.filter((g) => g.win).length;
   const cols = visibleBlockGameCols();
-  const title = block.title || blockDate(block);
-  const series = blockState.seriesEnabled && block.series_title
-    ? `<span class="block-series-bubble">${escapeHtml(block.series_title)}</span>` : "";
   const games = sortRows(block.games, blockState.gameSort, BLOCK_GAME_COLS_ALL);
   const rows = games.map((g) => {
     const cells = blockGameCells(g, true);
+    // the column header already says Opponent — no "vs" in the picture
+    cells.opponent = `<td><span class="champ-cell">${g.opp_champion
+      ? champIcon(g.opp_champion) + displayName(g.opp_champion) : "–"}</span></td>`;
     return `<tr>${cols.map((c) => cells[c.key]).join("")}</tr>`;
   }).join("");
   const table = block.games.length ? `<div class="table-wrap block-games"><table>
       <thead><tr>${cols.map((c) => `<th class="${c.cls}">${c.label}</th>`).join("")}</tr></thead>
       <tbody>${rows}</tbody></table></div>` : "";
-  const learnings = block.learnings ? `<div class="session-body">
+  const learnings = block.learnings ? `<div class="snapshot-learnings">
       <h4>Learnings</h4>
       <div class="md-body">${renderNotes(block.learnings)}</div>
     </div>` : "";
   return `<div class="session-card block-card block-snapshot">
     <div class="session-head">
-      <strong class="snapshot-title">${escapeHtml(title)}</strong>
-      <span class="block-index">#${blockIndex(block)}</span>
+      <strong class="snapshot-title">${escapeHtml(blockDate(block))}</strong>
       <span class="muted">${block.games.length} games${
         block.games.length ? ` · ${wins}–${block.games.length - wins}` : ""}</span>
-      <span class="block-head-right">${series}</span>
     </div>
     ${blockPoolChips(block.pool)}
     ${blockRankLine(block)}
@@ -769,7 +768,7 @@ function blockPoolChips(pool) {
     ...pool.core.map((c) => poolChip("core", c, false)),
     ...pool.counter.map((c) => poolChip("counter", c, false)),
   ].join("");
-  return `<div class="block-pool"><span class="muted">Pool at completion:</span> ${chips}</div>`;
+  return `<div class="block-pool"><span class="muted">Pool:</span> ${chips}</div>`;
 }
 
 // a block's default date (earliest game, else when it was created) — used as

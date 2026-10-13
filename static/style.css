@@ -992,15 +992,25 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-snapshot {
   --surface-1: var(--surface-1-solid);
   --page: var(--page-solid);
-  width: max-content; min-width: 520px; max-width: 1040px;
+  width: max-content; min-width: 640px; max-width: 1600px;
   margin: 0; color: var(--text-primary);
 }
 .block-snapshot .table-wrap { overflow: visible; }
-.block-snapshot .notes-col, .block-snapshot td.notes-cell { min-width: 200px; max-width: 360px; }
+/* wide notes column: keeps notes to a line or two instead of a tall image */
+.block-snapshot .notes-col, .block-snapshot td.notes-cell { min-width: 380px; max-width: 640px; }
+.snapshot-learnings {
+  margin: 12px 14px 14px;
+  padding: 10px 16px 12px;
+  background: var(--accent-wash);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--series-1);
+  border-radius: 8px;
+}
+.snapshot-learnings h4 { margin: 0 0 6px; }
+.snapshot-learnings .md-body > :last-child { margin-bottom: 0; }
 .block-snapshot td.notes-cell .md-body > :first-child { margin-top: 0; }
 .block-snapshot td.notes-cell .md-body > :last-child { margin-bottom: 0; }
 .block-snapshot .snapshot-title { font-size: 15px; padding: 3px 6px; }
-.block-snapshot .block-series-bubble { cursor: default; }
 /* active series on the champion-pool line: always on screen, so a series with
    no games yet is still visible; both it and the block bubbles open the goals */
 .series-current-inline { display: flex; align-items: center; gap: 6px; margin-left: auto; }
