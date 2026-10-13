@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.69.2",
+      "date": "2026-10-13",
+      "items": [
+        "A block's learnings now sit in a highlighted callout on the block card, matching the copied block image, so they stand out from the games table. Click them to edit as before."
+      ]
+    },
+    {
       "version": "1.69.1",
       "date": "2026-10-13",
       "items": [

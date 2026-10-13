@@ -242,7 +242,7 @@ function blockSnapshotHtml(block) {
   const table = block.games.length ? `<div class="table-wrap block-games"><table>
       <thead><tr>${cols.map((c) => `<th class="${c.cls}">${c.label}</th>`).join("")}</tr></thead>
       <tbody>${rows}</tbody></table></div>` : "";
-  const learnings = block.learnings ? `<div class="snapshot-learnings">
+  const learnings = block.learnings ? `<div class="learnings-callout">
       <h4>Learnings</h4>
       <div class="md-body">${renderNotes(block.learnings)}</div>
     </div>` : "";
@@ -1060,7 +1060,9 @@ function blockCard(block, isCurrent) {
         data-id="${block.id}" rows="8">${escapeHtml(block.learnings)}</textarea>
     </div>`;
   } else {
-    learnings = `<div class="session-body">
+    // written learnings sit in the same callout as on the copied image; the
+    // empty placeholder stays plain so a blank block doesn't look highlighted
+    learnings = `<div class="session-body"><div class="${block.learnings ? "learnings-callout" : ""}">
       <div class="learnings-head">
         <h4>Learnings</h4>
         <button class="preset icon-btn learnings-edit" data-id="${block.id}"
@@ -1070,7 +1072,7 @@ function blockCard(block, isCurrent) {
         block.learnings
         ? renderNotes(block.learnings)
         : `<p class="muted">No learnings recorded yet.</p>`}</div>
-    </div>`;
+    </div></div>`;
   }
   // the bubble opens that series' goals — including for older series, whose
   // goals would otherwise be unreachable once a newer series is current

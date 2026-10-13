@@ -765,6 +765,16 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border-top: 1px solid var(--grid);
   font-size: 12px;
 }
+/* a block's learnings, set off as an accent callout — on the block card when
+   not being edited, and on the copied block image */
+.learnings-callout {
+  padding: 10px 16px 12px;
+  background: var(--accent-wash);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--series-1);
+  border-radius: 8px;
+}
+.learnings-callout .md-body > :last-child { margin-bottom: 0; }
 .learnings-head {
   display: flex;
   align-items: center;
@@ -1007,16 +1017,8 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-snapshot th, .block-snapshot td { padding: 10px 12px; }
 .block-snapshot th:first-child, .block-snapshot td:first-child { padding-left: 22px; }
 .block-snapshot th:last-child, .block-snapshot td:last-child { padding-right: 22px; }
-.snapshot-learnings {
-  margin: 14px 22px 22px;
-  padding: 10px 16px 12px;
-  background: var(--accent-wash);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--series-1);
-  border-radius: 8px;
-}
-.snapshot-learnings h4 { margin: 0 0 6px; }
-.snapshot-learnings .md-body > :last-child { margin-bottom: 0; }
+.block-snapshot .learnings-callout { margin: 14px 22px 22px; }
+.block-snapshot .learnings-callout h4 { margin: 0 0 6px; }
 .block-snapshot td.notes-cell .md-body > :first-child { margin-top: 0; }
 .block-snapshot td.notes-cell .md-body > :last-child { margin-bottom: 0; }
 .block-snapshot .snapshot-title { font-size: 15px; }
