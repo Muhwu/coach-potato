@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.71.1",
+      "date": "2026-10-17",
+      "items": [
+        "Fixed notes closing while you type: background updates (fetching new games, loading deeper block stats) no longer refresh the page under an open note — they wait until you click out of it. An open reflection note also keeps its unsaved text."
+      ]
+    },
+    {
       "version": "1.71.0",
       "date": "2026-10-16",
       "items": [

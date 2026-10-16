@@ -2074,6 +2074,9 @@ function reflectionSuggestions(game) {
 const reflectionUi = {
   cache: new Map(),        // "matchId:puuid" -> {tags, note} once fetched
   editingNote: new Set(),  // "matchId:puuid" keys with the note editor open
+  // unsaved text of an open note editor: the editor has an explicit Save, so
+  // it stays open when focus leaves — a re-render must not reset it
+  drafts: new Map(),
 };
 
 /* ---------- recordings (local Ascent VODs) ----------
@@ -2860,7 +2863,7 @@ function reflectionSection(matchId, puuid, game) {
     ? `<div class="mu-notes">
         <label class="filter-label">Note (Markdown)</label>
         <textarea class="reflection-note-input" rows="4"
-          placeholder="Optional freeform note — what happened, what to do differently…">${escapeHtml(reflection.note)}</textarea>
+          placeholder="Optional freeform note — what happened, what to do differently…">${escapeHtml(reflectionUi.drafts.get(key) ?? reflection.note)}</textarea>
         <div class="session-actions">
           <button type="button" class="preset reflection-note-save">Save</button>
           <button type="button" class="preset reflection-note-cancel">Cancel</button>
@@ -2935,10 +2938,17 @@ function wireReflectionSection(container, reload, rerender) {
       reflectionUi.editingNote.add(reflectionKey(section.dataset.match, section.dataset.puuid));
       rerender();
     }));
+  container.querySelectorAll(".reflection-note-input").forEach((input) =>
+    input.addEventListener("input", () => {
+      const section = input.closest(".reflection-section");
+      reflectionUi.drafts.set(reflectionKey(section.dataset.match, section.dataset.puuid), input.value);
+    }));
   container.querySelectorAll(".reflection-note-cancel").forEach((btn) =>
     btn.addEventListener("click", () => {
       const section = btn.closest(".reflection-section");
-      reflectionUi.editingNote.delete(reflectionKey(section.dataset.match, section.dataset.puuid));
+      const key = reflectionKey(section.dataset.match, section.dataset.puuid);
+      reflectionUi.editingNote.delete(key);
+      reflectionUi.drafts.delete(key);
       rerender();
     }));
   container.querySelectorAll(".reflection-note-save").forEach((btn) =>
@@ -2954,6 +2964,7 @@ function wireReflectionSection(container, reload, rerender) {
         return;
       }
       reflectionUi.editingNote.delete(reflectionKey(matchId, puuid));
+      reflectionUi.drafts.delete(reflectionKey(matchId, puuid));
       await reload(matchId, puuid);
     }));
 }
@@ -4335,21 +4346,52 @@ async function checkForUpdates() {
 let crawlTimer = null;
 let crawlPolls = 0;
 
-async function refreshDuringCrawl() {
-  // refresh data views as the crawl lands new games — but never a view
-  // where the user might have half-finished input
-  if (state.mainView === "settings") return;
-  if (state.mainView === "blocks") {
-    if (typeof blockState !== "undefined" &&
-        blockState.editingNotes == null && blockState.editingLearnings == null) {
-      await loadBlocks();
-    }
-    return;
-  }
-  await init(false);
-  if (state.mainView === "matchups" && muState.editingNotes == null) await loadMatchups();
-  else if (state.mainView === "progress") await loadProgress();
-  else if (state.mainView === "trends") await loadTrends();
+// True while a text field inside `root` has focus. Background refreshes
+// rebuild their view with innerHTML, which throws away the field being typed
+// in — and its blur-to-save handler then closes the editor mid-sentence (or,
+// for an explicit-Save editor like a reflection note, silently drops the text).
+function userIsTyping(root = document) {
+  const el = document.activeElement;
+  return Boolean(root && el && root.contains(el)
+    && el.matches("textarea, input[type=text], input[type=search], input:not([type]), [contenteditable=true]"));
+}
+
+// Run `fn` now, or — if the user is typing inside `root` — once focus leaves
+// it. Only the latest pending refresh per root runs. Use this for every
+// refresh the user didn't trigger (crawl polling, background backfills).
+const deferredRefresh = new Map();
+function whenNotTyping(root, fn) {
+  if (!userIsTyping(root)) return fn();
+  deferredRefresh.set(root, fn);
+  if (root.dataset.deferWired) return undefined;
+  root.dataset.deferWired = "1";
+  root.addEventListener("focusout", () => setTimeout(() => {
+    // setTimeout: activeElement is only updated after focusout — tabbing to
+    // the next field in the same view keeps the refresh pending
+    const pending = deferredRefresh.get(root);
+    if (!pending || userIsTyping(root)) return;
+    deferredRefresh.delete(root);
+    pending();
+  }, 0));
+  return undefined;
+}
+
+// Refresh whichever view is showing so newly crawled games appear — deferred
+// while the user is typing in it, never yanking a half-written note away.
+// `midCrawl` (the periodic refresh while a crawl runs) stays cheaper: it
+// leaves Settings alone and skips the global reload on Blocks.
+function refreshActiveView({ midCrawl = false } = {}) {
+  if (midCrawl && state.mainView === "settings") return;
+  const root = document.getElementById(`${state.mainView}-view`) || document.body;
+  whenNotTyping(root, async () => {
+    // re-read the view: a deferred refresh may run after the user moved on
+    const view = state.mainView;
+    if (!(midCrawl && view === "blocks")) await init(false);
+    if (view === "blocks") await loadBlocks();
+    else if (view === "matchups") await loadMatchups();
+    else if (view === "progress") await loadProgress();
+    else if (view === "trends") await loadTrends();
+  });
 }
 
 async function pollCrawl() {
@@ -4367,27 +4409,14 @@ async function pollCrawl() {
     warn.onclick = () => alert(explain);
     clearApiError(el);
     if (!crawlTimer) crawlTimer = setInterval(pollCrawl, 2000);
-    if (++crawlPolls % 5 === 0) await refreshDuringCrawl();
+    if (++crawlPolls % 5 === 0) refreshActiveView({ midCrawl: true });
   } else {
     if (crawlTimer) { clearInterval(crawlTimer); crawlTimer = null; }
     if (status.error) {
       showApiError(el, status.error, status.error_detail);
     } else if (status.message === "done") {
       clearApiError(el, "up to date");
-      await init(false);
-      // refresh whichever view is active so new games appear immediately —
-      // but never yank a half-written note out from under the user
-      if (state.mainView === "matchups") {
-        if (muState.editingNotes == null) await loadMatchups();
-      } else if (state.mainView === "progress") {
-        await loadProgress();
-      } else if (state.mainView === "blocks") {
-        if (blockState.editingNotes == null && blockState.editingLearnings == null) {
-          await loadBlocks();
-        }
-      } else if (state.mainView === "trends") {
-        await loadTrends();
-      }
+      refreshActiveView();
     } else {
       clearApiError(el);
     }

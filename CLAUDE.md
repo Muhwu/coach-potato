@@ -228,6 +228,16 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `obs_enabled` (settings key, default on) hides the whole OBS feature — the
   record button, the modal's "Add & record", the per-expand `/api/obs/status`
   poll and the connection fields in Settings.
+- **Background refreshes must not re-render under the user's cursor.** Views
+  rebuild with `innerHTML`, so a re-render throws away the field being typed in
+  and its blur-to-save closes the editor mid-sentence (the "my note keeps
+  closing" bug: the block timeline backfill and crawl polling both did this).
+  Any refresh the user didn't trigger goes through `whenNotTyping(root, fn)`
+  (app.js — runs now, or once focus leaves `root`): `refreshActiveView` for
+  crawl polling, `loadBlocks` for everything that reloads the Blocks view.
+  Don't put the guard in `renderBlocks`/`refresh` themselves — user actions
+  (Enter in a tag input) must re-render immediately.
+  `tests/test_static_js.py` pins it.
 - **Settings is tabbed** (`.settings-tabs` / `.settings-panel[data-tab]`,
   `setSettingsTab`/`wireSettingsTabs` in app.js, remembered in
   `cp-settings-tab`): Account / Coaching / Interface / Appearance / Recordings

@@ -501,7 +501,9 @@ async function loadBlocks() {
   blockState.series = data.series || [];
   blockState.currentSeriesId = data.current_series_id ?? null;
   if (blockState.focusId != null) blockState.page = blockPageOf(blockState.focusId);
-  renderBlocks();
+  // loadBlocks also runs from background refreshes (crawl, timeline backfill);
+  // the open editor's own blur handler re-renders with this fresh data anyway
+  whenNotTyping($("#blocks-view"), renderBlocks);
   maybeBackfillBlockTimelines();
   if (blockState.focusId != null) {
     const card = $(`#block-card-${blockState.focusId}`);
@@ -550,7 +552,8 @@ async function toggleGameStats(entryId, matchId, puuid) {
     await ensureReflection(matchId, puuid);
     await ensureBlockRecording(matchId, puuid);
   }
-  renderBlocks();
+  // the fetches above take a moment — don't close a note opened meanwhile
+  whenNotTyping($("#blocks-view"), renderBlocks);
 }
 
 // A game's lane verdict at one mark. A manually-set lane_result_<mark> wins

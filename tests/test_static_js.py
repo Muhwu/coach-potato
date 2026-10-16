@@ -127,3 +127,73 @@ def test_every_font_size_follows_the_text_size_setting(name):
     text = (STATIC / name).read_text(encoding="utf-8")
     fixed = re.findall(r"font-size:\s*[0-9.]+px\s*[;}]", text)
     assert not fixed, f"unscaled font-size in {name}: {fixed[:5]}"
+
+
+def _function_body(source, name):
+    """Source of top-level function `name`, by brace matching (good enough for
+    this codebase's functions — none put unbalanced braces in strings)."""
+    start = re.search(rf"^(?:async\s+)?function\s+{name}\(", source, re.MULTILINE)
+    assert start, f"{name} not found"
+    i = source.index("{", source.index(")", start.end()))
+    depth = 0
+    for j in range(i, len(source)):
+        depth += {"{": 1, "}": -1}.get(source[j], 0)
+        if depth == 0:
+            return source[start.start():j + 1]
+    raise AssertionError(f"unbalanced braces in {name}")
+
+
+def test_background_refreshes_never_rerender_under_the_users_cursor():
+    """Regression: "the textbox keeps closing before I finish my note". The
+    block timeline backfill re-rendered the Blocks view when it finished, and
+    crawl polling re-rendered Overview/Progress every ~10 s — innerHTML threw
+    away the field being typed in and its blur-to-save closed the editor. A
+    refresh the user didn't trigger must go through whenNotTyping."""
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    blocks = (STATIC / "blocks.js").read_text(encoding="utf-8")
+    poll = _function_body(app, "pollCrawl")
+    for call in ("init(", "refresh(", "loadBlocks(", "loadMatchups(", "loadProgress(",
+                 "loadTrends("):
+        assert call not in poll, f"pollCrawl calls {call} directly — use refreshActiveView"
+    assert "whenNotTyping(" in _function_body(app, "refreshActiveView")
+    # loadBlocks is the background entry point for the Blocks view (crawl and
+    # timeline-backfill completion both call it)
+    load_blocks = _function_body(blocks, "loadBlocks")
+    assert "whenNotTyping(" in load_blocks
+    assert not re.search(r"^\s*renderBlocks\(\);", load_blocks, re.MULTILINE)
+    backfill = _function_body(blocks, "maybeBackfillBlockTimelines")
+    assert "renderBlocks(" not in backfill
+
+
+def test_when_not_typing_defers_until_focus_leaves():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    start = app.index("function userIsTyping(")
+    helpers = app[start:app.index("// Refresh whichever view is showing", start)]
+    script = helpers + r"""
+const listeners = [];
+const root = { dataset: {}, contains: (el) => el.inRoot,
+               addEventListener: (type, fn) => listeners.push(fn) };
+const textarea = { inRoot: true, matches: () => true };
+const button = { inRoot: true, matches: () => false };
+globalThis.document = { activeElement: textarea };
+const ran = [];
+whenNotTyping(root, () => ran.push("first"));
+whenNotTyping(root, () => ran.push("latest"));
+if (ran.length) throw new Error("ran while typing: " + ran);
+const focusout = () => { listeners.forEach((fn) => fn()); return new Promise((r) => setTimeout(r, 5)); };
+(async () => {
+  await focusout();  // tabbed to another field: still typing
+  if (ran.length) throw new Error("ran while still typing: " + ran);
+  document.activeElement = button;
+  await focusout();
+  if (ran.join() !== "latest") throw new Error("expected only the latest refresh, got " + ran);
+  whenNotTyping(root, () => ran.push("now"));
+  if (ran.join() !== "latest,now") throw new Error("should run immediately when not typing");
+  if (listeners.length !== 1) throw new Error("focusout listener wired more than once");
+})().catch((e) => { console.error(e.message); process.exit(1); });
+"""
+    result = subprocess.run([node, "-e", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
