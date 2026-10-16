@@ -3300,6 +3300,13 @@ function sectionEntryView(section) {
 }
 
 function setMainView(view) {
+  // leaving Settings with edits that were never saved: ask first, otherwise
+  // the live previews (theme, font, accent…) linger until the next visit
+  // silently resets them to the saved values
+  if (state.mainView === "settings" && view !== "settings" && settingsDirty()) {
+    confirmLeaveSettings(view);
+    return;
+  }
   state.mainView = view;
   const section = sectionOf(view);
   if (section) {
@@ -3328,12 +3335,67 @@ function setMainView(view) {
   if (view === "tiers") initTiers();
   if (view === "learnings") initLearnings();
   if (view === "pool") initPool();
-  if (view === "settings") initSettings();
+  // re-entering (⚙ while already here) would refill the form from the server
+  // and silently wipe unsaved edits
+  if (view === "settings" && !settingsDirty()) initSettings();
 }
 
 // ---------- settings ----------
 
-const settingsUi = { wired: false, accounts: [], errors: [] };
+// `saved` is settingsPayload() as of the last load/save — the form is dirty
+// whenever the current payload differs from it
+const settingsUi = { wired: false, accounts: [], errors: [], saved: null };
+
+function settingsDirty() {
+  return settingsUi.saved !== null
+    && JSON.stringify(settingsPayload()) !== JSON.stringify(settingsUi.saved);
+}
+
+function markSettingsSaved() {
+  settingsUi.saved = settingsPayload();
+  updateSettingsDirty();
+}
+
+// unsaved edits tint the save bar and relabel the button, so it's obvious
+// that what you see previewed isn't stored yet
+function updateSettingsDirty() {
+  const dirty = settingsDirty();
+  $(".settings-savebar").classList.toggle("dirty", dirty);
+  $("#settings-save").textContent = dirty ? "Save changes" : "Save settings";
+  $("#settings-unsaved").classList.toggle("hidden", !dirty);
+  if (dirty) $("#settings-status").textContent = "";
+}
+
+function confirmLeaveSettings(nextView) {
+  $("#modal-box").innerHTML = `
+    <div class="modal-head"><h3>Unsaved settings</h3></div>
+    <p>You changed settings without saving. Save them before leaving, or discard
+      them and go back to what was saved?</p>
+    <div class="session-actions">
+      <button class="btn-primary" id="leave-settings-save" type="button">Save &amp; leave</button>
+      <button class="preset" id="leave-settings-discard" type="button">Discard changes</button>
+      <button class="preset" id="leave-settings-stay" type="button">Keep editing</button>
+    </div>`;
+  $("#modal-overlay").classList.remove("hidden");
+  $("#leave-settings-stay").focus();
+  $("#leave-settings-stay").addEventListener("click", closeModal);
+  $("#leave-settings-save").addEventListener("click", async () => {
+    closeModal();
+    if (await saveSettings()) setMainView(nextView);
+  });
+  $("#leave-settings-discard").addEventListener("click", async () => {
+    closeModal();
+    await discardSettings();
+    setMainView(nextView);
+  });
+}
+
+// re-reads the stored settings into the form, which also undoes every live
+// preview (applyAppearance, OBS/comparison toggles) back to the saved state
+async function discardSettings() {
+  settingsUi.saved = null; // initSettings re-snapshots once the form is refilled
+  await initSettings();
+}
 
 // canonical Riot platform id -> human-readable server name
 const PLATFORM_LABELS = {
@@ -3360,6 +3422,7 @@ function renderAccountChips() {
     btn.addEventListener("click", () => {
       settingsUi.accounts = settingsUi.accounts.filter((a) => a !== btn.dataset.account);
       renderAccountChips();
+      updateSettingsDirty();
     }));
   box.querySelectorAll(".chip-del").forEach((btn) =>
     btn.addEventListener("click", async (e) => {
@@ -3378,7 +3441,11 @@ function renderAccountChips() {
         return;
       }
       settingsUi.accounts = bodyj.accounts || settingsUi.accounts.filter((a) => a !== account);
+      if (settingsUi.saved) {  // already stored server-side, so not an unsaved edit
+        settingsUi.saved.accounts = settingsUi.saved.accounts.filter((a) => a !== account);
+      }
       renderAccountChips();
+      updateSettingsDirty();
       $("#settings-status").textContent =
         `deleted ${account} — ${bodyj.players_deleted} player record(s) purged`;
       init(false); // stats/account tabs change now the data's gone
@@ -3386,6 +3453,8 @@ function renderAccountChips() {
 }
 
 function rgbToHex(colorString) {
+  // custom properties come back as written, so a #hex default is already hex
+  if (/^#[0-9a-f]{6}$/i.test(colorString.trim())) return colorString.trim();
   const nums = colorString.match(/\d+/g);
   if (!nums) return colorString.trim();
   return "#" + nums.slice(0, 3).map((n) => (+n).toString(16).padStart(2, "0")).join("");
@@ -3847,8 +3916,21 @@ async function initSettings() {
   applyAppearance(data);
   $("#settings-banner").classList.toggle("hidden", data.configured);
   loadDiagnostics();  // recent API errors, for the copy-a-bug-report button
+  markSettingsSaved(); // the form now mirrors what's stored
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  // any edit anywhere in the view re-checks dirtiness; delegated + bubbling,
+  // so it runs after the field's own handler (e.g. the accent reset button)
+  for (const type of ["input", "change", "click"]) {
+    $("#settings-view").addEventListener(type, updateSettingsDirty);
+  }
+  $("#settings-discard").addEventListener("click", discardSettings);
+  window.addEventListener("beforeunload", (e) => {
+    if (state.mainView === "settings" && settingsDirty()) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
   wireSettingsTabs();
   wireDiagnostics();
   $("#settings-pool-link").addEventListener("click", () => setMainView("pool"));
@@ -4002,7 +4084,9 @@ async function initSettings() {
     input.value = "";
     $("#settings-status").textContent = "";
     renderAccountChips();
+    updateSettingsDirty();
   };
+  settingsUi.addAccount = addAccount; // saveSettings commits a half-typed one
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
@@ -4010,82 +4094,93 @@ async function initSettings() {
     } else if (e.key === "Backspace" && !input.value) {
       settingsUi.accounts.pop();
       renderAccountChips();
+      updateSettingsDirty();
     }
   });
   $("#settings-accounts").addEventListener("click", () => input.focus());
-  $("#settings-save").addEventListener("click", async () => {
-    addAccount(); // commit any half-typed account first
-    const hiddenViews = [...document.querySelectorAll(".view-toggle-cb")]
-      .filter((cb) => !cb.checked).map((cb) => cb.value);
-    const response = await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        riot_api_key: $("#setting-key").value,
-        accounts: settingsUi.accounts,
-        platform: $("#setting-platform").value,
-        hidden_views: hiddenViews,
-        auto_crawl_hours: Math.max(0, parseInt($("#setting-auto-crawl").value, 10) || 0),
-        block_size: Math.max(1, parseInt($("#setting-block-size").value, 10) || 3),
-        block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
-        block_gap_confirm: $("#setting-block-gap-confirm").checked,
-        block_series_enabled: $("#setting-block-series").checked,
-        date_format: $("#setting-date-format").value,
-        main_role: $("#setting-main-role").value,
-        secondary_role: $("#setting-secondary-role").value,
-        runes_mode: $("#setting-runes-mode").value,
-        obs_enabled: $("#setting-obs-enabled").checked,
-        obs_host: $("#setting-obs-host").value.trim(),
-        obs_port: parseInt($("#setting-obs-port").value, 10) || 4455,
-        obs_password: $("#setting-obs-password").value,
-        ascent_db_path: $("#setting-ascent-db").value.trim(),
-        youtube_client_secrets: $("#setting-youtube-secrets").value.trim(),
-        youtube_privacy: $("#setting-youtube-privacy").value,
-        enable_player_comparison: $("#setting-enable-comparison").checked,
-        hide_my_rank: $("#setting-hide-rank").checked,
-        ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
-        accent_color: $("#setting-accent-reset").classList.contains("hidden")
-          ? null : $("#setting-accent-color").value,
-        theme: $("#setting-theme").value,
-        font_family: $("#setting-font-family").value,
-        font_scale: parseInt($("#setting-font-scale").value, 10) || 100,
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (response.ok) {
-      if (Boolean(state.hideMyRank) !== Boolean(body.hide_my_rank)) {
-        state.hideMyRank = body.hide_my_rank;
-        init(false); // re-pull data so the redaction change applies everywhere
-      }
-      applyHiddenViews(body.hidden_views);
-      applyAppearance(body);
-      applyRoleSettings(body); // main/secondary role changed -> refilter
-      refresh();
-      if (state.dateFormat !== body.date_format) {
-        state.dateFormat = body.date_format;
-        refresh(); // re-render visible dates in the new format
-      }
-      const runesModeChanged = state.runesMode !== body.runes_mode;
-      state.runesMode = body.runes_mode;
-      if (runesModeChanged && typeof loadGuide === "function"
-          && state.mainView === "guide") loadGuide();
-      state.enableComparison = Boolean(body.enable_player_comparison);
-      applyComparisonEnabled();
-      state.obsEnabled = body.obs_enabled !== false;
-      applyObsEnabled();
-      $("#comparison-card").classList.toggle("hidden", !body.enable_player_comparison);
-      $("#settings-banner").classList.add("hidden");
-      if (settingsUi.wasUnconfigured && body.configured) {
-        settingsUi.wasUnconfigured = false;
-        $("#settings-status").textContent = "saved ✓ — fetching your match history now…";
-        startCrawl();
-      } else {
-        $("#settings-status").textContent = "saved ✓";
-      }
-    } else {
-      $("#settings-status").textContent = body.detail || `error ${response.status}`;
-    }
+  $("#settings-save").addEventListener("click", saveSettings);
+}
+
+// everything the Save button sends, read straight from the form — also what
+// settingsDirty() compares against the last-saved snapshot
+function settingsPayload() {
+  const hiddenViews = [...document.querySelectorAll(".view-toggle-cb")]
+    .filter((cb) => !cb.checked).map((cb) => cb.value);
+  return {
+    riot_api_key: $("#setting-key").value,
+    accounts: [...settingsUi.accounts], // a copy: the saved snapshot must not follow edits
+    platform: $("#setting-platform").value,
+    hidden_views: hiddenViews,
+    auto_crawl_hours: Math.max(0, parseInt($("#setting-auto-crawl").value, 10) || 0),
+    block_size: Math.max(1, parseInt($("#setting-block-size").value, 10) || 3),
+    block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
+    block_gap_confirm: $("#setting-block-gap-confirm").checked,
+    block_series_enabled: $("#setting-block-series").checked,
+    date_format: $("#setting-date-format").value,
+    main_role: $("#setting-main-role").value,
+    secondary_role: $("#setting-secondary-role").value,
+    runes_mode: $("#setting-runes-mode").value,
+    obs_enabled: $("#setting-obs-enabled").checked,
+    obs_host: $("#setting-obs-host").value.trim(),
+    obs_port: parseInt($("#setting-obs-port").value, 10) || 4455,
+    obs_password: $("#setting-obs-password").value,
+    ascent_db_path: $("#setting-ascent-db").value.trim(),
+    youtube_client_secrets: $("#setting-youtube-secrets").value.trim(),
+    youtube_privacy: $("#setting-youtube-privacy").value,
+    enable_player_comparison: $("#setting-enable-comparison").checked,
+    hide_my_rank: $("#setting-hide-rank").checked,
+    ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
+    accent_color: $("#setting-accent-reset").classList.contains("hidden")
+      ? null : $("#setting-accent-color").value,
+    theme: $("#setting-theme").value,
+    font_family: $("#setting-font-family").value,
+    font_scale: parseInt($("#setting-font-scale").value, 10) || 100,
+  };
+}
+
+async function saveSettings() {
+  if (settingsUi.addAccount) settingsUi.addAccount(); // commit any half-typed account first
+  const response = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settingsPayload()),
   });
+  const body = await response.json().catch(() => ({}));
+  if (response.ok) {
+    markSettingsSaved();
+    if (Boolean(state.hideMyRank) !== Boolean(body.hide_my_rank)) {
+      state.hideMyRank = body.hide_my_rank;
+      init(false); // re-pull data so the redaction change applies everywhere
+    }
+    applyHiddenViews(body.hidden_views);
+    applyAppearance(body);
+    applyRoleSettings(body); // main/secondary role changed -> refilter
+    refresh();
+    if (state.dateFormat !== body.date_format) {
+      state.dateFormat = body.date_format;
+      refresh(); // re-render visible dates in the new format
+    }
+    const runesModeChanged = state.runesMode !== body.runes_mode;
+    state.runesMode = body.runes_mode;
+    if (runesModeChanged && typeof loadGuide === "function"
+        && state.mainView === "guide") loadGuide();
+    state.enableComparison = Boolean(body.enable_player_comparison);
+    applyComparisonEnabled();
+    state.obsEnabled = body.obs_enabled !== false;
+    applyObsEnabled();
+    $("#comparison-card").classList.toggle("hidden", !body.enable_player_comparison);
+    $("#settings-banner").classList.add("hidden");
+    if (settingsUi.wasUnconfigured && body.configured) {
+      settingsUi.wasUnconfigured = false;
+      $("#settings-status").textContent = "saved ✓ — fetching your match history now…";
+      startCrawl();
+    } else {
+      $("#settings-status").textContent = "saved ✓";
+    }
+  } else {
+    $("#settings-status").textContent = body.detail || `error ${response.status}`;
+  }
+  return response.ok;
 }
 
 function wireProgress() {

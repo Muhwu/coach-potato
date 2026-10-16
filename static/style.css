@@ -892,6 +892,17 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
   background: var(--surface-1);
   border-top: 1px solid var(--border);
 }
+/* unsaved edits: the bar picks up the accent so it reads as "pending" even
+   when the user scrolls past the field they changed */
+.settings-savebar.dirty {
+  border-top: 2px solid var(--series-1);
+  background: color-mix(in srgb, var(--series-1) 8%, var(--surface-1-solid));
+}
+.settings-savebar.dirty #settings-save { box-shadow: 0 0 0 3px var(--accent-wash); }
+.settings-unsaved {
+  display: inline-flex; align-items: center; gap: 10px;
+  color: var(--series-1); font-weight: 600; font-size: calc(13px * var(--font-scale));
+}
 .btn-primary {
   background: var(--series-1);
   border: 1px solid var(--series-1);

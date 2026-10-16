@@ -236,6 +236,15 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   when adding a setting, and put it in the panel it belongs to (a panel with no
   matching tab button is unreachable; `tests/test_static_js.py` guards the
   pairing).
+  **Unsaved edits are tracked**: `settingsPayload()` is the single reader of the
+  form (Save sends it); `settingsUi.saved` snapshots it after load/save and
+  `settingsDirty()` compares, tinting `.settings-savebar.dirty` with an
+  "Unsaved changes · Discard" hint. `setMainView` refuses to leave Settings
+  while dirty and opens `confirmLeaveSettings` (Save & leave / Discard / Keep
+  editing) — live previews (theme, font, accent) would otherwise linger until
+  the next visit silently reset them. A new setting only needs to be added to
+  `settingsPayload()` to be covered. Something saved immediately server-side
+  (e.g. deleting an account) must patch `settingsUi.saved` too, or it reads as dirty.
 - Sessions have `title`, optional `coach`, an optional `category` (Theory /
   VOD review / Live coaching seeded as defaults; `session_categories` is the
   pick-list ONLY, exactly like `coaches` — additive `category` column,

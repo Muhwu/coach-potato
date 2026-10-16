@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.71.0",
+      "date": "2026-10-16",
+      "items": [
+        "Settings now shows when you have unsaved changes — the save bar lights up with an \"Unsaved changes\" note and a Discard button — and asks whether to save or discard them if you leave Settings, instead of previewed changes quietly reverting later."
+      ]
+    },
+    {
       "version": "1.70.0",
       "date": "2026-10-16",
       "items": [
