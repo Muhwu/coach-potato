@@ -398,7 +398,7 @@ function renderSummary(s) {
       <div class="sub">${fmt(s.kills)}/${fmt(s.deaths)}/${fmt(s.assists)}</div></div>
     <div class="tile"><div class="label">CS/min</div><div class="value">${fmt(s.cs_min)}</div>
       <div class="sub">gold/min ${fmt(s.gold_min, 0)}</div></div>
-    <div class="tile"><div class="label">Current rank</div><div class="value" style="font-size:18px">${rank}</div>
+    <div class="tile"><div class="label">Current rank</div><div class="value" style="font-size:calc(18px * var(--font-scale))">${rank}</div>
       <div class="sub">solo queue</div></div>`;
 }
 
@@ -3405,8 +3405,36 @@ function applyTheme(theme) {
   } catch (e) { /* storage unavailable */ }
 }
 
+// font_family setting key -> CSS stack (the three web fonts are vendored in
+// static/vendor/fonts, declared in style.css). Keys must match FONT_FAMILIES
+// in app.py. "system" clears the override back to the stylesheet's default.
+const FONT_STACKS = {
+  atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
+  lexend: '"Lexend", system-ui, sans-serif',
+  opendyslexic: '"OpenDyslexic", system-ui, sans-serif',
+  verdana: 'Verdana, Tahoma, "DejaVu Sans", sans-serif',
+};
+
+// Accessibility font + text size: --font-ui / --font-scale on <html>, mirrored
+// into localStorage (cp-font / cp-font-scale) for the inline <head> script so
+// the chosen font and size apply before first paint, like cp-theme.
+function applyFont(family, scalePct) {
+  const root = document.documentElement.style;
+  const stack = FONT_STACKS[family];
+  if (stack) root.setProperty("--font-ui", stack);
+  else root.removeProperty("--font-ui");
+  const scale = scalePct && scalePct !== 100 ? String(scalePct / 100) : null;
+  if (scale) root.setProperty("--font-scale", scale);
+  else root.removeProperty("--font-scale");
+  try {
+    if (stack) localStorage.setItem("cp-font", stack); else localStorage.removeItem("cp-font");
+    if (scale) localStorage.setItem("cp-font-scale", scale); else localStorage.removeItem("cp-font-scale");
+  } catch (e) { /* storage unavailable */ }
+}
+
 function applyAppearance(data) {
   if ("theme" in data) applyTheme(data.theme);
+  if ("font_family" in data || "font_scale" in data) applyFont(data.font_family, data.font_scale);
   if (data.ui_opacity !== undefined) {
     document.documentElement.style.setProperty("--ui-opacity", data.ui_opacity / 100);
   }
@@ -3813,6 +3841,8 @@ async function initSettings() {
   $("#setting-accent-reset").classList.toggle("hidden", !data.accent_color);
   $("#setting-ui-opacity").value = data.ui_opacity;
   $("#setting-ui-opacity-value").textContent = `${data.ui_opacity}%`;
+  $("#setting-font-family").value = data.font_family || "system";
+  $("#setting-font-scale").value = String(data.font_scale || 100);
   $("#setting-bg-remove").classList.toggle("hidden", !data.background_image);
   applyAppearance(data);
   $("#settings-banner").classList.toggle("hidden", data.configured);
@@ -3883,6 +3913,12 @@ async function initSettings() {
         rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
     }
   });
+  // live preview; Save persists it (leaving Settings unsaved keeps the preview
+  // until the next load, same as the theme select)
+  for (const id of ["#setting-font-family", "#setting-font-scale"]) {
+    $(id).addEventListener("change", () => applyFont(
+      $("#setting-font-family").value, parseInt($("#setting-font-scale").value, 10)));
+  }
   $("#setting-accent-color").addEventListener("input", (e) => {
     document.documentElement.style.setProperty("--series-1", e.target.value);
     $("#setting-accent-reset").classList.remove("hidden");
@@ -4011,6 +4047,8 @@ async function initSettings() {
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
           ? null : $("#setting-accent-color").value,
         theme: $("#setting-theme").value,
+        font_family: $("#setting-font-family").value,
+        font_scale: parseInt($("#setting-font-scale").value, 10) || 100,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -4370,7 +4408,7 @@ async function init(firstLoad = true) {
   if (!state.players.length) {
     $("#summary-tiles").innerHTML = `<div class="tile" style="min-width:100%">
       <div class="label">No match data yet</div>
-      <div class="value" style="font-size:16px">Add your API key and accounts in
+      <div class="value" style="font-size:calc(16px * var(--font-scale))">Add your API key and accounts in
         <a href="#settings" id="goto-settings">Settings ⚙</a>, then press <strong>Update data</strong>.</div></div>`;
     const link = $("#goto-settings");
     if (link) link.addEventListener("click", (e) => { e.preventDefault(); setMainView("settings"); });

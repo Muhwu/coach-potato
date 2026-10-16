@@ -12,6 +12,10 @@
   try {
     const t = localStorage.getItem("cp-theme");
     if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+    // same idea for the accessibility font/text-size settings (applyFont in app.js)
+    const f = localStorage.getItem("cp-font"), fs = localStorage.getItem("cp-font-scale");
+    if (f) document.documentElement.style.setProperty("--font-ui", f);
+    if (fs) document.documentElement.style.setProperty("--font-scale", fs);
   } catch (e) { /* storage unavailable: fall through to the OS preference */ }
 </script>
 <link rel="stylesheet" href="style.css">
@@ -274,6 +278,28 @@
           <option value="auto">Auto — follow the system setting</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
+        </select>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-font-family">Font</label>
+        <select id="setting-font-family" style="max-width:16em">
+          <option value="system">System default</option>
+          <option value="atkinson">Atkinson Hyperlegible</option>
+          <option value="lexend">Lexend</option>
+          <option value="opendyslexic">OpenDyslexic</option>
+          <option value="verdana">Verdana</option>
+        </select>
+        <p class="muted">Atkinson Hyperlegible is designed for low vision, Lexend for reading
+          fluency, OpenDyslexic for dyslexia.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-font-scale">Text size</label>
+        <select id="setting-font-scale" style="max-width:16em">
+          <option value="90">Small — 90%</option>
+          <option value="100">Default — 100%</option>
+          <option value="110">Large — 110%</option>
+          <option value="125">Larger — 125%</option>
+          <option value="150">Largest — 150%</option>
         </select>
       </div>
       <div class="settings-field">

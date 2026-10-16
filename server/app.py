@@ -215,6 +215,10 @@ HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "serie
                   "learnings", "pool", "guide", "research", "players", "tiers"}
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 THEMES = ("auto", "light", "dark")  # `theme` setting; auto = follow the OS
+# accessibility font settings — keys must match FONT_STACKS in app.js and the
+# #setting-font-family / #setting-font-scale options in index.html
+FONT_FAMILIES = ("system", "atkinson", "lexend", "opendyslexic", "verdana")
+FONT_SCALES = (90, 100, 110, 125, 150)  # percent of the stylesheet's sizes
 
 
 def _hidden_views(conn):
@@ -242,6 +246,8 @@ def _extra_settings(conn):
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
         "theme": stored.get("theme") or "auto",  # auto = follow the OS
+        "font_family": stored.get("font_family") or "system",
+        "font_scale": int(stored.get("font_scale") or 100),
         "date_format": stored.get("date_format") or "iso",
         "runes_mode": stored.get("runes_mode") or "matchup",
         "enable_player_comparison": stored.get("enable_player_comparison") == "1",
@@ -372,6 +378,13 @@ def api_put_settings(body: dict):
     theme = body.get("theme", "auto")
     if theme not in THEMES:
         raise HTTPException(400, f"theme must be one of: {', '.join(THEMES)}")
+    font_family = body.get("font_family", "system")
+    if font_family not in FONT_FAMILIES:
+        raise HTTPException(400, f"font_family must be one of: {', '.join(FONT_FAMILIES)}")
+    font_scale = body.get("font_scale", 100)
+    if isinstance(font_scale, bool) or font_scale not in FONT_SCALES:
+        raise HTTPException(
+            400, f"font_scale must be one of: {', '.join(map(str, FONT_SCALES))}")
     date_format = body.get("date_format", "iso")
     if date_format not in ("iso", "us", "eu"):
         raise HTTPException(400, "date_format must be one of: iso, us, eu")
@@ -430,6 +443,8 @@ def api_put_settings(body: dict):
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
             "theme": theme,
+            "font_family": font_family,
+            "font_scale": str(font_scale),
             "date_format": date_format,
             "runes_mode": runes_mode,
             "enable_player_comparison": "1" if enable_comparison else "0",

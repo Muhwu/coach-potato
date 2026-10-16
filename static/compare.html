@@ -11,23 +11,27 @@
   try {
     const t = localStorage.getItem("cp-theme");
     if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+    // same idea for the accessibility font/text-size settings (applyFont in app.js)
+    const f = localStorage.getItem("cp-font"), fs = localStorage.getItem("cp-font-scale");
+    if (f) document.documentElement.style.setProperty("--font-ui", f);
+    if (fs) document.documentElement.style.setProperty("--font-scale", fs);
   } catch (e) { /* storage unavailable: fall through to the OS preference */ }
 </script>
 <link rel="stylesheet" href="style.css">
 <style>
   /* standalone comparison window — reuses .cmp-* from style.css */
   body { max-width: none; padding: 18px; }
-  .cmp-title { font-size: 18px; margin: 0 0 4px; }
+  .cmp-title { font-size: calc(18px * var(--font-scale)); margin: 0 0 4px; }
   .cmp-sub { margin: 0 0 12px; }
-  .cmp-note { color: var(--muted); font-size: 12px; margin-top: 16px; }
+  .cmp-note { color: var(--muted); font-size: calc(12px * var(--font-scale)); margin-top: 16px; }
   .cmp-player-note {
-    display: block; color: var(--muted); font-size: 11px; font-weight: 400;
+    display: block; color: var(--muted); font-size: calc(11px * var(--font-scale)); font-weight: 400;
     font-style: italic; max-width: 180px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
   }
   .cmp-controls { margin: 0 0 14px; }
   .cmp-toggle {
-    font: inherit; font-size: 12px; cursor: pointer; padding: 5px 12px;
+    font: inherit; font-size: calc(12px * var(--font-scale)); cursor: pointer; padding: 5px 12px;
     border-radius: 6px; border: 1px solid var(--border);
     background: var(--surface-1); color: var(--text-primary);
   }
@@ -45,18 +49,18 @@
     grid-template-columns: 16px 42px 46px 40px minmax(128px, 1fr) auto;
   }
   .cmp-ghead {
-    font-size: 8.5px; text-transform: uppercase; letter-spacing: .03em;
+    font-size: calc(8.5px * var(--font-scale)); text-transform: uppercase; letter-spacing: .03em;
     color: var(--muted); padding-bottom: 3px; margin-bottom: 2px;
     border-bottom: 1px solid var(--grid);
   }
   .cmp-ghead span { overflow: hidden; text-overflow: ellipsis; }
   .cmp-game { padding: 3px 0; min-height: 22px; }
   .cmp-game + .cmp-game { border-top: 1px solid rgba(128,128,128,.09); }
-  .cmp-res { font-weight: 700; font-size: 12px; }
+  .cmp-res { font-weight: 700; font-size: calc(12px * var(--font-scale)); }
   .cmp-res.w { color: var(--good); }
   .cmp-res.l { color: var(--critical); }
-  .cmp-kda { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-secondary); }
-  .cmp-skill { font-size: 11px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; letter-spacing: .5px; }
+  .cmp-kda { font-variant-numeric: tabular-nums; font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); }
+  .cmp-skill { font-size: calc(11px * var(--font-scale)); font-weight: 600; color: var(--text-secondary); white-space: nowrap; letter-spacing: .5px; }
   .cmp-runes { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; overflow: hidden; }
   .cmp-runes .sep { width: 4px; flex: none; }
   .cmp-spells, .cmp-start, .cmp-build { display: inline-flex; gap: 2px; }
@@ -69,23 +73,23 @@
   /* comparison table (default view): stats down the side, players across the
      top, so values line up in a column and can be scanned across a row */
   .cmp-table-wrap { margin-bottom: 20px; overflow-x: auto; }
-  .cmp-table-cap { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+  .cmp-table-cap { margin: 0 0 6px; font-size: calc(13px * var(--font-scale)); font-weight: 600; }
   .cmp-table { border-collapse: collapse; min-width: min(100%, 520px); }
   .cmp-table th, .cmp-table td {
     padding: 7px 16px; text-align: right; font-variant-numeric: tabular-nums;
     border-bottom: 1px solid var(--grid); white-space: nowrap;
   }
-  .cmp-table thead th { text-align: right; font-size: 13px; padding-bottom: 9px; }
-  .cmp-table thead th .muted { font-weight: 400; font-size: 11px; }
+  .cmp-table thead th { text-align: right; font-size: calc(13px * var(--font-scale)); padding-bottom: 9px; }
+  .cmp-table thead th .muted { font-weight: 400; font-size: calc(11px * var(--font-scale)); }
   .cmp-table tbody th {
-    text-align: left; font-weight: 500; color: var(--text-secondary); font-size: 12px;
+    text-align: left; font-weight: 500; color: var(--text-secondary); font-size: calc(12px * var(--font-scale));
   }
-  .cmp-table td { font-size: 14px; }
+  .cmp-table td { font-size: calc(14px * var(--font-scale)); }
   .cmp-best { font-weight: 700; color: var(--good); }
   .cmp-mine-col { background: var(--accent-wash); }
   .cmp-card.cmp-mine { border-color: var(--series-1); }
   .cmp-recent-stack { display: flex; flex-direction: column; gap: 18px; }
-  .cmp-recent-block h3 { margin: 0 0 6px; font-size: 13px; }
+  .cmp-recent-block h3 { margin: 0 0 6px; font-size: calc(13px * var(--font-scale)); }
   .cmp-recent-block.cmp-mine h3 { color: var(--series-1); }
 </style>
 </head>
@@ -173,7 +177,7 @@ function img(url, size, title) {
 // runes in one cell (compact so the whole game fits on one line): keystone +
 // primary minors | secondary tree + minors | shards
 function runeStrip(page) {
-  if (!page) return `<span class="cmp-runes"><span class="muted" style="font-size:10px">—</span></span>`;
+  if (!page) return `<span class="cmp-runes"><span class="muted" style="font-size: calc(10px * var(--font-scale))">—</span></span>`;
   const ks = img(ddImg(runeIconMap[page.keystone]), 20, page.keystone);
   const minors = (page.primary_runes || []).filter(Boolean)
     .map((n) => img(ddImg(runeIconMap[n]), 12, n)).join("");

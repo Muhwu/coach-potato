@@ -92,3 +92,38 @@ def test_vendored_scripts_exist():
     assert "vendor/modern-screenshot.min.js" in vendored
     for path in vendored:
         assert (STATIC / path).is_file(), f"missing vendored script {path}"
+
+
+def test_font_settings_agree_across_server_select_and_app_js():
+    """The accessibility font/text-size options live in three places: the
+    Settings selects, FONT_STACKS in app.js and the server's allow-lists. An
+    option the server doesn't know makes Save 400; one app.js doesn't know
+    silently falls back to the system font."""
+    from server.app import FONT_FAMILIES, FONT_SCALES
+
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    def options(select_id):
+        block = re.search(rf'<select id="{select_id}".*?</select>', html, re.S).group(0)
+        return re.findall(r'<option value="([^"]+)"', block)
+    assert set(options("setting-font-family")) == set(FONT_FAMILIES)
+    assert {int(v) for v in options("setting-font-scale")} == set(FONT_SCALES)
+    app_js = (STATIC / "app.js").read_text(encoding="utf-8")
+    stacks = re.search(r"const FONT_STACKS = \{(.*?)\n\};", app_js, re.S).group(1)
+    assert set(re.findall(r"^\s+([a-z]+):", stacks, re.M)) == set(FONT_FAMILIES) - {"system"}
+
+
+def test_vendored_fonts_exist():
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    fonts = re.findall(r"url\((vendor/fonts/[^)]+\.woff2)\)", css)
+    assert len(fonts) == 6
+    for path in fonts:
+        assert (STATIC / path).is_file(), f"missing vendored font {path}"
+
+
+@pytest.mark.parametrize("name", ["style.css", "compare.html"])
+def test_every_font_size_follows_the_text_size_setting(name):
+    """The text-size setting works by scaling --font-scale; a hardcoded px
+    font-size would stay small when the user asked for larger text."""
+    text = (STATIC / name).read_text(encoding="utf-8")
+    fixed = re.findall(r"font-size:\s*[0-9.]+px\s*[;}]", text)
+    assert not fixed, f"unscaled font-size in {name}: {fixed[:5]}"

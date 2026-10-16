@@ -1,6 +1,12 @@
 :root {
   color-scheme: light;      /* native controls (selects, scrollbars) follow the theme */
   --ui-opacity: 1;          /* 0.2–1, set inline from the ui_opacity setting */
+  /* Accessibility (Settings → Appearance → Font / Text size): every font-size
+     in this sheet is written as calc(<px> * var(--font-scale)), so the
+     font_scale setting grows ALL text in step — new rules must follow suit.
+     --font-ui is the body family; app.js swaps it for the font_family setting. */
+  --font-scale: 1;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
   /* Surfaces that hold text (cards, tables, the page) keep a readable backing
      even at the lowest opacity: the raw slider is remapped into [0.6, 1] so
      content never disappears behind a background image, while still staying
@@ -81,23 +87,39 @@ html { background: transparent; }
   display: none;
 }
 #bg-image.active { display: block; }
+/* Readable-font choices for the font_family setting — vendored (OFL, licenses
+   beside the files) so the packaged app needs no network for them. */
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 400; font-display: swap;
+  src: url(vendor/fonts/atkinson-hyperlegible-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 700; font-display: swap;
+  src: url(vendor/fonts/atkinson-hyperlegible-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "Lexend"; font-weight: 400; font-display: swap;
+  src: url(vendor/fonts/lexend-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Lexend"; font-weight: 700; font-display: swap;
+  src: url(vendor/fonts/lexend-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "OpenDyslexic"; font-weight: 400; font-display: swap;
+  src: url(vendor/fonts/opendyslexic-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "OpenDyslexic"; font-weight: 700; font-display: swap;
+  src: url(vendor/fonts/opendyslexic-latin-700-normal.woff2) format("woff2"); }
+/* native controls don't inherit the page font by default */
+button, input, select { font-family: inherit; }
 body {
   margin: 0 auto;
   max-width: 1280px;  /* wide enough that the Overview tables don't need a bottom scrollbar */
   padding: 16px 20px 48px;
   background: var(--page);
   color: var(--text-primary);
-  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: calc(15px * var(--font-scale))/1.45 var(--font-ui);
 }
 /* Column-picker views (Matchups, Coaching progress, Trends, Blocks) can grow
    very wide; let them fill the window so widening it reveals more columns
    instead of forcing a horizontal scroll (issue #8). Capped so tables don't
    stretch absurdly on ultra-wide monitors. */
 body.wide-view { max-width: min(2200px, 100%); }
-h1 { font-size: 22px; margin: 0; }
-h2 { font-size: 17px; margin: 0 0 10px; }
+h1 { font-size: calc(22px * var(--font-scale)); margin: 0; }
+h2 { font-size: calc(17px * var(--font-scale)); margin: 0 0 10px; }
 section { margin-top: 26px; }
-.muted { color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); font-size: calc(13px * var(--font-scale)); }
 .hidden { display: none !important; }
 
 header {
@@ -135,10 +157,10 @@ header {
   padding: 4px 10px;
   cursor: pointer;
   font: inherit;
-  font-size: 19px;
+  font-size: calc(19px * var(--font-scale));
   line-height: 1.2;
 }
-#nav-settings { font-size: 17px; padding: 4px 10px; }
+#nav-settings { font-size: calc(17px * var(--font-scale)); padding: 4px 10px; }
 #nav-settings.active { background: var(--accent-wash); border-color: var(--series-1); }
 #crawl-btn:disabled { opacity: 0.55; cursor: default; }
 #crawl-indicator { display: inline-flex; align-items: center; gap: 6px; }
@@ -159,7 +181,7 @@ header {
   border: 1px solid #c98500;
   background: rgba(237, 161, 0, 0.16);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
@@ -189,7 +211,7 @@ header {
 }
 .panel > :first-child { margin-top: 0; }
 .filter-group { display: flex; align-items: center; gap: 6px; }
-.filter-label { color: var(--text-secondary); font-size: 13px; margin-right: 2px; }
+.filter-label { color: var(--text-secondary); font-size: calc(13px * var(--font-scale)); margin-right: 2px; }
 .preset {
   border: 1px solid var(--border);
   background: transparent;
@@ -198,14 +220,14 @@ header {
   padding: 3px 9px;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .preset.active { background: var(--accent-wash); border-color: var(--series-1); font-weight: 600; }
 select, textarea,
 input[type="date"], input[type="number"], input[type="text"],
 input[type="url"], input[type="search"], input[type="password"] {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--text-primary);
   background: var(--surface-1);
   border: 1px solid var(--border);
@@ -221,9 +243,9 @@ input[type="url"], input[type="search"], input[type="password"] {
   padding: 12px 18px;
   min-width: 128px;
 }
-.tile .label { color: var(--text-secondary); font-size: 12px; }
-.tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; }
-.tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.tile .label { color: var(--text-secondary); font-size: calc(12px * var(--font-scale)); }
+.tile .value { font-size: calc(26px * var(--font-scale)); font-weight: 650; margin-top: 2px; }
+.tile .sub { color: var(--muted); font-size: calc(12px * var(--font-scale)); margin-top: 2px; }
 
 .section-head {
   display: flex;
@@ -245,7 +267,7 @@ input[type="url"], input[type="search"], input[type="password"] {
   padding: 3px 10px;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .view-toggle button.active { background: var(--accent-wash); border-color: var(--series-1); font-weight: 600; }
 
@@ -255,7 +277,7 @@ input[type="url"], input[type="search"], input[type="password"] {
 /* level 1 — the three modes: roomy pills, the most prominent thing in the bar */
 .section-toggle { gap: 10px; }
 .section-toggle button {
-  font-size: 15px; font-weight: 550; letter-spacing: 0.01em;
+  font-size: calc(15px * var(--font-scale)); font-weight: 550; letter-spacing: 0.01em;
   padding: 8px 22px; border-radius: 999px;
   transition: background 120ms ease, border-color 120ms ease;
 }
@@ -268,7 +290,7 @@ input[type="url"], input[type="search"], input[type="password"] {
   border-top: 1px solid var(--grid);
 }
 .sub-toggle button {
-  font-size: 13.5px; color: var(--text-secondary);
+  font-size: calc(13.5px * var(--font-scale)); color: var(--text-secondary);
   border: none; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0;
   padding: 7px 16px 6px;
 }
@@ -284,7 +306,7 @@ input[type="url"], input[type="search"], input[type="password"] {
 .nav-help-btn {
   width: 20px; height: 20px; padding: 0; border-radius: 50%;
   border: 1px solid var(--border); background: transparent;
-  color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1;
+  color: var(--text-secondary); font: inherit; font-size: calc(13px * var(--font-scale)); line-height: 1;
   cursor: help;
 }
 .nav-help-btn:hover, .nav-help:focus-within .nav-help-btn {
@@ -295,13 +317,13 @@ input[type="url"], input[type="search"], input[type="password"] {
   transform: translateX(-50%); z-index: 30; width: max-content; max-width: 280px;
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
   padding: 10px 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-  font-size: 12px; color: var(--text-secondary); text-align: left;
+  font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); text-align: left;
 }
 .nav-help:hover .nav-help-pop, .nav-help:focus-within .nav-help-pop { display: block; }
 .nav-help-pop kbd {
   display: inline-block; min-width: 17px; text-align: center;
   border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
-  padding: 0 4px; margin-right: 2px; font-size: 11px; font-family: inherit;
+  padding: 0 4px; margin-right: 2px; font-size: calc(11px * var(--font-scale)); font-family: inherit;
   color: var(--text-primary); background: var(--page);
 }
 .nav-help-pop p { margin: 0 0 6px; }
@@ -320,21 +342,21 @@ th, td {
      buttons sitting inside them match it, rather than the old mix of 15px
      cells against 11-13px buttons. Folding Reflection and the curve into the
      VOD panel freed two columns, which is what made the full size fit again. */
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   padding: 8px 10px;
   border-top: 1px solid var(--grid);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-thead th { border-top: none; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+thead th { border-top: none; color: var(--text-secondary); font-size: calc(12px * var(--font-scale)); font-weight: 600; }
 th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable:hover { color: var(--text-primary); }
 th.sortable.sorted { color: var(--text-primary); }
-.sort-arrow { display: inline-block; width: 0.9em; font-size: 10px; margin-left: 1px; }
+.sort-arrow { display: inline-block; width: 0.9em; font-size: calc(10px * var(--font-scale)); margin-left: 1px; }
 th:first-child, td:first-child { text-align: left; }
 .runes-compare { display: flex; gap: 28px; flex-wrap: wrap; padding: 6px 0; text-align: left; }
 .runes-compare-col { min-width: 220px; }
-.runes-compare-col h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.runes-compare-col h5 { margin: 0 0 6px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .runes-compare-col h5 img { width: 20px; height: 20px; border-radius: 4px; vertical-align: middle; margin-right: 4px; }
 .recent-runes-cell-inner {
   display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
@@ -347,7 +369,7 @@ tr.rank-header td {
   background: var(--accent-wash);
   color: var(--text-secondary);
   font-weight: 650;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 tbody tr:hover td { background: var(--accent-wash); }
 
@@ -362,7 +384,7 @@ th.wr-col, td.wr-col { text-align: center; }
 td.period-cell { white-space: normal; min-width: 220px; max-width: 360px; }
 .period-wrap { display: flex; align-items: flex-start; gap: 8px; }
 .period-text { min-width: 0; }
-.seg-toggle, .smedia-toggle { flex: none; font-size: 16px; padding: 1px 7px; margin-top: 2px; }
+.seg-toggle, .smedia-toggle { flex: none; font-size: calc(16px * var(--font-scale)); padding: 1px 7px; margin-top: 2px; }
 /* Action cells (Runes / Curve / VOD / Reflect / + Block) hold a button that
    already carries its own padding, so the cell's 10px each side is doubled-up
    whitespace — ~20px per cell, which across five columns is what pushed the
@@ -377,7 +399,7 @@ tr.games-row td {
 }
 .games-inner {
   width: 100%;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 tr.games-row .games-inner th, tr.games-row .games-inner td {
   padding: 5px 10px;
@@ -424,7 +446,7 @@ tbody tr.games-row:hover td { background: var(--page); }
 .learn-card textarea {
   width: 100%;
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   color: var(--text-primary);
   background: var(--page);
   border: 1px solid var(--border);
@@ -437,14 +459,14 @@ tbody tr.games-row:hover td { background: var(--page); }
 }
 
 .md-body { max-width: 75ch; }
-.md-body h1, .md-body h2, .md-body h3 { font-size: 16px; margin: 12px 0 6px; }
-.md-body h1 { font-size: 18px; }
+.md-body h1, .md-body h2, .md-body h3 { font-size: calc(16px * var(--font-scale)); margin: 12px 0 6px; }
+.md-body h1 { font-size: calc(18px * var(--font-scale)); }
 .md-body p, .md-body ul, .md-body ol { margin: 6px 0; }
 .md-body ul, .md-body ol { padding-left: 22px; }
 .md-body li { margin: 2px 0; }
 .md-body code {
   font-family: ui-monospace, monospace;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   background: var(--page);
   border: 1px solid var(--grid);
   border-radius: 4px;
@@ -496,16 +518,16 @@ tbody tr.games-row:hover td { background: var(--page); }
   text-align: center;
   border-radius: 5px;
   padding: 1px 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 700;
   color: #fff;
 }
 .result-pill.win { background: var(--good); }
 .result-pill.loss { background: var(--critical); }
 
-.delta-up { color: var(--good-text); font-size: 12px; font-weight: 650; }
-.delta-down { color: var(--critical); font-size: 12px; font-weight: 650; }
-.delta-neutral { color: var(--muted); font-size: 12px; font-weight: 650; }
+.delta-up { color: var(--good-text); font-size: calc(12px * var(--font-scale)); font-weight: 650; }
+.delta-down { color: var(--critical); font-size: calc(12px * var(--font-scale)); font-weight: 650; }
+.delta-neutral { color: var(--muted); font-size: calc(12px * var(--font-scale)); font-weight: 650; }
 .lane-yes { color: var(--good-text); font-weight: 700; }
 .lane-no { color: var(--critical); font-weight: 700; }
 /* the two extra tiers a manually-set lane result can take */
@@ -519,7 +541,7 @@ tbody tr.games-row:hover td { background: var(--page); }
 .lane-result-row .filter-label { margin: 0; }
 .lane-result-row select { max-width: 13em; }
 /* detected jungle starts — own line so the controls above stay on one row */
-.lane-side-hint { flex-basis: 100%; font-size: 12px; }
+.lane-side-hint { flex-basis: 100%; font-size: calc(12px * var(--font-scale)); }
 
 .metric-groups {
   display: grid;
@@ -529,7 +551,7 @@ tbody tr.games-row:hover td { background: var(--page); }
 }
 .metric-group h4 {
   margin: 4px 0 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-secondary);
@@ -540,7 +562,7 @@ tbody tr.games-row:hover td { background: var(--page); }
   gap: 12px;
   padding: 3px 0;
   border-bottom: 1px dotted var(--grid);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .metric-label { color: var(--text-secondary); }
 .metric-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -556,7 +578,7 @@ tr.muted td { color: var(--muted); }
   color: var(--text-primary);
   border-radius: 6px;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -574,14 +596,14 @@ tr.muted td { color: var(--muted); }
 }
 .block-title:hover, .block-title:focus { border-color: var(--border); background: var(--page); }
 .block-games { border: none; border-radius: 0; border-top: 1px solid var(--grid); }
-.block-games table { font-size: 13px; }
+.block-games table { font-size: calc(13px * var(--font-scale)); }
 .notes-col { min-width: 220px; }
 td.notes-cell { text-align: left; white-space: normal; }
 .game-notes {
   width: 100%;
   min-width: 200px;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   line-height: 1.4;
   color: var(--text-primary);
   background: transparent;
@@ -593,8 +615,8 @@ td.notes-cell { text-align: left; white-space: normal; }
   display: block;
 }
 .game-notes:hover, .game-notes:focus { border-color: var(--border); background: var(--page); }
-.promote-btn { font-size: 15px; padding: 1px 7px; }
-.icon-btn { font-size: 19px; padding: 4px 11px; line-height: 1.25; }
+.promote-btn { font-size: calc(15px * var(--font-scale)); padding: 1px 7px; }
+.icon-btn { font-size: calc(19px * var(--font-scale)); padding: 4px 11px; line-height: 1.25; }
 .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .col-menu a, .col-menu button {
   display: block;
@@ -604,7 +626,7 @@ td.notes-cell { text-align: left; white-space: normal; }
   background: none;
   border: none;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   cursor: pointer;
   padding: 2px 0;
 }
@@ -644,7 +666,7 @@ td.notes-cell { text-align: left; white-space: normal; }
   border: none !important;
   background: transparent !important;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--text-primary);
   outline: none;
   padding: 2px;
@@ -655,7 +677,7 @@ td.notes-cell { text-align: left; white-space: normal; }
   gap: 4px;
   border-radius: 999px;
   padding: 2px 9px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 600;
   white-space: nowrap;
 }
@@ -674,13 +696,13 @@ button.chip:hover { border-color: var(--series-1); }
 .key-row { display: flex; gap: 6px; align-items: center; }
 .key-row input { flex: 1; }
 .view-toggles { display: flex; gap: 16px; flex-wrap: wrap; }
-.view-toggles label { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; }
+.view-toggles label { display: inline-flex; gap: 5px; align-items: center; font-size: calc(13px * var(--font-scale)); }
 
 /* "Reset to defaults" sits under the checkboxes, separated from them */
 .col-reset {
   display: block; width: 100%; margin-top: 6px; padding-top: 7px;
   border: none; border-top: 1px solid var(--grid); background: none;
-  color: var(--series-1); font: inherit; font-size: 12px; text-align: left;
+  color: var(--series-1); font: inherit; font-size: calc(12px * var(--font-scale)); text-align: left;
   cursor: pointer;
 }
 .col-reset:hover { text-decoration: underline; }
@@ -703,12 +725,12 @@ button.chip:hover { border-color: var(--series-1); }
   min-width: 170px;
   white-space: nowrap;
 }
-.col-menu label { display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+.col-menu label { display: flex; gap: 6px; align-items: center; font-size: calc(13px * var(--font-scale)); cursor: pointer; }
 .col-menu input[type="password"], .col-menu input[type="file"] {
-  width: 100%; max-width: 220px; box-sizing: border-box; font-size: 12px;
+  width: 100%; max-width: 220px; box-sizing: border-box; font-size: calc(12px * var(--font-scale));
 }
 .col-menu button { margin-top: 2px; }
-td.rank-cell { font-size: 12px; line-height: 1.5; }
+td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 
 .welcome-banner {
   margin-top: 16px;
@@ -740,7 +762,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   padding: 0 0 0 2px;
   line-height: 1;
 }
@@ -750,7 +772,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   padding: 0 0 0 3px;
   line-height: 1;
   opacity: 0.7;
@@ -763,7 +785,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   align-items: center;
   padding: 8px 12px;
   border-top: 1px solid var(--grid);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 /* a block's learnings, set off as an accent callout — on the block card when
    not being edited, and on the copied block image */
@@ -783,7 +805,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 }
 .learnings-head h4 {
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-secondary);
@@ -794,7 +816,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border: 1px solid transparent;
   border-radius: 6px;
   padding: 2px 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .notes-display:hover { border-color: var(--border); background: var(--page); }
 .notes-display p, .notes-display ul, .notes-display ol { margin: 0 0 4px; }
@@ -802,7 +824,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .notes-display ul, .notes-display ol { padding-left: 18px; }
 .notes-display code {
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   background: var(--page);
   border: 1px solid var(--grid);
   border-radius: 4px;
@@ -828,7 +850,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 /* ---------- settings layout ---------- */
 .settings-group-head {
   margin: 26px 0 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
@@ -846,7 +868,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border-bottom: 1px solid var(--grid); margin-bottom: 18px;
 }
 .settings-tab {
-  font: inherit; font-size: 13.5px; color: var(--text-secondary); cursor: pointer;
+  font: inherit; font-size: calc(13.5px * var(--font-scale)); color: var(--text-secondary); cursor: pointer;
   background: transparent; border: none; border-bottom: 2px solid transparent;
   border-radius: 8px 8px 0 0; padding: 7px 14px 6px;
 }
@@ -856,7 +878,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 }
 /* a heading below a group head (e.g. "Older matchup notes" inside Backup) */
 .settings-subhead {
-  font-size: 12px; font-weight: 650; text-transform: uppercase;
+  font-size: calc(12px * var(--font-scale)); font-weight: 650; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 4px;
 }
 .settings-savebar {
@@ -898,7 +920,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   max-height: 80vh; overflow-y: auto;
 }
 .changelog-entry h3 { margin: 14px 0 6px; display: flex; gap: 8px; align-items: center; }
-.changelog-entry h3 .muted { font-size: 13px; font-weight: 400; }
+.changelog-entry h3 .muted { font-size: calc(13px * var(--font-scale)); font-weight: 400; }
 .changelog-entry ul { margin: 0 0 10px 18px; }
 .changelog-entry li { margin: 3px 0; }
 #nav-changelog { position: relative; }
@@ -935,22 +957,22 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .rk-dot { stroke: var(--surface-1); stroke-width: 1.5; }
 .rk-grid { stroke: var(--grid); stroke-width: 1; }
 .rk-grid-minor { opacity: 0.45; }
-.rk-tier-label, .rk-xlab { font-size: 10px; fill: var(--muted); }
+.rk-tier-label, .rk-xlab { font-size: calc(10px * var(--font-scale)); fill: var(--muted); }
 .rk-session { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
 .rk-session-hit { stroke: transparent; stroke-width: 12; cursor: help; }
-.rank-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
+.rank-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: calc(13px * var(--font-scale)); }
 .rank-legend .swatch {
   display: inline-block; width: 10px; height: 10px;
   border-radius: 2px; margin-right: 5px;
 }
 .rk-line.rk-est { opacity: 0.35; stroke-width: 1.5; }
 .rk-dot.rk-est { opacity: 0.4; stroke-width: 0; }
-.rk-note { font-size: 12px; margin-top: 4px; }
+.rk-note { font-size: calc(12px * var(--font-scale)); margin-top: 4px; }
 
 /* ---------- matchups view ---------- */
 .mu-panel-body { padding: 10px 4px 4px; }
 .mu-tabbar { margin-bottom: 4px; }
-.note-flag { font-size: 13px; }
+.note-flag { font-size: calc(13px * var(--font-scale)); }
 .mu-overview-grid {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(300px, 420px);
@@ -961,23 +983,23 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   .mu-overview-grid { grid-template-columns: 1fr; }
 }
 .wl-wrap { margin-bottom: 14px; }
-.wl-caption { font-size: 12px; margin-bottom: 4px; }
+.wl-caption { font-size: calc(12px * var(--font-scale)); margin-bottom: 4px; }
 .wl-mid { stroke: var(--baseline); stroke-width: 1; }
 .wl-bar.wl-win { fill: var(--good); }
 .wl-bar.wl-loss { fill: var(--critical); }
 .wl-hit { fill: transparent; cursor: pointer; }
 .lane-wrap svg { width: 100%; height: auto; display: block; max-width: 420px; }
 .lane-hit { fill: transparent; cursor: pointer; }
-.lane-legend { font-size: 12px; margin-top: 2px; }
+.lane-legend { font-size: calc(12px * var(--font-scale)); margin-top: 2px; }
 .mu-notes { max-width: 720px; }
 .mu-notes-head { display: flex; align-items: center; gap: 8px; }
 .mu-notes-head h4 { margin: 0; }
 .legacy-notes-row { display: flex; align-items: center; gap: 8px; }
-.timeline-pending { margin-left: 4px; font-size: 11px; opacity: 0.7; }
-.block-index { font-weight: 400; font-size: 12px; color: var(--muted); }
+.timeline-pending { margin-left: 4px; font-size: calc(11px * var(--font-scale)); opacity: 0.7; }
+.block-index { font-weight: 400; font-size: calc(12px * var(--font-scale)); color: var(--muted); }
 /* block name input, now the leftmost/prominent element in the header */
 .block-title {
-  font: inherit; font-size: 14px; font-weight: 600; color: var(--text-primary);
+  font: inherit; font-size: calc(14px * var(--font-scale)); font-weight: 600; color: var(--text-primary);
   background: transparent; border: 1px solid transparent; border-radius: 6px;
   padding: 2px 6px; min-width: 8em; max-width: 16em;
 }
@@ -986,7 +1008,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-title::placeholder { color: var(--text-secondary); font-weight: 600; opacity: 1; }
 .block-head-right { margin-left: auto; }
 .block-series-bubble {
-  font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+  font-size: calc(12px * var(--font-scale)); font-weight: 600; padding: 2px 10px; border-radius: 999px;
   background: var(--accent-wash); border: 1px solid var(--border);
   color: var(--text-secondary); white-space: nowrap; cursor: pointer;
 }
@@ -1021,7 +1043,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .block-snapshot .learnings-callout h4 { margin: 0 0 6px; }
 .block-snapshot td.notes-cell .md-body > :first-child { margin-top: 0; }
 .block-snapshot td.notes-cell .md-body > :last-child { margin-bottom: 0; }
-.block-snapshot .snapshot-title { font-size: 15px; }
+.block-snapshot .snapshot-title { font-size: calc(15px * var(--font-scale)); }
 /* active series on the champion-pool line: always on screen, so a series with
    no games yet is still visible; both it and the block bubbles open the goals */
 .series-current-inline { display: flex; align-items: center; gap: 6px; margin-left: auto; }
@@ -1036,7 +1058,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .series-modal-title input { flex: 1; min-width: 8em; }
 .series-modal .md-body { max-height: 50vh; overflow-y: auto; }
 .series-modal textarea { width: 100%; }
-.series-modal h4 { margin: 14px 0 4px; font-size: 13px; color: var(--text-secondary); }
+.series-modal h4 { margin: 14px 0 4px; font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); }
 .series-modal-actions { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
 .series-close-form > p { margin: 0 0 8px; }
 .import-all-row { display: flex; align-items: center; gap: 8px; }
@@ -1045,14 +1067,14 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 /* ---------- item build ---------- */
 .item-build-display, .item-build-editor { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
 .item-build-section h5, .item-build-section-editor h5 {
-  margin: 0 0 4px; font-size: 12px; text-transform: uppercase;
+  margin: 0 0 4px; font-size: calc(12px * var(--font-scale)); text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--text-secondary);
 }
 .item-build-icons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .item-chip {
   display: inline-flex; align-items: center; gap: 4px;
   border: 1px solid var(--border); border-radius: 999px;
-  padding: 2px 8px 2px 2px; font-size: 12px; background: var(--surface-1);
+  padding: 2px 8px 2px 2px; font-size: calc(12px * var(--font-scale)); background: var(--surface-1);
 }
 .item-chip img { border-radius: 4px; }
 .item-chip-remove { margin-left: 2px; }
@@ -1061,7 +1083,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 }
 .item-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .item-section-label { flex: 1; }
-.item-add-btn { font-size: 12px; padding: 2px 8px; }
+.item-add-btn { font-size: calc(12px * var(--font-scale)); padding: 2px 8px; }
 .item-section-add { align-self: flex-start; }
 .item-picker {
   border: 1px solid var(--series-1); border-radius: 8px; padding: 8px;
@@ -1073,7 +1095,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 }
 .item-picker-result {
   display: flex; align-items: center; gap: 8px; text-align: left;
-  padding: 4px 6px; font-size: 13px; border-radius: 4px;
+  padding: 4px 6px; font-size: calc(13px * var(--font-scale)); border-radius: 4px;
 }
 .item-picker-result:hover { background: var(--accent-wash); }
 .item-picker-close { margin-top: 6px; }
@@ -1087,7 +1109,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .research-sub-head { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; }
 .research-sub-head h4 { margin: 0; }
 .research-shot-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.research-shot-form input[type="file"] { font-size: 12px; max-width: 220px; }
+.research-shot-form input[type="file"] { font-size: calc(12px * var(--font-scale)); max-width: 220px; }
 .research-screenshots {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px; margin: 6px 0;
@@ -1112,14 +1134,14 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--grid);
 }
-.op-title { display: flex; align-items: center; gap: 10px; font-size: 20px; }
+.op-title { display: flex; align-items: center; gap: 10px; font-size: calc(20px * var(--font-scale)); }
 .op-title img { width: 36px; height: 36px; border-radius: 6px; }
 #onepager-body section { margin-top: 24px; }
 #onepager-body h3 {
-  margin: 0 0 10px; font-size: 13px; font-weight: 700;
+  margin: 0 0 10px; font-size: calc(13px * var(--font-scale)); font-weight: 700;
   color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;
 }
-#onepager-body .md-body { max-width: none; font-size: 15px; }
+#onepager-body .md-body { max-width: none; font-size: calc(15px * var(--font-scale)); }
 .op-live-switch { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .op-enemy-btn {
   border: 2px solid transparent; border-radius: 8px; padding: 1px; background: none;
@@ -1128,16 +1150,16 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .op-enemy-btn img { width: 30px; height: 30px; border-radius: 6px; display: block; }
 .op-enemy-btn.active { border-color: var(--series-1); }
 .op-runes { display: flex; gap: 28px; flex-wrap: wrap; }
-.op-rune-page .rune-page-title { font-size: 13px; margin-bottom: 6px; }
+.op-rune-page .rune-page-title { font-size: calc(13px * var(--font-scale)); margin-bottom: 6px; }
 .op-rune-page .rune-page-display img { background: var(--surface-1-solid); }
 .op-skill .skill-grid-mini .sg-row { grid-template-columns: 20px repeat(18, 24px); gap: 2px; }
 .op-skill .skill-grid-mini .sg-cell { width: 24px; height: 24px; border-radius: 4px; }
-.op-skill .skill-grid-mini .sg-label { font-size: 12px; }
+.op-skill .skill-grid-mini .sg-label { font-size: calc(12px * var(--font-scale)); }
 #onepager-body .item-chip img { width: 32px; height: 32px; }
 
 /* ---------- matchup guide view ---------- */
 #guide-champion-icon img { width: 24px; height: 24px; border-radius: 5px; display: block; }
-.mu-guide-link { font-size: 14px; }
+.mu-guide-link { font-size: calc(14px * var(--font-scale)); }
 #guide-list .guide-row {
   max-width: 1200px; margin: 0 0 18px; padding-bottom: 14px;
   border-bottom: 1px solid var(--grid);
@@ -1158,18 +1180,18 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .guide-row-actions { display: flex; align-items: center; gap: 4px; }
 .guide-flags {
   display: flex; align-items: center; gap: 4px;
-  font-size: 13px; white-space: nowrap;
+  font-size: calc(13px * var(--font-scale)); white-space: nowrap;
 }
 #guide-list .mu-notes-head h4 {
   display: flex; align-items: center; gap: 8px;
-  margin: 0; font-size: 15px; font-weight: 600;
+  margin: 0; font-size: calc(15px * var(--font-scale)); font-weight: 600;
 }
 /* champion portrait in guide headers — same size/shape as table .champ-cell */
 #guide-list .mu-notes-head h4 img { width: 24px; height: 24px; border-radius: 5px; display: block; }
-.guide-stat { margin-left: auto; font-size: 12px; white-space: nowrap; }
+.guide-stat { margin-left: auto; font-size: calc(12px * var(--font-scale)); white-space: nowrap; }
 .guide-toggle { margin-right: 2px; }
 .guide-patch-badge {
-  font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  font-size: calc(11px * var(--font-scale)); padding: 1px 8px; border-radius: 999px;
   background: var(--accent-wash); border: 1px solid var(--border);
   color: var(--text-secondary); white-space: nowrap;
 }
@@ -1183,10 +1205,10 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   gap: 20px; align-items: start; margin-top: 8px;
 }
 @media (max-width: 900px) { .guide-row-grid { grid-template-columns: 1fr; } }
-.guide-row-side h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.guide-row-side h5 { margin: 0 0 6px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .guide-game-entry { padding: 4px 0; border-bottom: 1px solid var(--grid); }
 .guide-game-entry:last-child { border-bottom: none; }
-.guide-game-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.guide-game-row { display: flex; align-items: center; gap: 6px; font-size: calc(12px * var(--font-scale)); }
 .guide-game-row .result-pill { transform: scale(0.85); }
 .guide-game-runes {
   display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-top: 3px;
@@ -1202,7 +1224,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 
 /* rune page builder (edit mode) */
 .rune-pages-builder { margin: 10px 0 14px; }
-.rune-pages-builder h4 { margin: 0 0 6px; font-size: 14px; }
+.rune-pages-builder h4 { margin: 0 0 6px; font-size: calc(14px * var(--font-scale)); }
 .rune-page-add { margin-top: 4px; }
 .rune-page-chip {
   display: flex; align-items: center; gap: 10px; padding: 6px 8px;
@@ -1211,25 +1233,25 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .rune-page-chip-icons { display: flex; align-items: center; position: relative; }
 .rune-page-chip-icons img { border-radius: 50%; background: var(--surface-1); }
 .rune-page-chip-icons img.rune-page-chip-secondary { margin-left: -8px; border: 2px solid var(--surface-0, var(--bg)); }
-.rune-page-chip-text { display: flex; flex-direction: column; flex: 1; gap: 1px; font-size: 13px; }
-.rune-page-chip-text .muted { font-size: 12px; }
+.rune-page-chip-text { display: flex; flex-direction: column; flex: 1; gap: 1px; font-size: calc(13px * var(--font-scale)); }
+.rune-page-chip-text .muted { font-size: calc(12px * var(--font-scale)); }
 .rune-page-editor {
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
   margin-bottom: 6px; background: var(--surface-1);
 }
 .rune-page-label {
-  width: 100%; margin-bottom: 10px; font: inherit; font-size: 13px;
+  width: 100%; margin-bottom: 10px; font: inherit; font-size: calc(13px * var(--font-scale));
   border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
   background: var(--surface-0, transparent); color: var(--text-primary);
 }
 .rune-page-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 700px) { .rune-page-cols { grid-template-columns: 1fr; } }
-.rune-tree-col h5, .rune-page-editor > h5 { margin: 10px 0 6px; font-size: 12px; color: var(--text-secondary); }
+.rune-tree-col h5, .rune-page-editor > h5 { margin: 10px 0 6px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .rune-tree-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .rune-tree-btn {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px;
-  background: transparent; cursor: pointer; font-size: 10px; color: var(--text-secondary);
+  background: transparent; cursor: pointer; font-size: calc(10px * var(--font-scale)); color: var(--text-secondary);
 }
 .rune-tree-btn img { border-radius: 50%; }
 .rune-tree-btn.active { background: var(--accent-wash); border-color: var(--series-1); color: var(--text-primary); }
@@ -1242,7 +1264,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .rune-btn img { border-radius: 50%; display: block; }
 .rune-btn.active { border-color: var(--series-1); background: var(--accent-wash); }
 .rune-btn.shard-btn { padding: 3px; }
-.rune-hint { font-size: 11px; margin: 2px 0 4px; }
+.rune-hint { font-size: calc(11px * var(--font-scale)); margin: 2px 0 4px; }
 
 /* read-only rune page display */
 .rune-pages-display { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0 10px; }
@@ -1254,19 +1276,19 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px; margin-bottom: 4px;
 }
-.rune-page-title { font-size: 12px; font-weight: 600; }
+.rune-page-title { font-size: calc(12px * var(--font-scale)); font-weight: 600; }
 .rune-page-detail {
   display: flex; flex-wrap: wrap; gap: 16px;
   margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--grid);
 }
 .rune-detail-col h6 {
   display: flex; align-items: center; gap: 5px;
-  margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  margin: 0 0 4px; font-size: calc(11px * var(--font-scale)); font-weight: 600; color: var(--text-secondary);
 }
 .rune-detail-col h6 img { border-radius: 50%; }
 .rune-detail-item {
   display: flex; align-items: center; gap: 6px;
-  font-size: 12px; padding: 1px 0;
+  font-size: calc(12px * var(--font-scale)); padding: 1px 0;
 }
 .rune-detail-item img { border-radius: 50%; background: var(--surface-1); }
 .rune-page-display {
@@ -1279,15 +1301,15 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .rune-keystone-icon { margin-right: 2px; }
 .rune-tree-icon { margin: 0 2px 0 6px; }
 
-.bn-all-label { font-size: 12px; font-weight: 400; }
+.bn-all-label { font-size: calc(12px * var(--font-scale)); font-weight: 400; }
 .bn-item { margin: 10px 0; padding-left: 10px; border-left: 3px solid var(--grid); }
-.bn-meta { font-size: 12px; margin-bottom: 2px; }
+.bn-meta { font-size: calc(12px * var(--font-scale)); margin-bottom: 2px; }
 .bn-meta .result-pill { transform: scale(0.85); }
 .bn-block-link { color: var(--series-1); }
-.bn-text { font-size: 14px; }
+.bn-text { font-size: calc(14px * var(--font-scale)); }
 .bn-text p { margin: 2px 0; }
-.bn-learnings { margin-top: 4px; font-size: 13px; }
-.bn-learnings summary { color: var(--muted); cursor: pointer; font-size: 12px; }
+.bn-learnings { margin-top: 4px; font-size: calc(13px * var(--font-scale)); }
+.bn-learnings summary { color: var(--muted); cursor: pointer; font-size: calc(12px * var(--font-scale)); }
 .bn-learnings[open] summary { margin-bottom: 2px; }
 .block-flash { box-shadow: 0 0 0 2px var(--series-1); transition: box-shadow 0.4s; }
 
@@ -1296,13 +1318,13 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   margin: 10px 0;
 }
-.block-pager .muted { margin-left: auto; font-size: 12px; }
+.block-pager .muted { margin-left: auto; font-size: calc(12px * var(--font-scale)); }
 .block-pager .pager-gap { margin: 0 2px; }
 .block-pager button[disabled] { opacity: 0.45; cursor: default; }
 .block-badge.block-closed { background: var(--muted); }
 
 /* ---------- trends ---------- */
-.trend-group { font-size: 14px; margin: 20px 0 8px; color: var(--text-secondary);
+.trend-group { font-size: calc(14px * var(--font-scale)); margin: 20px 0 8px; color: var(--text-secondary);
   text-transform: uppercase; letter-spacing: 0.04em; }
 .chart-grid {
   display: grid;
@@ -1316,36 +1338,36 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border-radius: 10px;
   padding: 10px 10px 4px;
 }
-.trend-chart figcaption { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.trend-chart figcaption { font-size: calc(13px * var(--font-scale)); font-weight: 600; margin-bottom: 2px; }
 .trend-chart svg { width: 100%; height: auto; display: block; }
 .tl-line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
 .tl-dot { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 1.5; }
 .tl-hit { fill: transparent; cursor: pointer; }
 .tl-axis { stroke: var(--baseline); stroke-width: 1; }
 .tl-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
-.tl-ylab, .tl-xlab { font-size: 9px; fill: var(--muted); }
+.tl-ylab, .tl-xlab { font-size: calc(9px * var(--font-scale)); fill: var(--muted); }
 
 /* Full-game gold/CS/XP/level curve chart (Overview recent-games "Curve" toggle) */
-.game-curve-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.game-curve-legend { display: flex; gap: 14px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); margin-bottom: 6px; }
 .gc-legend-me { color: var(--series-1); }
 .gc-legend-opp { color: var(--series-2); }
 .gc-line-me { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
 .gc-line-opp { fill: none; stroke: var(--series-2); stroke-width: 2; stroke-linejoin: round; }
 .gc-line-max { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linejoin: round; }
 .gc-legend-max { color: var(--muted); }
-.gc-note { font-size: 11px; font-weight: 400; }
+.gc-note { font-size: calc(11px * var(--font-scale)); font-weight: 400; }
 .gc-farm-head { margin-top: 10px; }
 tr.recent-row { cursor: pointer; }
 tr.recent-row:hover > td { background: var(--accent-wash); }
 .farm-trend-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
-.farm-backfill { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; font-size: 12px; }
-.farm-milestones { font-size: 12px; color: var(--text-secondary); margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.farm-backfill { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; font-size: calc(12px * var(--font-scale)); }
+.farm-milestones { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
 #chart-tip {
   position: absolute;
   z-index: 10;
   background: var(--text-primary);
   color: var(--page);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 3px 8px;
   border-radius: 6px;
   pointer-events: none;
@@ -1397,7 +1419,7 @@ footer {
   padding: 16px 18px; max-width: 940px; width: 100%;
 }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.modal-head h3 { margin: 0; font-size: 16px; }
+.modal-head h3 { margin: 0; font-size: calc(16px * var(--font-scale)); }
 .modal-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- cooldown comparison ---------- */
@@ -1408,7 +1430,7 @@ footer {
 .cd-side-head select { flex: 1; max-width: 230px; }
 .cd-control-row {
   display: flex; align-items: center; gap: 8px; margin: 6px 0;
-  font-size: 13px; flex-wrap: wrap;
+  font-size: calc(13px * var(--font-scale)); flex-wrap: wrap;
   min-height: 28px; /* rows match across sides even when only one has a button */
 }
 .cd-control-row input[type="range"] { flex: 1; max-width: 180px; }
@@ -1420,10 +1442,10 @@ footer {
   gap: 2px; align-items: center;
 }
 .sg-label {
-  font-size: 10px; font-weight: 700; color: var(--text-secondary);
+  font-size: calc(10px * var(--font-scale)); font-weight: 700; color: var(--text-secondary);
   text-align: center;
 }
-.sg-head .sg-lvl { font-size: 9px; color: var(--muted); text-align: center; }
+.sg-head .sg-lvl { font-size: calc(9px * var(--font-scale)); color: var(--muted); text-align: center; }
 .sg-head .sg-lvl.sg-now { color: var(--text-primary); font-weight: 700; }
 .sg-cell {
   width: 17px; height: 17px; padding: 0;
@@ -1432,11 +1454,11 @@ footer {
 }
 .sg-cell:hover { border-color: var(--series-1); }
 .sg-cell.active { background: var(--series-1); border-color: var(--series-1); }
-.cd-grid-status { grid-column: 1 / -1; font-size: 11px; color: var(--critical); min-height: 14px; }
+.cd-grid-status { grid-column: 1 / -1; font-size: calc(11px * var(--font-scale)); color: var(--critical); min-height: 14px; }
 /* matrix view: cells widen into value bubbles (cooldown from that level on) */
 .skill-grid-values .sg-row { grid-template-columns: 16px repeat(18, 28px); }
 .skill-grid-values .sg-cell {
-  width: 28px; height: 20px; font-size: 9.5px; line-height: 1;
+  width: 28px; height: 20px; font-size: calc(9.5px * var(--font-scale)); line-height: 1;
   font-variant-numeric: tabular-nums; color: var(--text-primary);
   border-radius: 999px;
 }
@@ -1449,21 +1471,21 @@ footer {
 .skill-grid-mini .sg-cell { width: 11px; height: 11px; cursor: default; border-radius: 2px; }
 .skill-grid-mini .sg-cell:hover { border-color: var(--border); }
 .guide-build { margin: 8px 0; }
-.guide-build h5 { margin: 0 0 2px; font-size: 12px; color: var(--text-secondary); }
+.guide-build h5 { margin: 0 0 2px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .guide-build-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.icon-btn-sm { font-size: 14px; padding: 1px 7px; line-height: 1.4; }
+.icon-btn-sm { font-size: calc(14px * var(--font-scale)); padding: 1px 7px; line-height: 1.4; }
 .cd-haste { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .cd-haste-row, .cd-haste-head {
   display: grid; grid-template-columns: 1fr 62px 62px 32px;
   gap: 6px; width: 100%; align-items: center;
 }
-.cd-haste-head { font-size: 11px; }
+.cd-haste-head { font-size: calc(11px * var(--font-scale)); }
 .cd-haste-row input {
-  font: inherit; font-size: 12px; padding: 3px 6px;
+  font: inherit; font-size: calc(12px * var(--font-scale)); padding: 3px 6px;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--page); color: var(--text-primary);
 }
-.cd-haste-add { font-size: 12px; }
+.cd-haste-add { font-size: calc(12px * var(--font-scale)); }
 .cd-spells {
   display: flex; flex-direction: column; gap: 8px;
   margin-top: 10px; border-top: 1px solid var(--grid); padding-top: 10px;
@@ -1471,26 +1493,26 @@ footer {
 .cd-spell { display: flex; align-items: center; gap: 10px; }
 .cd-spell img { border-radius: 6px; }
 .cd-spell-main { flex: 1; min-width: 0; }
-.cd-spell-name { font-size: 13px; }
-.cd-spell-ranks { font-size: 11px; }
+.cd-spell-name { font-size: calc(13px * var(--font-scale)); }
+.cd-spell-ranks { font-size: calc(11px * var(--font-scale)); }
 .cd-spell-ranks .cd-current { color: var(--text-primary); font-weight: 700; }
-.cd-spell-value { font-size: 14px; white-space: nowrap; }
+.cd-spell-value { font-size: calc(14px * var(--font-scale)); white-space: nowrap; }
 .cd-base { text-decoration: line-through; }
-.mu-cd-link { font-size: 14px; }
+.mu-cd-link { font-size: calc(14px * var(--font-scale)); }
 
 /* ---------- clips (coaching sessions + block games) ---------- */
 /* ---------- OBS session recordings (coaching session cards) ---------- */
 /* same width budget as the Ascent recording card: a session review wants a
    comfortably sized player, not a clip-sized one */
 .srec-section { margin-top: 14px; max-width: 900px; }
-.srec-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.srec-section h5 { margin: 0 0 6px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .srec-card {
   border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
   background: var(--surface-1); margin-bottom: 10px;
 }
 .srec-card.srec-live { border-color: var(--critical); }
 .srec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.srec-title { font-size: 13px; font-weight: 600; flex: 1; }
+.srec-title { font-size: calc(13px * var(--font-scale)); font-weight: 600; flex: 1; }
 /* self-contained on purpose: the Ascent VOD layout sizes its .recording-video
    through a --rec-media-h variable its own container defines — borrowing that
    class here left the video at intrinsic size (1920px wide in a 640px card) */
@@ -1504,16 +1526,16 @@ footer {
 .srec-mark-input, .srec-mark-here-label { flex: 1 1 14em; min-width: 10em; }
 .srec-rec-badge {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px; font-size: calc(12px * var(--font-scale)); font-weight: 600;
   color: var(--critical); border: 1px solid var(--critical);
   background: color-mix(in srgb, var(--critical) 12%, transparent);
 }
 .srec-elapsed { font-variant-numeric: tabular-nums; }
 .srec-marks { list-style: none; margin: 8px 0 0; padding: 0; }
 .srec-marks li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-.srec-mark-label { flex: 1; font-size: 13px; }
+.srec-mark-label { flex: 1; font-size: calc(13px * var(--font-scale)); }
 .srec-seek { flex: 0 0 auto; }
-.srec-empty { margin: 6px 0 0; font-size: 12px; }
+.srec-empty { margin: 6px 0 0; font-size: calc(12px * var(--font-scale)); }
 .srec-attach-form { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 /* Settings: host / port / password on one line */
 .obs-conn-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
@@ -1521,7 +1543,7 @@ footer {
 /* session media (recordings, attached files, VOD link, clips) — one section */
 .smedia-head { gap: 8px; margin-top: 14px; }
 .smedia-head h5 {
-  margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+  margin: 0; font-size: calc(12px * var(--font-scale)); text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--text-secondary);
 }
 .smedia-item {
@@ -1538,35 +1560,35 @@ footer {
 .srec-section .clips-section { margin-top: 0; }
 
 .clips-section { margin-top: 14px; max-width: 520px; }
-.clips-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.clips-section h5 { margin: 0 0 6px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .clips-list:not(:empty) { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
 .clip-item {
   border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
   background: var(--surface-1);
 }
 .clip-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.clip-label { font-size: 13px; font-weight: 600; flex: 1; }
+.clip-label { font-size: calc(13px * var(--font-scale)); font-weight: 600; flex: 1; }
 .clip-item video { width: 100%; max-height: 260px; border-radius: 6px; display: block; }
-.clip-item a { font-size: 13px; word-break: break-all; }
-.clip-form-open { font-size: 12px; }
+.clip-item a { font-size: calc(13px * var(--font-scale)); word-break: break-all; }
+.clip-form-open { font-size: calc(12px * var(--font-scale)); }
 .clip-add-form {
   display: flex; flex-direction: column; gap: 8px;
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
   background: var(--surface-1);
 }
 .clip-add-form input[type="text"], .clip-add-form input[type="url"] {
-  font: inherit; font-size: 13px; padding: 5px 8px;
+  font: inherit; font-size: calc(13px * var(--font-scale)); padding: 5px 8px;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--page); color: var(--text-primary);
 }
 .clip-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.clip-add-row input[type="file"] { font-size: 12px; max-width: 200px; }
+.clip-add-row input[type="file"] { font-size: calc(12px * var(--font-scale)); max-width: 200px; }
 .clip-add-row input[type="url"] { flex: 1; min-width: 160px; }
-.clip-add-status { font-size: 12px; }
+.clip-add-status { font-size: calc(12px * var(--font-scale)); }
 
 /* ---------- game reflections (Overview recent games + block game panels) ---------- */
 .reflection-section { margin-top: 14px; max-width: 520px; }
-.reflection-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.reflection-section h5 { margin: 0 0 6px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .reflection-tags.chip-box { min-height: auto; margin-bottom: 4px; }
 .reflection-tag-status { display: block; margin-bottom: 8px; }
 .reflection-note-view { display: flex; align-items: flex-start; gap: 8px; }
@@ -1575,24 +1597,24 @@ footer {
 /* ---- Research & comparison (Settings) ---- */
 .comparison-player {
   display: flex; align-items: center; gap: 8px; padding: 5px 0;
-  border-bottom: 1px solid var(--border); font-size: 13px;
+  border-bottom: 1px solid var(--border); font-size: calc(13px * var(--font-scale));
 }
 .comparison-player:last-child { border-bottom: none; }
 .comparison-name { font-weight: 600; }
 .comparison-name .muted { font-weight: 400; }
 .comparison-games { margin-left: auto; }
-.comparison-player .cmp-more { font-size: 12px; padding: 2px 8px; }
+.comparison-player .cmp-more { font-size: calc(12px * var(--font-scale)); padding: 2px 8px; }
 /* the per-player note sits right after the name, and grows into whatever room
    the row has left before the games count is pushed to the right */
-.comparison-player .cmp-note { flex: 1 1 120px; max-width: 260px; font-size: 12px; }
+.comparison-player .cmp-note { flex: 1 1 120px; max-width: 260px; font-size: calc(12px * var(--font-scale)); }
 
 /* ---- rune analysis (Matchup guide) ---- */
 .rune-analysis { margin-top: 8px; }
-.ra-details > summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+.ra-details > summary { cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .ra-details[open] > summary { margin-bottom: 6px; }
 .ra-cols { display: flex; flex-wrap: wrap; gap: 16px; }
-.ra-cols h6 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
-.ra-table { border-collapse: collapse; font-size: 12px; }
+.ra-cols h6 { margin: 0 0 4px; font-size: calc(11px * var(--font-scale)); text-transform: uppercase; color: var(--muted); }
+.ra-table { border-collapse: collapse; font-size: calc(12px * var(--font-scale)); }
 .ra-table th, .ra-table td { text-align: left; padding: 2px 10px 2px 0; }
 .ra-table th { color: var(--muted); font-weight: 500; }
 .ra-table td:nth-child(2), .ra-table td:nth-child(3),
@@ -1604,13 +1626,13 @@ footer {
 /* ---- Research & comparison (Settings) ---- */
 .comparison-player {
   display: flex; align-items: center; gap: 8px; padding: 5px 0;
-  border-bottom: 1px solid var(--border); font-size: 13px;
+  border-bottom: 1px solid var(--border); font-size: calc(13px * var(--font-scale));
 }
 .comparison-player:last-child { border-bottom: none; }
 .comparison-name { font-weight: 600; }
 .comparison-name .muted { font-weight: 400; }
 .comparison-games { margin-left: auto; }
-.comparison-player .cmp-more { font-size: 12px; padding: 2px 8px; }
+.comparison-player .cmp-more { font-size: calc(12px * var(--font-scale)); padding: 2px 8px; }
 
 /* ---- comparison ("research" players) window + in-app overlay ---- */
 /* Shared by the pop-out browser window (which <link>s this file) and the
@@ -1627,7 +1649,7 @@ footer {
   border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 24px;
 }
 .cmp-close { position: absolute; top: 10px; right: 10px; }
-.cmp-title { font-size: 18px; margin: 0 0 14px; }
+.cmp-title { font-size: calc(18px * var(--font-scale)); margin: 0 0 14px; }
 /* A grid of ~360px columns; max-width caps it at 3 columns (3 x 360 + 2 gaps).
    The window spawns one card wide and grows to 2 then 3 per row as enlarged,
    never more — cards stay column-width instead of over-stretching. */
@@ -1640,20 +1662,20 @@ footer {
   background: var(--surface-1);
   border: 1px solid var(--border); border-radius: 10px; padding: 12px;
 }
-.cmp-card h2 { font-size: 15px; margin: 0 0 8px; }
+.cmp-card h2 { font-size: calc(15px * var(--font-scale)); margin: 0 0 8px; }
 /* the quick note from the Players list, shown wherever the name is */
 .cmp-player-note {
-  display: block; color: var(--muted); font-size: 11px; font-weight: 400;
+  display: block; color: var(--muted); font-size: calc(11px * var(--font-scale)); font-weight: 400;
   font-style: italic; max-width: 180px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
 .cmp-card h3 {
-  font-size: 11px; text-transform: uppercase; color: var(--muted);
+  font-size: calc(11px * var(--font-scale)); text-transform: uppercase; color: var(--muted);
   margin: 12px 0 6px; letter-spacing: 0.05em;
 }
 .cmp-you { border-color: var(--series-1); }
 .cmp-stat {
-  display: flex; justify-content: space-between; gap: 10px; font-size: 13px;
+  display: flex; justify-content: space-between; gap: 10px; font-size: calc(13px * var(--font-scale));
   padding: 3px 0; border-bottom: 1px solid var(--border);
 }
 .cmp-stat-l { color: var(--text-secondary); }
@@ -1663,7 +1685,7 @@ footer {
 .cmp-res.l { color: var(--critical); }
 .cmp-rune, .cmp-runes { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .cmp-rune { margin: 6px 0; }
-.cmp-rune span { font-size: 12px; color: var(--text-secondary); }
+.cmp-rune span { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .cmp-card img { vertical-align: middle; border-radius: 50%; }
 .cmp-spells, .cmp-items { display: inline-flex; align-items: center; gap: 2px; }
 /* items are square, not round like spells/runes (beats .cmp-card img) */
@@ -1681,7 +1703,7 @@ footer {
 }
 .tier-label-input {
   width: 100%; border: none; background: transparent; color: #111;
-  font-size: 18px; font-weight: 800; text-align: center; padding: 0;
+  font-size: calc(18px * var(--font-scale)); font-weight: 800; text-align: center; padding: 0;
 }
 .tier-label-input:focus { outline: 1px solid rgba(0,0,0,.35); border-radius: 4px; }
 .tier-label-actions { display: flex; align-items: center; gap: 4px; }
@@ -1707,31 +1729,31 @@ footer {
   display: flex; flex-wrap: wrap; gap: 4px; min-height: 52px;
   max-height: 42vh; overflow-y: auto; padding: 4px; border-radius: 8px;
 }
-.guide-tier-summary { cursor: pointer; font-size: 16px; font-weight: 600; }
+.guide-tier-summary { cursor: pointer; font-size: calc(16px * var(--font-scale)); font-weight: 600; }
 /* read-only copy shown in a Matchup guide (tierBoardStaticHtml) */
 .guide-tier-card { margin-top: 12px; }
 .guide-tier-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.guide-tier-card-head .muted { font-size: 12px; }
+.guide-tier-card-head .muted { font-size: calc(12px * var(--font-scale)); }
 .guide-tier-card-head .guide-tier-del { margin-left: auto; }
 .tier-static { display: flex; flex-direction: column; gap: 6px; }
 .tier-static .tier-chip { cursor: default; }
-.tier-label-text { font-size: 18px; font-weight: 800; text-align: center; word-break: break-word; }
+.tier-label-text { font-size: calc(18px * var(--font-scale)); font-weight: 800; text-align: center; word-break: break-word; }
 .tier-pool-head { flex-wrap: wrap; }
 .tier-role-filter { display: flex; gap: 4px; flex-wrap: wrap; }
-.tier-role-btn { font-size: 12px; padding: 2px 9px; }
+.tier-role-btn { font-size: calc(12px * var(--font-scale)); padding: 2px 9px; }
 .tier-role-btn.active { border-color: var(--series-1); color: var(--series-1); }
 .tier-chip { position: relative; }
 .tier-flag {
   position: absolute; top: -5px; right: -5px; width: 15px; height: 15px;
   border-radius: 50%; background: #ffd43b; color: #1a1a1a;
-  font-size: 11px; font-weight: 800; line-height: 15px; text-align: center;
+  font-size: calc(11px * var(--font-scale)); font-weight: 800; line-height: 15px; text-align: center;
   box-shadow: 0 0 0 1.5px var(--surface-1); pointer-events: none;
 }
 .tier-chip.flagged img { outline: 2px solid #ffd43b; outline-offset: -2px; }
 .tier-label-img { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 2px; }
 .tier-label-img img { width: 26px; height: 26px; border-radius: 5px; }
 .tier-img-input {
-  width: 70px; font-size: 10px; padding: 1px 4px; border-radius: 4px;
+  width: 70px; font-size: calc(10px * var(--font-scale)); padding: 1px 4px; border-radius: 4px;
   border: 1px solid rgba(0,0,0,.25); background: rgba(255,255,255,.7); color: #111; text-align: center;
 }
 .tier-img-input::placeholder { color: rgba(0,0,0,.45); }
@@ -1743,13 +1765,13 @@ footer {
   overflow-y: auto; padding: 20px 20px 40px;
 }
 .tier-compare-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.tier-compare-head strong { font-size: 17px; }
+.tier-compare-head strong { font-size: calc(17px * var(--font-scale)); }
 .tier-compare-head .icon-btn { margin-left: auto; }
 .tier-compare-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .tier-compare-pick {
   display: flex; align-items: center; gap: 5px; cursor: pointer;
   border: 1px solid var(--border); border-radius: 999px;
-  padding: 3px 11px; font-size: 13px; background: var(--surface-1);
+  padding: 3px 11px; font-size: calc(13px * var(--font-scale)); background: var(--surface-1);
 }
 .tier-compare-pick.active { border-color: var(--series-1); color: var(--series-1); background: var(--accent-wash); }
 .tier-compare-pick.disabled { opacity: .45; cursor: not-allowed; }
@@ -1757,10 +1779,10 @@ footer {
 .tier-compare-cell { min-width: 0; }
 .tier-compare-cell-head { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
 .tier-compare-cell-head img { width: 24px; height: 24px; border-radius: 5px; }
-.tier-compare-cell-head .muted { font-size: 12px; }
+.tier-compare-cell-head .muted { font-size: calc(12px * var(--font-scale)); }
 /* denser boards so four fit on one screen */
 .tier-compare-cell .tier-label { flex-basis: 58px; }
-.tier-compare-cell .tier-label-text { font-size: 15px; }
+.tier-compare-cell .tier-label-text { font-size: calc(15px * var(--font-scale)); }
 .tier-compare-cell .tier-chip img { width: 30px; height: 30px; }
 .tier-compare-cell .tier-drop { min-height: 40px; gap: 3px; padding: 4px; }
 @media (max-width: 900px) { .tier-compare-grid { grid-template-columns: 1fr; } }
@@ -1768,7 +1790,7 @@ footer {
 /* ---------- recordings (local Ascent VODs) ---------- */
 .recording-section { margin-top: 12px; }
 .recording-section h5, .vod-curve h5 {
-  margin: 0 0 6px; font-size: 12px; text-transform: uppercase;
+  margin: 0 0 6px; font-size: calc(12px * var(--font-scale)); text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--text-secondary);
 }
 /* the curve closes the VOD panel — same heading treatment as "Recording"
@@ -1781,7 +1803,7 @@ footer {
 .vod-tagcount {
   display: inline-block; min-width: 1.35em; padding: 0 4px; margin-left: 3px;
   border-radius: 999px; background: var(--accent-wash); border: 1px solid var(--series-1);
-  font-size: 10px; line-height: 1.4;
+  font-size: calc(10px * var(--font-scale)); line-height: 1.4;
 }
 .recording-card {
   border: 1px solid var(--grid); border-radius: 8px;
@@ -1795,11 +1817,11 @@ footer {
   background: #000; display: block;
 }
 .recording-marks { margin-top: 8px; }
-.recording-seek { font-size: 12px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
+.recording-seek { font-size: calc(12px * var(--font-scale)); padding: 1px 8px; font-variant-numeric: tabular-nums; }
 .recording-actions {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
 }
-.recording-offset-label { font-size: 12px; color: var(--text-secondary); }
+.recording-offset-label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .recording-offset { width: 6.5em; }
 .recording-yt-link { text-decoration: none; }
 .recording-progress {
@@ -1813,7 +1835,7 @@ footer {
 .recording-desc { margin-top: 8px; }
 .recording-desc-text {
   width: 100%; margin-top: 6px; font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 12px; background: var(--page); border: 1px solid var(--border);
+  font-size: calc(12px * var(--font-scale)); background: var(--page); border: 1px solid var(--border);
   border-radius: 6px; padding: 7px 9px; resize: vertical; color: var(--text-primary);
 }
 
@@ -1841,7 +1863,7 @@ footer {
    wins and clears the fill. */
 .rec-map-dot.rec-map-against { fill: none; stroke-width: 2; }
 .rec-map-legend {
-  display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; margin-top: 5px;
+  display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: calc(11px * var(--font-scale)); margin-top: 5px;
 }
 .rec-map-key { display: inline-flex; align-items: center; gap: 4px; }
 .rec-map-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -1862,7 +1884,7 @@ footer {
 .rift-turret-red { fill: color-mix(in srgb, var(--critical) 70%, var(--muted)); }
 .rift-pit { fill: none; stroke: var(--text-secondary); stroke-width: 1.5; opacity: 0.8; }
 .rift-pit-label {
-  font-size: 8px; font-weight: 700; text-anchor: middle;
+  font-size: calc(8px * var(--font-scale)); font-weight: 700; text-anchor: middle;
   fill: var(--text-secondary); pointer-events: none;
 }
 .rift-base { stroke-width: 2; fill: none; }
@@ -1897,7 +1919,7 @@ footer {
   width: var(--rec-media-h); align-items: center; justify-content: center;
   padding: 0 14px; text-align: center;
 }
-.recording-map-empty code { font-size: 11px; word-break: break-all; }
+.recording-map-empty code { font-size: calc(11px * var(--font-scale)); word-break: break-all; }
 .recording-map {
   height: var(--rec-media-h); display: flex; flex-direction: column; min-width: 0;
 }
@@ -1908,7 +1930,7 @@ footer {
 .recording-map .rec-map-legend { flex: none; }
 .recording-mark-tabs { margin: 10px 0 6px; flex-wrap: wrap; }
 .recording-mark-tab {
-  font-size: 12px; padding: 2px 9px; border: 1px solid var(--border);
+  font-size: calc(12px * var(--font-scale)); padding: 2px 9px; border: 1px solid var(--border);
   border-radius: 999px; background: var(--surface-1); cursor: pointer;
   color: var(--text-primary);
 }
@@ -1923,7 +1945,7 @@ footer {
 .recording-mark-list .recording-seek {
   display: flex; align-items: baseline; gap: 8px; width: 100%;
   text-align: left; background: none; border: 0; border-radius: 5px;
-  padding: 3px 7px; font-size: 13px; cursor: pointer;
+  padding: 3px 7px; font-size: calc(13px * var(--font-scale)); cursor: pointer;
 }
 .recording-mark-list .recording-seek:hover { background: var(--accent-wash); }
 .recording-seek-glyph { width: 1.2em; flex: none; }
@@ -1933,7 +1955,7 @@ footer {
 .recording-seek-label { color: var(--text-primary); }
 .recording-mark-list .recording-seek-against .recording-seek-label { opacity: 0.65; }
 @media (max-width: 900px) { .recording-main { grid-template-columns: 1fr; } }
-#recordings-status:not(:empty) { font-size: 12px; margin-right: 4px; }
+#recordings-status:not(:empty) { font-size: calc(12px * var(--font-scale)); margin-right: 4px; }
 
 /* Ascent scan result: a popover off the 🎬 button. The summary runs to several
    clauses ("12 linked of 40 · 8 not crawled yet · 250 events from 12 games"),
@@ -1942,7 +1964,7 @@ footer {
 .recordings-badge {
   width: 18px; height: 18px; padding: 0; border-radius: 50%;
   border: 1px solid var(--border); background: var(--surface-1);
-  color: var(--text-secondary); font: inherit; font-size: 11px; line-height: 1;
+  color: var(--text-secondary); font: inherit; font-size: calc(11px * var(--font-scale)); line-height: 1;
   cursor: pointer;
 }
 .recordings-badge:hover { border-color: var(--series-1); color: var(--text-primary); }
@@ -1953,7 +1975,7 @@ footer {
   background: var(--surface-1-solid); border: 1px solid var(--border);
   border-radius: 8px; padding: 10px 12px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-  font-size: 12px; color: var(--text-secondary); text-align: left;
+  font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); text-align: left;
   white-space: normal;
 }
 .recordings-pop.status-error { color: var(--critical); }
@@ -1972,8 +1994,8 @@ footer {
 .reflection-suggest {
   display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 6px;
 }
-.reflection-suggest-label { font-size: 11px; margin-right: 2px; }
-.reflection-empty { font-size: 12px; }
+.reflection-suggest-label { font-size: calc(11px * var(--font-scale)); margin-right: 2px; }
+.reflection-empty { font-size: calc(12px * var(--font-scale)); }
 
 /* Event timeline on a recording: every kill/death/objective placed where it
    happens in the video, click to jump. Replaces the long list as the primary
@@ -1988,13 +2010,13 @@ footer {
 .rt-mark {
   position: absolute; top: 4px; transform: translateX(-50%);
   width: 20px; height: 22px; padding: 0; line-height: 22px; text-align: center;
-  border: none; background: none; cursor: pointer; font-size: 13px;
+  border: none; background: none; cursor: pointer; font-size: calc(13px * var(--font-scale));
   border-radius: 4px;
 }
 .rt-mark:hover { background: var(--accent-wash); transform: translateX(-50%) scale(1.25); }
 .rt-mark:focus-visible { outline: 2px solid var(--series-1); }
-.rt-scale { display: flex; justify-content: space-between; font-size: 11px; }
-.recording-list-toggle { margin-top: 8px; font-size: 12px; }
+.rt-scale { display: flex; justify-content: space-between; font-size: calc(11px * var(--font-scale)); }
+.recording-list-toggle { margin-top: 8px; font-size: calc(12px * var(--font-scale)); }
 
 /* "+ Game" popup: the same candidate list as the picker at the foot of the
    page, reachable from the current block's header when the page is long */
@@ -2011,7 +2033,7 @@ footer {
    bare note like "Selected accounts · all roles" has no input to sit under and
    would hang off the bottom edge */
 .progress-filters > span { align-self: center; }
-.progress-hint { margin-top: 10px; font-size: 12px; }
+.progress-hint { margin-top: 10px; font-size: calc(12px * var(--font-scale)); }
 /* a session's own record, above the metrics its period produced */
 .seg-session { margin-bottom: 14px; }
 .seg-session .learnings-head { margin-bottom: 4px; }
@@ -2020,9 +2042,9 @@ footer {
    together on one quiet line under the title, rather than trailing the title
    and wrapping once it gets long */
 .period-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
-.period-meta .period-sub { font-size: 12px; }
-.period-meta .session-coach { font-size: 11px; padding: 1px 8px; }
-.period-meta .session-link { text-decoration: none; font-size: 14px; line-height: 1; }
+.period-meta .period-sub { font-size: calc(12px * var(--font-scale)); }
+.period-meta .session-coach { font-size: calc(11px * var(--font-scale)); padding: 1px 8px; }
+.period-meta .session-link { text-decoration: none; font-size: calc(14px * var(--font-scale)); line-height: 1; }
 .period-meta .session-link:hover { filter: brightness(1.2); }
 /* session actions sit at the right edge of the expanded panel */
 .seg-session-actions { margin-left: auto; display: flex; gap: 4px; }
@@ -2042,7 +2064,7 @@ footer {
 .sm-grid .sm-coach { max-width: 20em; }          /* a name, not a paragraph */
 .sm-grid textarea { resize: vertical; min-height: 160px; }
 .sm-coach-field, .sm-notes-field { display: flex; flex-direction: column; gap: 6px; }
-.sm-hint { font-size: 11px; }
+.sm-hint { font-size: calc(11px * var(--font-scale)); }
 .sm-actions {
   display: flex; align-items: center; gap: 10px;
   padding-top: 12px; border-top: 1px solid var(--grid);
@@ -2057,7 +2079,7 @@ footer {
 .sm-suggest-new { margin-top: 6px; max-width: 20em; display: block; }
 
 .coach-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.coach-chips-label { font-size: 11px; }
+.coach-chips-label { font-size: calc(11px * var(--font-scale)); }
 .coach-chip { padding: 2px 4px 2px 9px; gap: 2px; }
 .coach-pick { border: none; background: none; padding: 0; font: inherit; cursor: pointer; color: inherit; }
 .coach-forget {
@@ -2070,7 +2092,7 @@ footer {
 /* sort control lives on the column it sorts */
 .period-th { white-space: nowrap; }
 .period-order {
-  border: none; background: none; cursor: pointer; font: inherit; font-size: 13px;
+  border: none; background: none; cursor: pointer; font: inherit; font-size: calc(13px * var(--font-scale));
   color: var(--text-secondary); padding: 0 2px; margin-left: 4px; border-radius: 4px;
 }
 .period-order:hover { color: var(--series-1); background: var(--accent-wash); }
@@ -2084,7 +2106,7 @@ footer {
 /* learnings: click the rendered notes to edit, click away to save */
 .learnings-display { cursor: text; }
 .learnings-display:hover { outline: 1px dashed var(--border); outline-offset: 4px; }
-.learnings-hint { font-size: 11px; margin-left: auto; }
+.learnings-hint { font-size: calc(11px * var(--font-scale)); margin-left: auto; }
 .block-learnings { width: 100%; font: inherit; resize: vertical; }
 
 /* ---------- Learnings view (holistic read of every block's learnings) ---------- */
@@ -2093,20 +2115,20 @@ footer {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 10px;
 }
-.learn-series-head h3 { margin: 0; font-size: 15px; }
+.learn-series-head h3 { margin: 0; font-size: calc(15px * var(--font-scale)); }
 .learn-series-frame {
   border-left: 2px solid var(--series-1);
   padding: 2px 0 2px 12px;
   margin: 0 0 12px;
 }
-.learn-series-frame h4 { margin: 0 0 4px; font-size: 13px; color: var(--text-secondary); }
-.learn-series-frame .md-body { font-size: 13px; }
+.learn-series-frame h4 { margin: 0 0 4px; font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); }
+.learn-series-frame .md-body { font-size: calc(13px * var(--font-scale)); }
 .learn-series-body { cursor: text; min-height: 1em; }
 .learn-series-frame textarea { width: 100%; }
 .learn-series-frame-empty { border-left-style: dashed; }
 .learn-series-current { border-left: 3px solid var(--series-1); padding-left: 10px; }
 .learn-series-title {
-  font-size: 15px; font-weight: 650; color: var(--text-primary);
+  font-size: calc(15px * var(--font-scale)); font-weight: 650; color: var(--text-primary);
   border: 1px solid transparent; border-radius: 6px; background: none;
   padding: 2px 6px; max-width: 100%; box-sizing: content-box;
 }
@@ -2137,7 +2159,7 @@ footer {
 .learn-bullet-body { flex: 1; max-width: none; }
 .learn-bullet-body p:first-child { margin-top: 0; }
 .learn-bullet-body p:last-child { margin-bottom: 0; }
-.learn-bullet-source { margin-left: auto; white-space: nowrap; font-size: 12px; }
+.learn-bullet-source { margin-left: auto; white-space: nowrap; font-size: calc(12px * var(--font-scale)); }
 
 #learn-list mark {
   background: var(--accent-wash); color: inherit;
@@ -2157,6 +2179,6 @@ footer {
 .diag-row-head .diag-copy { margin-left: auto; }
 .diag-status { font-weight: 600; color: var(--critical); }
 .diag-url {
-  font-family: ui-monospace, monospace; font-size: 12px;
+  font-family: ui-monospace, monospace; font-size: calc(12px * var(--font-scale));
   margin-top: 4px; word-break: break-all;
 }

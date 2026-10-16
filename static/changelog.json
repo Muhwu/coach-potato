@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.70.0",
+      "date": "2026-10-16",
+      "items": [
+        "Accessibility: Settings → Appearance now lets you pick an easy-to-read font (Atkinson Hyperlegible, Lexend, OpenDyslexic or Verdana) and a text size from 90% to 150%. Both preview live and apply across the whole app, including the comparison window."
+      ]
+    },
+    {
       "version": "1.69.2",
       "date": "2026-10-13",
       "items": [

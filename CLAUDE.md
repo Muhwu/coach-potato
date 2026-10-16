@@ -198,6 +198,15 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   via `color-mix(...)` too, so every accent-tinted background/border (active
   tabs, buttons, chip highlights) follows a custom color for free — watch
   for new one-off `rgba(42, 120, 214, ...)`-style literals bypassing this.
+  Accessibility font settings: `font_family` (`FONT_FAMILIES` in app.py —
+  system / atkinson / lexend / opendyslexic / verdana; the three web fonts are
+  vendored OFL woff2 files in `static/vendor/fonts/`, `@font-face`d in
+  style.css, no network at runtime) and `font_scale` (`FONT_SCALES`, percent).
+  `applyFont` in app.js sets `--font-ui` / `--font-scale` on `:root` and
+  mirrors them to localStorage `cp-font`/`cp-font-scale` for the same
+  pre-paint `<head>` script as the theme. **Every font-size in style.css and
+  compare.html is `calc(<px> * var(--font-scale))`** — that's how text size
+  scales; a bare px font-size fails `test_every_font_size_follows_the_text_size_setting`.
   `default_champion` (optional, `_validate_champion`d if given) is
   preselected as "My champion" on the Matchup guide (`guide.js`'s
   `loadGuideChampionOptions`, ahead of the "first played champion"

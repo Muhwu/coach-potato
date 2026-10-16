@@ -2915,3 +2915,17 @@ def test_error_payload_scrubs_the_api_key_from_everything(client):
     except RuntimeError as exc:
         payload = app_module._error_payload(exc, secret="RGAPI-abcdef-123456")
     assert "RGAPI-abcdef-123456" not in json.dumps(payload)
+
+
+def test_font_settings_endpoint(client):
+    data = client.get("/api/settings").json()
+    assert (data["font_family"], data["font_scale"]) == ("system", 100)
+    assert _put_settings(client, font_family="atkinson", font_scale=125).status_code == 200
+    data = client.get("/api/settings").json()
+    assert (data["font_family"], data["font_scale"]) == ("atkinson", 125)
+    assert _put_settings(client).status_code == 200  # omitted -> defaults
+    assert client.get("/api/settings").json()["font_family"] == "system"
+    assert _put_settings(client, font_family="Comic Sans").status_code == 400
+    assert _put_settings(client, font_scale=300).status_code == 400
+    assert _put_settings(client, font_scale="125").status_code == 400
+    assert _put_settings(client, font_scale=True).status_code == 400
