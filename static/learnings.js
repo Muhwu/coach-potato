@@ -220,6 +220,7 @@ function learnBlockCard(block) {
   if (learnState.editing === block.id) {
     return `<div class="learn-card">
       ${learnBlockHead(block)}
+      ${mdToolbar()}
       <textarea class="learn-textarea" data-id="${block.id}" rows="8"
         placeholder="What did this block teach you?">${escapeHtml(block.learnings)}</textarea>
       <span class="muted learnings-hint">Markdown · click away to save · Esc to cancel</span>
@@ -251,6 +252,7 @@ function learnSeriesField(series, field) {
   if (editing) {
     return `<div class="learn-series-frame">
       <h4>${def.heading}</h4>
+      ${mdToolbar()}
       <textarea class="learn-series-textarea" data-id="${series.id}" data-field="${field}" rows="6"
         placeholder="${escapeHtml(def.placeholder)}">${escapeHtml(series[field] || "")}</textarea>
       <span class="muted learnings-hint">Markdown · click away to save · Esc to cancel</span>

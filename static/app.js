@@ -1425,6 +1425,180 @@ function renderNotes(notes) {
   return `<pre>${escapeHtml(notes)}</pre>`; // fallback if vendor lib missing
 }
 
+// Links inside rendered notes open outside the app, like every other link it
+// shows — a plain <a> would navigate the app window itself away. Capture
+// phase, so a click-to-edit notes body doesn't also open its editor.
+document.addEventListener("click", (e) => {
+  const link = e.target.closest?.(".md-body a[href]");
+  if (!link || link.getAttribute("href").startsWith("#")) return;
+  e.preventDefault();
+  e.stopPropagation();
+  window.open(link.href, "_blank", "noopener");
+}, true);
+
+// ---------- Markdown formatting toolbar (shared by every notes editor) ----------
+//
+// Put `mdToolbar()` immediately before a notes textarea. The buttons only
+// insert Markdown — the text stays plain Markdown, exactly as if typed. They
+// never take focus (mousedown is cancelled, tabindex -1), which is what keeps
+// the click-away-to-save editors (block learnings, series goals) open while
+// you format. Ctrl/Cmd+B/I/K work in any toolbar'd textarea and in
+// `textarea[data-md]` (editors too small for a toolbar, e.g. game notes).
+
+const MD_ACTIONS = {
+  bold:    { label: "Bold", key: "b", icon: "<b>B</b>", wrap: "**", placeholder: "bold text" },
+  italic:  { label: "Italic", key: "i", icon: "<i>I</i>", wrap: "*", placeholder: "italic text" },
+  strike:  { label: "Strikethrough", icon: "<s>S</s>", wrap: "~~", placeholder: "struck text" },
+  heading: { label: "Heading", icon: "H", prefix: "## " },
+  bullet:  { label: "Bulleted list", icon: "•", prefix: "- " },
+  numbered: { label: "Numbered list", icon: "1.", prefix: "1. " },
+  quote:   { label: "Quote", icon: "❝", prefix: "> " },
+  code:    { label: "Code", icon: "&lt;/&gt;", wrap: "`", placeholder: "code" },
+  link:    { label: "Link", key: "k", icon: `<svg viewBox="0 0 24 24" width="15" height="15"
+    fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+    <path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/>
+    <path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></svg>` },
+};
+const MD_TOOLBAR_GROUPS = [["bold", "italic", "strike"], ["heading", "bullet", "numbered", "quote"],
+  ["code", "link"]];
+// any list/quote/heading marker a line can start with — switching list type
+// replaces the old marker rather than stacking "- 1. text"
+const MD_LINE_MARKER_RE = /^(\s*)(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/;
+
+function mdToolbar() {
+  const shortcut = (a) => (a.key ? ` (Ctrl+${a.key.toUpperCase()})` : "");
+  return `<div class="md-toolbar" role="toolbar" aria-label="Formatting">${
+    MD_TOOLBAR_GROUPS.map((group) => group.map((name) => {
+      const a = MD_ACTIONS[name];
+      return `<button type="button" class="md-tb-btn" data-md-action="${name}" tabindex="-1"
+        title="${a.label}${shortcut(a)}" aria-label="${a.label}">${a.icon}</button>`;
+    }).join("")).join(`<span class="md-tb-sep" aria-hidden="true"></span>`)}</div>`;
+}
+
+// Replace [start, end) with `text` through the browser's editing pipeline so
+// Ctrl+Z undoes it and `input` fires (drafts, auto-grow, dirty tracking).
+function mdReplace(textarea, start, end, text, selStart, selEnd) {
+  textarea.focus();
+  textarea.setSelectionRange(start, end);
+  let done = false;
+  try { done = document.execCommand("insertText", false, text); } catch { /* unsupported */ }
+  if (!done) {
+    textarea.setRangeText(text, start, end, "end");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  textarea.setSelectionRange(selStart, selEnd);
+}
+
+function mdWrap(textarea, marker, placeholder) {
+  const value = textarea.value;
+  let start = textarea.selectionStart;
+  let end = textarea.selectionEnd;
+  // double-click selects a trailing space on Windows; "**word **" isn't bold
+  while (end > start && /\s/.test(value[end - 1])) end--;
+  while (start < end && /\s/.test(value[start])) start++;
+  const inner = value.slice(start, end);
+  const m = marker.length;
+  const starRun = (i) => { let n = 0; while (value[i - n] === "*") n++; return n; };
+  // already wrapped just outside the selection → unwrap. Italic "*" must not
+  // match half of a bold "**" (but does match the outer star of "***")
+  const outsideWrapped = value.slice(Math.max(0, start - m), start) === marker
+    && value.slice(end, end + m) === marker
+    && (marker !== "*" || starRun(start - 1) !== 2);
+  if (outsideWrapped) {
+    mdReplace(textarea, start - m, end + m, inner, start - m, end - m);
+  } else if (inner.length >= 2 * m && inner.startsWith(marker) && inner.endsWith(marker)
+             && (marker !== "*" || !inner.startsWith("**") || inner.startsWith("***"))) {
+    const unwrapped = inner.slice(m, -m);
+    mdReplace(textarea, start, end, unwrapped, start, start + unwrapped.length);
+  } else if (marker === "`" && inner.includes("\n")) {
+    const block = "```\n" + inner + "\n```";
+    mdReplace(textarea, start, end, block, start + 4, start + 4 + inner.length);
+  } else {
+    const text = inner || placeholder;
+    mdReplace(textarea, start, end, marker + text + marker, start + m, start + m + text.length);
+  }
+}
+
+function mdPrefixLines(textarea, name) {
+  const value = textarea.value;
+  const start = value.lastIndexOf("\n", textarea.selectionStart - 1) + 1;
+  // a selection ending right after a newline (triple-click) doesn't include
+  // the next line
+  let selEnd = textarea.selectionEnd;
+  if (selEnd > textarea.selectionStart && value[selEnd - 1] === "\n") selEnd--;
+  let end = value.indexOf("\n", selEnd);
+  if (end === -1) end = value.length;
+  const lines = value.slice(start, end).split("\n");
+  const has = {
+    heading: (l) => /^\s*#{1,6}\s/.test(l),
+    bullet: (l) => /^\s*[-*+]\s/.test(l),
+    numbered: (l) => /^\s*\d+[.)]\s/.test(l),
+    quote: (l) => /^\s*>/.test(l),
+  }[name];
+  const filled = lines.filter((l) => l.trim());
+  const removing = filled.length > 0 && filled.every(has);
+  let n = 0;
+  const out = lines.map((line) => {
+    if (!line.trim()) return line;
+    const stripped = line.replace(MD_LINE_MARKER_RE, "$1");
+    if (removing) return stripped;
+    const indent = stripped.match(/^\s*/)[0];
+    const prefix = name === "numbered" ? `${++n}. ` : MD_ACTIONS[name].prefix;
+    return indent + prefix + stripped.slice(indent.length);
+  }).join("\n");
+  mdReplace(textarea, start, end, out, start, start + out.length);
+}
+
+function mdLink(textarea) {
+  const value = textarea.value;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const inner = value.slice(start, end).trim();
+  if (/^https?:\/\/\S+$/.test(inner)) {
+    // a URL was selected: it becomes the target, cursor goes to the text
+    mdReplace(textarea, start, end, `[](${inner})`, start + 1, start + 1);
+  } else {
+    const text = inner || "link text";
+    const md = `[${text}](https://)`;
+    const urlAt = start + text.length + 3;
+    mdReplace(textarea, start, end, md, urlAt, urlAt + "https://".length);
+  }
+}
+
+function applyMdAction(textarea, name) {
+  const action = MD_ACTIONS[name];
+  if (!action || textarea.readOnly || textarea.disabled) return;
+  if (name === "link") mdLink(textarea);
+  else if (action.wrap) mdWrap(textarea, action.wrap, action.placeholder);
+  else mdPrefixLines(textarea, name);
+}
+
+function mdToolbarTarget(toolbar) {
+  const next = toolbar.nextElementSibling;
+  return next && next.tagName === "TEXTAREA" ? next : toolbar.parentElement.querySelector("textarea");
+}
+
+// mousedown would move focus to the button — blurring (and so saving and
+// closing) a click-away-to-save editor before the click even lands
+document.addEventListener("mousedown", (e) => {
+  if (e.target.closest?.(".md-tb-btn")) e.preventDefault();
+});
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest?.(".md-tb-btn");
+  if (!btn) return;
+  const textarea = mdToolbarTarget(btn.closest(".md-toolbar"));
+  if (textarea) applyMdAction(textarea, btn.dataset.mdAction);
+});
+document.addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || el.tagName !== "TEXTAREA") return;
+  if (!el.matches("[data-md]") && !el.previousElementSibling?.classList.contains("md-toolbar")) return;
+  const name = Object.keys(MD_ACTIONS).find((k) => MD_ACTIONS[k].key === e.key.toLowerCase());
+  if (!name) return;
+  e.preventDefault();
+  applyMdAction(el, name);
+});
+
 // ---------- clips (shared by coaching sessions and block games) ----------
 
 const clipsUi = { formOpen: new Set() }; // "ownerType:ownerId" keys with the add-form open
@@ -2862,6 +3036,7 @@ function reflectionSection(matchId, puuid, game) {
   const noteBody = editing
     ? `<div class="mu-notes">
         <label class="filter-label">Note (Markdown)</label>
+        ${mdToolbar()}
         <textarea class="reflection-note-input" rows="4"
           placeholder="Optional freeform note — what happened, what to do differently…">${escapeHtml(reflectionUi.drafts.get(key) ?? reflection.note)}</textarea>
         <div class="session-actions">
@@ -3101,6 +3276,7 @@ function renderSessionModal() {
 
       <label class="filter-label" for="sm-notes">Notes</label>
       <div class="sm-notes-field">
+        ${mdToolbar()}
         <textarea id="sm-notes" rows="12"
           placeholder="What was covered, what to work on…">${escapeHtml(m.notes)}</textarea>
         <span class="muted sm-hint">Markdown supported</span>

@@ -667,6 +667,7 @@ function guideRow(m) {
       <label class="filter-label" for="guide-patch">Patch</label>
       ${patchPicker(draft.patch_version)}
       <label class="filter-label" for="guide-notes">How to play this matchup (Markdown)</label>
+      ${mdToolbar()}
       <textarea id="guide-notes" rows="8"
         placeholder="Game plan, power spikes, bans…">${escapeHtml(draft.notes)}</textarea>
       <div class="session-actions">
@@ -1250,6 +1251,7 @@ function generalNotesBlock() {
   if (guideState.editingGeneral) {
     return `<div class="mu-notes">
       <div class="mu-notes-head"><h4>General ${displayName(champ)} notes</h4></div>
+      ${mdToolbar()}
       <textarea id="guide-general-input" rows="6"
         placeholder="Markdown supported — build order, itemization, general tips…">${escapeHtml(notes)}</textarea>
       <div class="session-actions">

@@ -1118,6 +1118,16 @@ the file server-side between preview and commit (stateless, simplest).
   notes, block learnings, block-game notes, matchup notes, champion notes,
   and any future note field. Use `renderNotes(...)` (vendored marked) inside
   an `md-body` element; never show raw/escaped note text in a read-only view.
+- **Every notes editor gets the Markdown formatting bar**: put `${mdToolbar()}`
+  immediately before its textarea (app.js; the bar targets its next sibling).
+  The buttons cancel `mousedown` so they never steal focus — that is what keeps
+  click-away-to-save editors (block learnings, series goals) open while
+  formatting; keep it that way. Edits go through `execCommand("insertText")`
+  so Ctrl+Z works and `input` fires. One-line editors too small for a bar take
+  `data-md` for the Ctrl+B/I/K shortcuts only (block game notes).
+  `test_every_notes_editor_has_the_formatting_toolbar` fails on a notes
+  textarea without it. Links inside `.md-body` open via `window.open` (a
+  document capture-phase click handler) so they never navigate the app window.
 - **Every user-facing feature adds an entry to `static/changelog.json`**
   (newest first; main functionality only, not tiny tweaks). It drives the 📋
   "What's new" panel; entries newer than the latest GitHub release tag show a

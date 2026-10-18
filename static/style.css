@@ -458,6 +458,25 @@ tbody tr.games-row:hover td { background: var(--page); }
   font-family: ui-monospace, monospace; resize: vertical;
 }
 
+/* Markdown formatting bar above a notes editor (mdToolbar in app.js) */
+.md-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+  margin-top: 4px;
+}
+.md-tb-btn {
+  min-width: 28px; height: 26px; padding: 0 6px;
+  border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: calc(13px * var(--font-scale)); line-height: 1;
+  cursor: pointer;
+}
+.md-tb-btn:hover { background: var(--accent-wash); border-color: var(--border); color: var(--text-primary); }
+.md-tb-btn:active { border-color: var(--series-1); }
+.md-tb-btn b, .md-tb-btn i, .md-tb-btn s { font-family: Georgia, serif; font-size: calc(14px * var(--font-scale)); }
+.md-tb-btn svg { vertical-align: middle; }
+.md-tb-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
+.md-toolbar + textarea { margin-top: 2px; }
+
 .md-body { max-width: 75ch; }
 .md-body h1, .md-body h2, .md-body h3 { font-size: calc(16px * var(--font-scale)); margin: 12px 0 6px; }
 .md-body h1 { font-size: calc(18px * var(--font-scale)); }

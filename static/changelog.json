@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.72.0",
+      "date": "2026-10-18",
+      "items": [
+        "Notes editors now have a formatting bar — bold, italic, strikethrough, heading, bulleted and numbered lists, quote, code and link. It just writes the Markdown for you, so notes stay exactly as before. Ctrl+B / Ctrl+I / Ctrl+K work too, also in block game notes. Links in notes now open in your browser instead of inside the app."
+      ]
+    },
+    {
       "version": "1.71.1",
       "date": "2026-10-17",
       "items": [

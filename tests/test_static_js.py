@@ -197,3 +197,71 @@ const focusout = () => { listeners.forEach((fn) => fn()); return new Promise((r)
 """
     result = subprocess.run([node, "-e", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_every_notes_editor_has_the_formatting_toolbar():
+    """Every Markdown notes <textarea> gets mdToolbar() right before it (the
+    toolbar finds its textarea as the next sibling). Exceptions are listed
+    here on purpose: a one-line table-cell editor gets the keyboard shortcuts
+    only (data-md), and a read-only text dump isn't a notes editor."""
+    exempt = ('class="game-notes" data-md', 'class="recording-desc-text"')
+    missing = []
+    for js_file in JS_FILES:
+        source = (STATIC / js_file).read_text(encoding="utf-8")
+        for match in re.finditer(r"<textarea\b", source):
+            line = source[match.start():source.index("\n", match.start())]
+            if any(e in line for e in exempt):
+                continue
+            preceding = source[:match.start()].rstrip()
+            if not preceding.endswith("${mdToolbar()}"):
+                missing.append(f"{js_file}: {line[:70]}")
+    assert not missing, "notes editors without mdToolbar(): " + "; ".join(missing)
+
+
+def test_markdown_toolbar_actions():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    start = app.index("const MD_ACTIONS")
+    helpers = app[start:app.index("function mdToolbarTarget(", start)]
+    script = r"""
+globalThis.document = { execCommand: () => false };  // force the fallback path
+function ta(value, start, end = start) {
+  return { value, selectionStart: start, selectionEnd: end, readOnly: false, disabled: false,
+    focus() {}, dispatchEvent() {},
+    setSelectionRange(a, b) { this.selectionStart = a; this.selectionEnd = b; },
+    setRangeText(text, a, b) { this.value = this.value.slice(0, a) + text + this.value.slice(b); } };
+}
+const sel = (t) => t.value.slice(t.selectionStart, t.selectionEnd);
+const checks = [];
+function check(name, got, want) { if (got !== want) checks.push(`${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
+""" + helpers + r"""
+let t = ta("hello world", 6, 11);
+applyMdAction(t, "bold"); check("bold", t.value, "hello **world**"); check("bold sel", sel(t), "world");
+applyMdAction(t, "bold"); check("unbold", t.value, "hello world"); check("unbold sel", sel(t), "world");
+t = ta("hello **world**", 8, 13);
+applyMdAction(t, "italic"); check("italic inside bold", t.value, "hello ***world***");
+applyMdAction(t, "italic"); check("un-italic keeps bold", t.value, "hello **world**");
+t = ta("say hi there", 4, 7);  // "hi " — trailing space from a double-click
+applyMdAction(t, "bold"); check("trims selection", t.value, "say **hi** there");
+t = ta("ab", 1);
+applyMdAction(t, "bold"); check("placeholder", t.value, "a**bold text**b"); check("placeholder sel", sel(t), "bold text");
+t = ta("one\ntwo\n\nthree", 0, 14);
+applyMdAction(t, "bullet"); check("bullets", t.value, "- one\n- two\n\n- three");
+applyMdAction(t, "numbered"); check("bullets -> numbers", t.value, "1. one\n2. two\n\n3. three");
+applyMdAction(t, "numbered"); check("numbers off", t.value, "one\ntwo\n\nthree");
+t = ta("first\nsecond", 8);
+applyMdAction(t, "heading"); check("heading on cursor line", t.value, "first\n## second");
+t = ta("a\nb\nc", 0, 4);  // triple-click style: ends just after a newline
+applyMdAction(t, "quote"); check("selection ending at newline", t.value, "> a\n> b\nc");
+t = ta("x\ny", 0, 3);
+applyMdAction(t, "code"); check("multi-line code", t.value, "```\nx\ny\n```");
+t = ta("see https://x.io", 4, 16);
+applyMdAction(t, "link"); check("url link", t.value, "see [](https://x.io)"); check("url link cursor", t.selectionStart, 5);
+t = ta("docs", 0, 4);
+applyMdAction(t, "link"); check("text link", t.value, "[docs](https://)"); check("text link sel", sel(t), "https://");
+if (checks.length) { console.error(checks.join("\n")); process.exit(1); }
+"""
+    result = subprocess.run([node, "-e", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

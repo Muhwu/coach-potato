@@ -90,6 +90,7 @@ function researchEntryHeader(entry, collapsed) {
 function researchNotesBlock(entry, detail) {
   if (researchState.editingNotes === entry.id) {
     return `<label class="filter-label" for="research-notes-${entry.id}">Notes (Markdown)</label>
+      ${mdToolbar()}
       <textarea id="research-notes-${entry.id}" rows="5"
         placeholder="General observations, VOD notes, timestamps, etc…">${escapeHtml(detail.notes)}</textarea>
       <div class="session-actions">

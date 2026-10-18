@@ -748,7 +748,7 @@ function blockGameCells(g, snapshot = false) {
     notes: snapshot
       ? `<td class="notes-cell">${g.notes ? `<div class="md-body">${renderNotes(g.notes)}</div>` : ""}</td>`
       : `<td class="notes-cell">${blockState.editingNotes === g.entry_id
-      ? `<textarea class="game-notes" data-entry="${g.entry_id}" rows="1"
+      ? `<textarea class="game-notes" data-md data-entry="${g.entry_id}" rows="1"
            placeholder="notes… (Markdown, Enter saves, Shift+Enter new line)">${escapeHtml(g.notes)}</textarea>`
       : `<div class="notes-display" data-entry="${g.entry_id}" title="Click to edit">${
           g.notes ? renderNotes(g.notes) : `<span class="muted">notes…</span>`}</div>`}</td>`,
@@ -907,6 +907,7 @@ function seriesModalField(series, field, editing) {
   const def = SERIES_MODAL_FIELDS[field];
   if (editing === field) {
     return `<h4>${def.heading}</h4>
+      ${mdToolbar()}
       <textarea class="series-field-input" id="series-${field}-input" rows="8"
         placeholder="${escapeHtml(def.placeholder)}">${escapeHtml(series[field] || "")}</textarea>
       <div class="session-actions">
@@ -936,6 +937,7 @@ function renderSeriesModal() {
         stands, and the next game you add starts a new series. You can still edit the
         closing notes afterwards, in this popup or in Learnings.</p>
       <h4>Closing notes</h4>
+      ${mdToolbar()}
       <textarea id="series-close-input" rows="10"
         placeholder="${escapeHtml(SERIES_MODAL_FIELDS.closing_notes.placeholder)}"
         >${escapeHtml(series.closing_notes || "")}</textarea>
@@ -1059,6 +1061,7 @@ function blockCard(block, isCurrent) {
         <h4>Learnings</h4>
         <span class="muted learnings-hint">Markdown · click away to save · Esc to cancel</span>
       </div>
+      ${mdToolbar()}
       <textarea class="block-learnings" id="block-learnings-${block.id}"
         data-id="${block.id}" rows="8">${escapeHtml(block.learnings)}</textarea>
     </div>`;
