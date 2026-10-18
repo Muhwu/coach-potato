@@ -261,6 +261,21 @@ t = ta("see https://x.io", 4, 16);
 applyMdAction(t, "link"); check("url link", t.value, "see [](https://x.io)"); check("url link cursor", t.selectionStart, 5);
 t = ta("docs", 0, 4);
 applyMdAction(t, "link"); check("text link", t.value, "[docs](https://)"); check("text link sel", sel(t), "https://");
+const key = (k, mods = {}) => ({ key: k, code: "", ctrlKey: false, metaKey: false,
+  shiftKey: false, altKey: false, ...mods });
+check("ctrl+b", mdShortcutAction(key("b", { ctrlKey: true })), "bold");
+check("cmd+i (mac)", mdShortcutAction(key("i", { metaKey: true })), "italic");
+check("caps-lock ctrl+K", mdShortcutAction(key("K", { ctrlKey: true })), "link");
+check("plain b", mdShortcutAction(key("b")), undefined);
+check("ctrl+alt+b (AltGr)", mdShortcutAction(key("b", { ctrlKey: true, altKey: true })), undefined);
+check("ctrl+shift+b", mdShortcutAction(key("B", { ctrlKey: true, shiftKey: true })), undefined);
+// Nordic layout: Shift+8 types "(" — matched by physical key
+check("ctrl+shift+8", mdShortcutAction(key("(", { ctrlKey: true, shiftKey: true, code: "Digit8" })), "bullet");
+check("cmd+shift+7", mdShortcutAction(key("/", { metaKey: true, shiftKey: true, code: "Digit7" })), "numbered");
+check("label pc", mdShortcutLabel(MD_ACTIONS.bold, false), "Ctrl+B");
+check("label mac", mdShortcutLabel(MD_ACTIONS.bold, true), "⌘B");
+check("label list pc", mdShortcutLabel(MD_ACTIONS.bullet, false), "Ctrl+Shift+8");
+check("label list mac", mdShortcutLabel(MD_ACTIONS.numbered, true), "⇧⌘7");
 if (checks.length) { console.error(checks.join("\n")); process.exit(1); }
 """
     result = subprocess.run([node, "-e", script], capture_output=True, text=True)

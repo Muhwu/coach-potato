@@ -1124,7 +1124,9 @@ the file server-side between preview and commit (stateless, simplest).
   click-away-to-save editors (block learnings, series goals) open while
   formatting; keep it that way. Edits go through `execCommand("insertText")`
   so Ctrl+Z works and `input` fires. One-line editors too small for a bar take
-  `data-md` for the Ctrl+B/I/K shortcuts only (block game notes).
+  `data-md` for the shortcuts only (block game notes): Ctrl/Cmd+B/I/K, and
+  Ctrl/Cmd+Shift+7/8 for numbered/bulleted lists, matched by `e.code` since the
+  shifted digit's character depends on the keyboard layout.
   `test_every_notes_editor_has_the_formatting_toolbar` fails on a notes
   textarea without it. Links inside `.md-body` open via `window.open` (a
   document capture-phase click handler) so they never navigate the app window.

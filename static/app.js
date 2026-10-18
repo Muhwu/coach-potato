@@ -1442,16 +1442,19 @@ document.addEventListener("click", (e) => {
 // insert Markdown — the text stays plain Markdown, exactly as if typed. They
 // never take focus (mousedown is cancelled, tabindex -1), which is what keeps
 // the click-away-to-save editors (block learnings, series goals) open while
-// you format. Ctrl/Cmd+B/I/K work in any toolbar'd textarea and in
-// `textarea[data-md]` (editors too small for a toolbar, e.g. game notes).
+// you format. The shortcuts (Ctrl+B/I/K, Ctrl+Shift+7/8 for lists — Cmd on a
+// Mac) work in any toolbar'd textarea and in `textarea[data-md]` (editors too
+// small for a toolbar, e.g. game notes).
 
 const MD_ACTIONS = {
   bold:    { label: "Bold", key: "b", icon: "<b>B</b>", wrap: "**", placeholder: "bold text" },
   italic:  { label: "Italic", key: "i", icon: "<i>I</i>", wrap: "*", placeholder: "italic text" },
   strike:  { label: "Strikethrough", icon: "<s>S</s>", wrap: "~~", placeholder: "struck text" },
   heading: { label: "Heading", icon: "H", prefix: "## " },
-  bullet:  { label: "Bulleted list", icon: "•", prefix: "- " },
-  numbered: { label: "Numbered list", icon: "1.", prefix: "1. " },
+  // Shift+digit by physical key (e.code): the character Shift+8 types differs
+  // per keyboard layout ("*" on US, "(" on Nordic)
+  bullet:  { label: "Bulleted list", digit: "8", icon: "•", prefix: "- " },
+  numbered: { label: "Numbered list", digit: "7", icon: "1.", prefix: "1. " },
   quote:   { label: "Quote", icon: "❝", prefix: "> " },
   code:    { label: "Code", icon: "&lt;/&gt;", wrap: "`", placeholder: "code" },
   link:    { label: "Link", key: "k", icon: `<svg viewBox="0 0 24 24" width="15" height="15"
@@ -1465,8 +1468,29 @@ const MD_TOOLBAR_GROUPS = [["bold", "italic", "strike"], ["heading", "bullet", "
 // replaces the old marker rather than stacking "- 1. text"
 const MD_LINE_MARKER_RE = /^(\s*)(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/;
 
+const MD_MAC = typeof navigator !== "undefined"
+  && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+
+// tooltip text: "Ctrl+B" / "Ctrl+Shift+8", or "⌘B" / "⇧⌘8" on a Mac
+function mdShortcutLabel(a, mac = MD_MAC) {
+  if (a.key) return mac ? `⌘${a.key.toUpperCase()}` : `Ctrl+${a.key.toUpperCase()}`;
+  if (a.digit) return mac ? `⇧⌘${a.digit}` : `Ctrl+Shift+${a.digit}`;
+  return "";
+}
+
+// the action a keydown triggers, or undefined. Cmd counts as Ctrl so the Mac
+// shortcuts work without a platform check here.
+function mdShortcutAction(e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return undefined;
+  return Object.keys(MD_ACTIONS).find((name) => {
+    const a = MD_ACTIONS[name];
+    if (e.shiftKey) return a.digit && e.code === `Digit${a.digit}`;
+    return a.key && a.key === (e.key || "").toLowerCase();
+  });
+}
+
 function mdToolbar() {
-  const shortcut = (a) => (a.key ? ` (Ctrl+${a.key.toUpperCase()})` : "");
+  const shortcut = (a) => (a.key || a.digit ? ` (${mdShortcutLabel(a)})` : "");
   return `<div class="md-toolbar" role="toolbar" aria-label="Formatting">${
     MD_TOOLBAR_GROUPS.map((group) => group.map((name) => {
       const a = MD_ACTIONS[name];
@@ -1591,9 +1615,9 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   const el = e.target;
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || el.tagName !== "TEXTAREA") return;
+  if (el.tagName !== "TEXTAREA") return;
   if (!el.matches("[data-md]") && !el.previousElementSibling?.classList.contains("md-toolbar")) return;
-  const name = Object.keys(MD_ACTIONS).find((k) => MD_ACTIONS[k].key === e.key.toLowerCase());
+  const name = mdShortcutAction(e);
   if (!name) return;
   e.preventDefault();
   applyMdAction(el, name);
