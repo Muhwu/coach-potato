@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.79.0",
+      "date": "2026-10-24",
+      "items": [
+        "AI access (Settings → AI access): Coach Potato can serve itself to Claude or any other MCP client, which can then read your stats, matchups, trends, coaching sessions, block learnings and playbooks — and write notes, reflections and learnings back. Off until you switch it on, and every request needs the token shown there. An assistant on this computer connects straight to the address given; Claude in a browser calls connectors from Anthropic's servers, so that route needs a tunnel (cloudflared/ngrok) restricted to the /mcp path — the panel walks you through it."
+      ]
+    },
+    {
       "version": "1.78.0",
       "date": "2026-10-24",
       "items": [

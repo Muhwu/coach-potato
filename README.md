@@ -252,6 +252,32 @@ combined, all roles (narrow with the Role filter).
   Deliberately excludes settings (API key/accounts) and crawled match data —
   Riot's API can re-supply the latter.
 
+## AI access (MCP)
+
+Settings → **AI access** turns Coach Potato into an [MCP](https://modelcontextprotocol.io)
+server, so Claude — or any other MCP client — can read your stats, matchups,
+trends, coaching sessions, block learnings and playbooks, and write notes,
+reflections and learnings back. About fifteen tools, shaped around coaching
+questions rather than one per API route; the panel lists them.
+
+It is **off until you switch it on**, and every request needs the token the
+panel shows (regenerate it there at any time).
+
+- **An assistant on this computer** connects straight to the address shown.
+  For Claude Code:
+  `claude mcp add --transport http coach-potato http://127.0.0.1:8321/mcp` with
+  the token as an `Authorization: Bearer …` header, or just append `/<token>`
+  to the URL.
+- **Claude in a browser** cannot reach it directly: claude.ai calls connectors
+  from Anthropic's servers, not from your machine, so `127.0.0.1` never
+  connects. That route needs a tunnel (cloudflared, ngrok) giving the app a
+  public `https://` address, with Coach Potato running. **Point the tunnel at
+  the `/mcp` path only** — every other endpoint is unauthenticated and
+  `GET /api/settings` returns your Riot API key. Then add it in claude.ai under
+  *Settings → Connectors → Add custom connector*.
+
+Anyone holding that address and token can read and edit your coaching data.
+
 ## Design decisions & known limitations
 
 1. **"Group by rank" = lane opponent's *current* solo-queue rank.** The Riot

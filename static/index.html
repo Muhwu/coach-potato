@@ -135,6 +135,7 @@
       <button type="button" class="settings-tab" data-tab="interface">Interface</button>
       <button type="button" class="settings-tab" data-tab="appearance">Appearance</button>
       <button type="button" class="settings-tab" data-tab="recordings">Recordings</button>
+      <button type="button" class="settings-tab" data-tab="ai">AI access</button>
       <button type="button" class="settings-tab" data-tab="backup">Backup</button>
       <button type="button" class="settings-tab" data-tab="diagnostics">Diagnostics</button>
     </div>
@@ -410,6 +411,65 @@
           <option value="public">Public</option>
         </select>
         <p class="muted">Uploading always asks for confirmation first.</p>
+      </div>
+    </div>
+
+    <div class="settings-panel" data-tab="ai">
+      <h3 class="settings-group-head">Let an AI read your coaching data (MCP)</h3>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-mcp-enabled">
+          Serve Coach Potato as an MCP server</label>
+        <p class="muted">Opens one extra address, <code>/mcp</code>, that an AI assistant can
+          call to read your stats, matchups, trends, sessions, block learnings and playbooks —
+          and to write notes back. It is off until you tick this, and every request needs the
+          token below.</p>
+      </div>
+      <div id="mcp-settings" class="hidden">
+        <div class="settings-field">
+          <label class="filter-label" for="mcp-url-local">Address, on this computer</label>
+          <div class="mcp-url-row">
+            <input type="text" id="mcp-url-local" readonly>
+            <button type="button" class="preset" id="mcp-copy-local">Copy</button>
+          </div>
+          <p class="muted">For an assistant running on this machine — Claude Code:
+            <code>claude mcp add --transport http coach-potato &lt;this address&gt;</code>.</p>
+        </div>
+        <div class="settings-field">
+          <label class="filter-label" for="mcp-token">Token</label>
+          <div class="mcp-url-row">
+            <input type="text" id="mcp-token" readonly>
+            <button type="button" class="preset" id="mcp-copy-token">Copy</button>
+            <button type="button" class="preset" id="mcp-rotate">Regenerate</button>
+          </div>
+          <span id="mcp-status" class="muted"></span>
+          <p class="muted">Send it as <code>Authorization: Bearer &lt;token&gt;</code>, or use the
+            address above with <code>/&lt;token&gt;</code> on the end. Regenerating it stops every
+            client already set up with the old one.</p>
+        </div>
+        <div class="settings-field">
+          <h4>Using it from Claude in a browser</h4>
+          <p class="muted">claude.ai calls connectors from Anthropic's servers, not from your
+            computer, so it cannot reach this app directly — <code>127.0.0.1</code> will never
+            connect. You need a tunnel that gives the app a public <code>https://</code> address,
+            and Coach Potato has to be running while you use it.</p>
+          <ol class="mcp-steps muted">
+            <li>Install <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/"
+              target="_blank" rel="noopener">cloudflared</a> (or ngrok) and point it at this app —
+              <strong>restrict it to the <code>/mcp</code> path</strong>. Everything else here is
+              unauthenticated and would hand out your Riot API key.</li>
+            <li>In claude.ai: <em>Settings &rarr; Connectors &rarr; Add custom connector</em>.</li>
+            <li>Paste <code>https://&lt;your-tunnel&gt;/mcp/&lt;token&gt;</code> as the URL and pick
+              <em>No sign-in</em>. (If your account offers <em>Request headers</em>, use the plain
+              <code>/mcp</code> URL and an <code>authorization</code> header of
+              <code>Bearer &lt;token&gt;</code> instead — the token then stays out of the URL.)</li>
+          </ol>
+          <p class="muted">Anyone who gets that address can read and edit your coaching data, so
+            treat it like a password and regenerate the token if it leaks.</p>
+        </div>
+        <div class="settings-field">
+          <h4>What the AI can do</h4>
+          <div id="mcp-tools"></div>
+        </div>
       </div>
     </div>
 
