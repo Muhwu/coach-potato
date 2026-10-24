@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.77.0",
+      "date": "2026-10-24",
+      "items": [
+        "Series templates (optional, in the series popup under Templates): a block game template is added to the notes of every game you add to that series — handy when you're tracking something specific — and a block learnings template is what a block's learnings start with when you open them. Both stay fully editable; an untouched learnings template isn't saved."
+      ]
+    },
+    {
       "version": "1.76.0",
       "date": "2026-10-24",
       "items": [

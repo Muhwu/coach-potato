@@ -1862,10 +1862,11 @@ def api_update_block_series(series_id: int, body: dict):
     title = body.get("title")
     goals = body.get("goals")
     closing_notes = body.get("closing_notes")
+    templates = {k: body.get(k) for k in ("game_template", "learnings_template")}
     dates = {k: body.get(k) for k in ("start_date", "end_date")}
     if title is None and goals is None and closing_notes is None \
-            and all(v is None for v in dates.values()):
-        raise HTTPException(400, "provide title, goals, closing_notes and/or dates")
+            and all(v is None for v in (*dates.values(), *templates.values())):
+        raise HTTPException(400, "provide title, goals, closing_notes, dates and/or templates")
     for key, value in dates.items():
         # optional planned period, inclusive; "" clears it
         if value is not None and (not isinstance(value, str)
@@ -1885,7 +1886,8 @@ def api_update_block_series(series_id: int, body: dict):
             title=None if title is None else str(title).strip(),
             goals=None if goals is None else str(goals),
             closing_notes=None if closing_notes is None else str(closing_notes),
-            start_date=dates["start_date"], end_date=dates["end_date"])
+            start_date=dates["start_date"], end_date=dates["end_date"],
+            **{k: None if v is None else str(v) for k, v in templates.items()})
         if not updated:
             raise HTTPException(404, "no such series")
         row = next((r for r in db.list_block_series(conn) if r["id"] == series_id), None)

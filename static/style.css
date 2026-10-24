@@ -1097,6 +1097,9 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 /* planned period in the series popup: optional start/end, inclusive */
 .series-modal-dates { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
 .series-modal-dates input[type="date"] { min-width: 10em; }
+.series-templates { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.series-templates > summary { cursor: pointer; font-weight: 600; }
+.series-templates > summary .muted { font-weight: normal; font-size: calc(12px * var(--font-scale)); }
 .series-chip {
   font-weight: 650; padding: 3px 12px; border-radius: 999px;
   background: var(--accent-wash); border: 1px solid var(--series-1);

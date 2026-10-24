@@ -444,6 +444,12 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   Blocks) offers Close series… → the close form; "Later" snoozes it per
   series in sessionStorage. Dates are formatted via `seriesDateMs` (local
   noon) so `fmtDate` never shifts them a day.
+  Optional templates: `block_series.game_template` is copied into
+  `block_games.notes` by `db.add_game_to_block` (server-side, so every add
+  path gets it; not retroactive); `learnings_template` is NOT stored on the
+  block — `learningsDraft(block)` (blocks.js) pre-fills the learnings editor
+  of a block with none, and `learningsToSave` skips the save while it's
+  untouched, so "has learnings" filters/exports never count a bare template.
   `db.open_series_id` is the active one or None; `current_series_id` (used by
   `create_block`) lazily opens a fresh series when none is — `seed_block_series`
   deliberately does NOT, so restarting the app after a close stays "none

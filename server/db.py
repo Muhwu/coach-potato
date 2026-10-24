@@ -154,7 +154,9 @@ CREATE TABLE IF NOT EXISTS block_series (
     created_at_ms INTEGER,
     closed_at_ms INTEGER,
     start_date TEXT NOT NULL DEFAULT '',
-    end_date TEXT NOT NULL DEFAULT ''
+    end_date TEXT NOT NULL DEFAULT '',
+    game_template TEXT NOT NULL DEFAULT '',
+    learnings_template TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS blocks (
@@ -491,7 +493,8 @@ def _migrate(conn):
         if "closing_notes" not in series_columns:  # the series retrospective
             conn.execute(
                 "ALTER TABLE block_series ADD COLUMN closing_notes TEXT NOT NULL DEFAULT ''")
-        for col in ("start_date", "end_date"):  # optional planned period
+        # optional planned period + optional per-series note templates
+        for col in ("start_date", "end_date", "game_template", "learnings_template"):
             if col not in series_columns:
                 conn.execute(
                     f"ALTER TABLE block_series ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
@@ -1559,19 +1562,23 @@ def list_block_series(conn):
     """All block series, newest first."""
     return conn.execute(
         """SELECT id, title, goals, closing_notes, created_at_ms, closed_at_ms,
-                  start_date, end_date
+                  start_date, end_date, game_template, learnings_template
            FROM block_series ORDER BY id DESC""").fetchall()
 
 
 def update_block_series(conn, series_id, title=None, goals=None, closing_notes=None,
-                        start_date=None, end_date=None):
+                        start_date=None, end_date=None, game_template=None,
+                        learnings_template=None):
     """Partial update — only the fields passed are written, so editing the
     goals never clobbers a title being renamed in another tab (and vice
     versa). `closing_notes` is the end-of-series retrospective: how the
     challenge went, whether the goals were met, what was actually learnt.
     `start_date`/`end_date` are the optional planned period (ISO dates,
     inclusive; '' = not set) — the UI prompts to close the series once
-    `end_date` has passed. Returns False when the series doesn't exist."""
+    `end_date` has passed. `game_template` pre-fills the notes of every game
+    added to one of the series' blocks; `learnings_template` pre-fills a
+    block's learnings editor (client-side, saved only once edited). Both
+    optional, '' = none. Returns False when the series doesn't exist."""
     sets, params = [], []
     if title is not None:
         sets.append("title=?"); params.append(title)
@@ -1583,6 +1590,10 @@ def update_block_series(conn, series_id, title=None, goals=None, closing_notes=N
         sets.append("start_date=?"); params.append(start_date)
     if end_date is not None:
         sets.append("end_date=?"); params.append(end_date)
+    if game_template is not None:
+        sets.append("game_template=?"); params.append(game_template)
+    if learnings_template is not None:
+        sets.append("learnings_template=?"); params.append(learnings_template)
     if not sets:
         return False
     with conn:
@@ -1705,10 +1716,14 @@ def add_game_to_block(conn, match_id, puuid):
     if current is None:
         current = create_block(conn)
     with conn:
+        # the block's series may carry a game-notes template (e.g. what you're
+        # tracking this series) — it becomes the game's editable starting notes
         conn.execute(
-            f"""INSERT INTO block_games (block_id, match_id, puuid, added_at_ms)
-                VALUES (?, ?, ?, {_now_expr()})""",
-            (current, match_id, puuid),
+            f"""INSERT INTO block_games (block_id, match_id, puuid, notes, added_at_ms)
+                VALUES (?, ?, ?, COALESCE((SELECT s.game_template FROM blocks b
+                    JOIN block_series s ON s.id = b.series_id WHERE b.id = ?), ''),
+                    {_now_expr()})""",
+            (current, match_id, puuid, current),
         )
     count = conn.execute(
         "SELECT COUNT(*) AS c FROM block_games WHERE block_id=?", (current,)

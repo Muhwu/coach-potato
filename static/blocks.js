@@ -1010,7 +1010,41 @@ const SERIES_MODAL_FIELDS = {
   closing_notes: { heading: "Closing notes", empty: "No closing notes written yet.",
                    edit: "✎ Edit closing notes",
                    placeholder: "How did it go? Did you hit the goals? What actually changed, and what's next?" },
+  game_template: { heading: "Block game template", empty: "None — games start with empty notes.",
+                   edit: "✎ Edit game template",
+                   placeholder: "Starting notes for every game added to this series, e.g. what you're tracking: \"Jungler seen at: \"" },
+  learnings_template: { heading: "Block learnings template",
+                        empty: "None — block learnings start empty.",
+                        edit: "✎ Edit learnings template",
+                        placeholder: "What a block's learnings start with, e.g. \"- Went well:\n- Fix next block:\"" },
 };
+
+// Optional per-series templates: the game one is written into each game's
+// notes when it's added (server-side); the learnings one only pre-fills the
+// editor of a block with no learnings yet, and is saved once it's edited —
+// so an untouched template never reads as "written" learnings.
+function learningsDraft(block) {
+  if (block.learnings) return block.learnings;
+  const series = seriesById(block.series_id);
+  return (series && series.learnings_template) || "";
+}
+
+// what an editor's blur should save, or null when there's nothing to: the
+// pre-filled template left exactly as it was isn't a learning yet
+function learningsToSave(block, value) {
+  if (!block) return value;
+  if (!block.learnings && value === learningsDraft(block)) return null;
+  return value;
+}
+
+function seriesTemplatesSection(series, editing) {
+  const fields = ["game_template", "learnings_template"];
+  const open = fields.includes(editing) || fields.some((f) => (series[f] || "").trim());
+  return `<details class="series-templates"${open ? " open" : ""}>
+    <summary>Templates <span class="muted">— optional starting text for this series' games and learnings</span></summary>
+    ${fields.map((f) => seriesModalField(series, f, editing)).join("")}
+  </details>`;
+}
 
 // readOnly drops the ✎ button: the close form shows the goals to reflect on,
 // and switching to the goals editor there would discard the closing notes
@@ -1073,6 +1107,7 @@ function renderSeriesModal() {
     }
     body = `${seriesModalField(series, "goals", state.editing)}
       ${showClosing ? seriesModalField(series, "closing_notes", state.editing) : ""}
+      ${seriesTemplatesSection(series, state.editing)}
       ${actions.length ? `<div class="session-actions series-modal-actions">${actions.join("")}</div>` : ""}`;
   }
   $("#modal-box").innerHTML = `<div class="series-modal">
@@ -1215,7 +1250,7 @@ function blockCard(block, isCurrent) {
       </div>
       ${mdToolbar()}
       <textarea class="block-learnings" id="block-learnings-${block.id}"
-        data-id="${block.id}" rows="8">${escapeHtml(block.learnings)}</textarea>
+        data-id="${block.id}" rows="8">${escapeHtml(learningsDraft(block))}</textarea>
     </div>`;
   } else {
     // written learnings sit in the same callout as on the copied image; the
@@ -1420,14 +1455,15 @@ function renderBlocks() {
     });
     input.addEventListener("blur", async () => {
       const id = +input.dataset.id;
-      if (!cancelled) {
+      const block = blockState.blocks.find((b) => b.id === id);
+      const value = learningsToSave(block, input.value);
+      if (!cancelled && value !== null) {
         await fetch(`/api/blocks/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ learnings: input.value }),
+          body: JSON.stringify({ learnings: value }),
         });
-        const block = blockState.blocks.find((b) => b.id === id);
-        if (block) block.learnings = input.value;
+        if (block) block.learnings = value;
       }
       cancelled = false;
       blockState.editingLearnings = null;

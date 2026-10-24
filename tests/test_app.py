@@ -2952,3 +2952,26 @@ def test_series_planned_dates_round_trip_and_validate(client):
     assert client.get("/api/blocks").json()["series"][0]["end_date"] == ""
     assert client.patch("/api/blocks/series/9999",
                         json={"end_date": "2026-10-14"}).status_code == 404
+
+
+def test_series_game_template_prefills_new_game_notes(client):
+    sid = client.get("/api/blocks").json()["current_series_id"]
+    assert client.get("/api/blocks").json()["series"][0]["game_template"] == ""
+    assert client.patch(f"/api/blocks/series/{sid}", json={
+        "game_template": "Jungle tracked at 3:00: ", "learnings_template": "- Went well:\n- Fix:",
+    }).status_code == 200
+    games = client.get("/api/stats/games").json()
+    first = {"match_id": games[0]["match_id"], "puuid": games[0]["my_puuid"]}
+    client.post("/api/blocks/games", json=first)
+    body = client.get("/api/blocks").json()
+    assert body["blocks"][0]["games"][0]["notes"] == "Jungle tracked at 3:00: "
+    # learnings stay blank server-side: the template only pre-fills the editor
+    assert body["blocks"][0]["learnings"] == ""
+    assert body["series"][0]["learnings_template"] == "- Went well:\n- Fix:"
+    # a series without a template gives a game blank notes, as before
+    client.post("/api/blocks/series", json={"title": "next"})
+    second = {"match_id": games[1]["match_id"], "puuid": games[1]["my_puuid"]}
+    client.post("/api/blocks/games", json=second)
+    newest = client.get("/api/blocks").json()["blocks"]
+    entry = next(g for b in newest for g in b["games"] if g["match_id"] == second["match_id"])
+    assert entry["notes"] == ""

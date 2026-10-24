@@ -222,7 +222,7 @@ function learnBlockCard(block) {
       ${learnBlockHead(block)}
       ${mdToolbar()}
       <textarea class="learn-textarea" data-id="${block.id}" rows="8"
-        placeholder="What did this block teach you?">${escapeHtml(block.learnings)}</textarea>
+        placeholder="What did this block teach you?">${escapeHtml(learningsDraft(block))}</textarea>
       <span class="muted learnings-hint">Markdown · click away to save · Esc to cancel</span>
     </div>`;
   }
@@ -535,14 +535,15 @@ function wireLearnings(target) {
     });
     input.addEventListener("blur", async () => {
       const id = +input.dataset.id;
-      if (!cancelled) {
+      const block = blockState.blocks.find((b) => b.id === id);
+      const value = learningsToSave(block, input.value);  // blocks.js
+      if (!cancelled && value !== null) {
         await fetch(`/api/blocks/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ learnings: input.value }),
+          body: JSON.stringify({ learnings: value }),
         });
-        const block = blockState.blocks.find((b) => b.id === id);
-        if (block) block.learnings = input.value;
+        if (block) block.learnings = value;
       }
       cancelled = false;
       learnState.editing = null;
