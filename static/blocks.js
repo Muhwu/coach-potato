@@ -1439,6 +1439,16 @@ async function renderBlockPicker() {
   wireAddableGames(target, reloadBlocksFromStart);
 }
 
+// Opening the popup fetches your latest games first, unless that happened
+// within ADDGAME_FRESH_MS — the game you just finished is usually the one
+// you're about to add, and it shouldn't take a trip to the ⟳ button.
+const ADDGAME_FRESH_MS = 20 * 60 * 1000;
+
+function minutesAgo(ms) {
+  const mins = Math.round((Date.now() - ms) / 60000);
+  return mins < 1 ? "just now" : `${mins} min ago`;
+}
+
 // The picker lives at the bottom of the page, which is a long way down once
 // you have a few blocks — so the Blocks header and the current block's header
 // both open the same list in a popup.
@@ -1449,22 +1459,92 @@ async function openAddGameModal() {
     <div class="section-head"><h3>Add a game to a block</h3>
       <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
     </div>
-    <p class="muted">Loading…</p></div>`;
+    <div class="addgame-sync muted"></div>
+    <p class="muted">Your most recent games that aren't in a block yet. They go
+      into the current block; adding to a full or closed one starts the next block.</p>
+    <div class="addgame-list"><p class="muted">Loading…</p></div></div>`;
   box.querySelector("#modal-close").addEventListener("click", closeModal);
-  let candidates;
+  const body = box.querySelector(".addgame-modal");
+  const sync = body.querySelector(".addgame-sync");
+  const list = body.querySelector(".addgame-list");
+  // the shared modal shell gets reused — stop touching it once it's not ours
+  const isOpen = () => body.isConnected;
+
+  const renderList = async () => {
+    try {
+      const candidates = await addableGames();
+      if (!isOpen()) return;
+      list.innerHTML = addableGamesTable(candidates);
+      // keep the popup open so several games can go in one after another
+      wireAddableGames(list, reloadBlocksFromStart);
+    } catch (e) {
+      if (isOpen()) list.innerHTML = `<p class="muted">Failed to load recent games.</p>`;
+    }
+  };
+
+  // show what's stored straight away; refreshed games swap in when they land
+  renderList();
+  await syncLatestGames(sync, isOpen, renderList);
+}
+
+async function syncLatestGames(sync, isOpen, onDone) {
+  let settings, status;
   try {
-    candidates = await addableGames();
-  } catch (e) {
-    box.querySelector(".addgame-modal p").textContent = "Failed to load recent games.";
+    [settings, status] = await Promise.all(
+      [getJSON("/api/settings"), getJSON("/api/crawl/status")]);
+  } catch {
+    return; // the list still shows what's stored
+  }
+  if (!isOpen() || !settings.configured) return;
+  const last = settings.last_crawl_ms || 0;
+  if (!status.running && Date.now() - last < ADDGAME_FRESH_MS) {
+    sync.textContent = `Games updated ${minutesAgo(last)}`;
     return;
   }
-  const body = box.querySelector(".addgame-modal");
-  body.querySelector("p").outerHTML = `<p class="muted">Your most recent games that
-    aren't in a block yet. They go into the current block; adding to a full or
-    closed one starts the next block.</p>
-    <div class="addgame-list">${addableGamesTable(candidates)}</div>`;
-  // keep the popup open so several games can go in one after another
-  wireAddableGames(body, reloadBlocksFromStart);
+  const busy = (text) => {
+    sync.classList.add("busy");
+    sync.innerHTML = `<span class="spinner" aria-hidden="true"></span>
+      <span role="status">${text}</span>`;
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 2000));
+  busy("Fetching your latest games…");
+  // Opening Blocks starts the block-timeline fetch, and the crawl is refused
+  // (409) while that runs — so wait for it rather than giving up
+  while (!status.running) {
+    const response = await fetch("/api/crawl", { method: "POST" });
+    if (response.ok) break;
+    if (response.status !== 409) {
+      if (isOpen()) {
+        sync.classList.remove("busy");
+        showApiError(sync, "Couldn't fetch new games", null);
+      }
+      return;
+    }
+    busy("Waiting for the block stats fetch to finish, then fetching your latest games…");
+    await tick();
+    if (!isOpen()) return;
+    status = await getJSON("/api/crawl/status").catch(() => status);
+  }
+  busy("Fetching your latest games…");
+  pollCrawl(); // lights the header's crawl indicator too
+  while (isOpen()) {
+    await tick();
+    try {
+      status = await getJSON("/api/crawl/status");
+    } catch {
+      continue;
+    }
+    if (status.running) continue;
+    if (!isOpen()) return;
+    sync.classList.remove("busy");
+    if (status.error) {
+      showApiError(sync, `Couldn't fetch new games — ${status.error}`, status.error_detail);
+    } else {
+      sync.textContent = "✓ Games up to date";
+      await onDone();
+    }
+    return;
+  }
 }
 
 // shared with match-list promote buttons in app.js

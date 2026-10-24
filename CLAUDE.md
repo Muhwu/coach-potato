@@ -521,6 +521,10 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   picker as the bottom `#block-picker` panel) is reachable from the Blocks
   section head (`#blocks-add-game`, always) and from the active block's
   header (`+ Game`, only while that block can still take one).
+  Opening it starts a crawl (`syncLatestGames`) unless `last_crawl_ms` is
+  within `ADDGAME_FRESH_MS` (20 min), showing stored games immediately and
+  swapping in the refreshed list when the crawl finishes; a 409 (block
+  timeline backfill running) is waited out and retried, not given up on.
 - **Learnings view** (`#learnings`, `static/learnings.js`, under Coach) is the
   holistic read of every block's learnings — the Blocks view is where you work,
   this is where you review. It has NO endpoint of its own: it renders the same

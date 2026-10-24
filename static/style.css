@@ -2052,6 +2052,10 @@ footer {
    page, reachable from the current block's header when the page is long */
 .addgame-modal { min-width: min(760px, 92vw); max-width: 900px; }
 .addgame-list { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+/* "Fetching your latest games…" / "Games updated 5 min ago" above the list */
+.addgame-sync { display: flex; align-items: center; gap: 8px; min-height: 1.4em;
+  font-size: calc(13px * var(--font-scale)); }
+.addgame-sync.busy { color: var(--text-primary); }
 
 /* Coaching progress is one table: each period row is its coaching session, so
    the log and the segment table stopped being two lists of the same sessions.

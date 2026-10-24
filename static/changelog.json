@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.73.0",
+      "date": "2026-10-24",
+      "items": [
+        "Blocks: the \"Add a game\" popup now fetches your latest games by itself when it opens, with a status line at the top — no more closing it to hit refresh first. If games were already updated in the last 20 minutes it skips the fetch."
+      ]
+    },
+    {
       "version": "1.72.0",
       "date": "2026-10-18",
       "items": [
