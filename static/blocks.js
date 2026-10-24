@@ -903,7 +903,9 @@ const SERIES_MODAL_FIELDS = {
                    placeholder: "How did it go? Did you hit the goals? What actually changed, and what's next?" },
 };
 
-function seriesModalField(series, field, editing) {
+// readOnly drops the ✎ button: the close form shows the goals to reflect on,
+// and switching to the goals editor there would discard the closing notes
+function seriesModalField(series, field, editing, { readOnly = false } = {}) {
   const def = SERIES_MODAL_FIELDS[field];
   if (editing === field) {
     return `<h4>${def.heading}</h4>
@@ -919,9 +921,9 @@ function seriesModalField(series, field, editing) {
   return `<h4>${def.heading}</h4>
     <div class="md-body">${(series[field] || "").trim()
       ? renderNotes(series[field]) : `<p class="muted">${def.empty}</p>`}</div>
-    <div class="session-actions">
+    ${readOnly ? "" : `<div class="session-actions">
       <button class="preset series-field-edit" data-field="${field}">${def.edit}</button>
-    </div>`;
+    </div>`}`;
 }
 
 function renderSeriesModal() {
@@ -936,6 +938,7 @@ function renderSeriesModal() {
       <p class="muted">Closing ends this series: its in-progress block is finished where it
         stands, and the next game you add starts a new series. You can still edit the
         closing notes afterwards, in this popup or in Learnings.</p>
+      ${seriesModalField(series, "goals", null, { readOnly: true })}
       <h4>Closing notes</h4>
       ${mdToolbar()}
       <textarea id="series-close-input" rows="10"

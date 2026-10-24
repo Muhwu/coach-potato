@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.73.1",
+      "date": "2026-10-24",
+      "items": [
+        "Closing a series from its popup now keeps the series goals on screen above the closing notes, so you can check them off as you write how it went."
+      ]
+    },
+    {
       "version": "1.73.0",
       "date": "2026-10-24",
       "items": [

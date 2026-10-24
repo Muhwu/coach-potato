@@ -1091,6 +1091,9 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 .series-modal h4 { margin: 14px 0 4px; font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); }
 .series-modal-actions { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
 .series-close-form > p { margin: 0 0 8px; }
+/* goals stay visible while writing the retrospective — shorter, so the
+   closing-notes box below doesn't get pushed out of view */
+.series-close-form .md-body { max-height: 30vh; }
 .import-all-row { display: flex; align-items: center; gap: 8px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 
