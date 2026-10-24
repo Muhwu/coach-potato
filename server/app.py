@@ -19,8 +19,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (ascent_log, config, crypto, db, obs, pdf_export, recordings,
-               rune_data, stats, youtube)
+from . import (ascent_log, config, crypto, db, mcp_server, obs, pdf_export,
+               recordings, rune_data, stats, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING, RiotApiError, scrub_secret
@@ -268,6 +268,13 @@ def _extra_settings(conn):
         # websocket-client missing -> the UI explains instead of offering a
         # Record button that could only fail (same idea as youtube_ready)
         "obs_available": obs.libraries_available(),
+        # AI access over MCP. Off by default: switching it on is the first half
+        # of exposing this data to the internet (see server/mcp_server.py), so
+        # it is never on because nobody looked. The token is returned so the
+        # Settings page can show the URL to paste into a client — same reason
+        # this endpoint already returns the Riot API key.
+        "mcp_enabled": mcp_server.is_enabled(conn),
+        "mcp_token": mcp_server.get_token(conn),
     }
 
 
@@ -427,6 +434,9 @@ def api_put_settings(body: dict):
     obs_enabled = body.get("obs_enabled", True)
     if not isinstance(obs_enabled, bool):
         raise HTTPException(400, "obs_enabled must be a boolean")
+    mcp_enabled = body.get("mcp_enabled", False)
+    if not isinstance(mcp_enabled, bool):
+        raise HTTPException(400, "mcp_enabled must be a boolean")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -457,7 +467,10 @@ def api_put_settings(body: dict):
             "obs_host": obs_host,
             "obs_port": str(obs_port),
             "obs_password": obs_password,
+            "mcp_enabled": "1" if mcp_enabled else "0",
         })
+        if mcp_enabled:
+            mcp_server.ensure_token(conn)  # first enable mints the token
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
         settings.update(_extra_settings(conn))
@@ -3829,6 +3842,104 @@ def api_block_timeline_status():
 @app.get("/api/crawl/status")
 def api_crawl_status():
     return CRAWL_STATE
+
+
+# ---------------------------------------------------------------------------
+# MCP: this app's data as tools for Claude (or any MCP client).
+#
+# `server/mcp_server.py` holds the protocol and the tools; everything here is
+# the HTTP skin: the opt-in switch, the token check, and the two content types
+# a Streamable-HTTP client may ask for. Three deliberate choices:
+#
+#   * 404 while disabled — a probe can't tell this app from one without the
+#     feature, which matters because the whole point of enabling it is that
+#     the endpoint ends up reachable from the internet.
+#   * The token may ride in the path (`/mcp/<token>`) as well as a header.
+#     claude.ai's request-header auth is still a limited beta; its "No
+#     sign-in" option sends nothing, so a capability URL is the only form that
+#     works for every account today.
+#   * `hide_my_rank` is honoured here too, via the same `_scrub_my_ranks` the
+#     response middleware applies — the middleware only covers `/api`, and a
+#     second door onto the same data shouldn't be the exception.
+# ---------------------------------------------------------------------------
+
+MCP_TOKEN_HEADERS = ("x-api-key", "x-auth-token", "x-mcp-token")
+
+
+def _mcp_presented_token(request: Request, path_token: str) -> str:
+    """The token this request carries, from the path or any accepted header."""
+    if path_token:
+        return path_token
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    for header in MCP_TOKEN_HEADERS:
+        if request.headers.get(header):
+            return request.headers[header].strip()
+    return auth.strip()  # a bare token in Authorization, as claude.ai may send
+
+
+def _mcp_rpc_response(request: Request, payload):
+    """A JSON-RPC reply framed the way this client asked for. The spec lets a
+    server answer a POST with either JSON or an SSE stream carrying one
+    message; we have nothing to stream, so JSON is the default and SSE is used
+    only when the client said it accepts that and not plain JSON."""
+    if payload is None:
+        return Response(status_code=202)  # notification: nothing to reply with
+    accept = request.headers.get("accept", "")
+    wants_sse = "text/event-stream" in accept and "application/json" not in accept
+    body = json.dumps(payload, default=str)
+    if wants_sse:
+        return Response(content="event: message\ndata: " + body + "\n\n",
+                        media_type="text/event-stream",
+                        headers={"Cache-Control": "no-cache"})
+    return Response(content=body, media_type="application/json")
+
+
+@app.post("/mcp")
+@app.post("/mcp/{path_token}")
+def api_mcp(request: Request, body: dict, path_token: str = ""):
+    conn = get_conn()
+    try:
+        if not mcp_server.is_enabled(conn):
+            raise HTTPException(404, "not found")
+        if not mcp_server.token_matches(conn, _mcp_presented_token(request, path_token)):
+            raise HTTPException(401, "invalid or missing MCP token",
+                                headers={"WWW-Authenticate": "Bearer"})
+        scrub = _scrub_my_ranks if _hide_my_rank(conn) else None
+        payload = mcp_server.handle(conn, body, version=config.app_version(),
+                                    scrub=scrub)
+    finally:
+        conn.close()
+    return _mcp_rpc_response(request, payload)
+
+
+@app.get("/mcp")
+@app.get("/mcp/{path_token}")
+def api_mcp_stream(path_token: str = ""):
+    """Streamable HTTP's optional server-to-client SSE channel. We never push
+    anything, and the spec allows saying so."""
+    raise HTTPException(405, "this server only answers POST")
+
+
+@app.post("/api/mcp/token")
+def api_mcp_rotate_token():
+    """Mint a new token, which immediately breaks every client configured with
+    the old one. The Settings page confirms before calling this."""
+    conn = get_conn()
+    try:
+        return {"mcp_token": mcp_server.rotate_token(conn)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/mcp/tools")
+def api_mcp_tools():
+    """What an AI would be able to do — read by Settings so the list in the UI
+    can't drift from the registry. Local-only, like the rest of /api."""
+    return {"tools": [{"name": t["name"], "description": t["description"],
+                       "writes": not t["annotations"]["readOnlyHint"]}
+                      for t in mcp_server.tool_list()]}
 
 
 class _NoStaleStatic(StaticFiles):

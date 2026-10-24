@@ -803,6 +803,52 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `link` field (a pasted VOD URL, edited in the session popup) — that is a
   link, this is a local file the app started and can seek.
 
+- **MCP server (AI access)** — `server/mcp_server.py` serves this app's data as
+  tools to Claude or any other MCP client, over MCP's **Streamable HTTP**
+  transport, at `POST /mcp` (plus `POST /mcp/{token}`). The protocol is spoken
+  directly rather than via the MCP SDK — same call as `server/obs.py` making
+  its own obs-websocket frames: the surface a tool server needs is
+  `initialize` / `notifications/*` / `ping` / `tools/list` / `tools/call`, and
+  a new dependency would have to survive the PyInstaller build (cf. the
+  `--hidden-import websocket` note above). Every POST is self-contained — no
+  sessions, so `Mcp-Session-Id` is never issued and nothing has to survive a
+  restart. `mcp_server.handle()` is the whole dispatcher and is pure (conn in,
+  dict out), which is what makes it testable offline; app.py's `api_mcp` is
+  only the HTTP skin: the enabled check, the token check, and the two content
+  types a client may ask for (`_mcp_rpc_response` answers SSE **only** when
+  the client's Accept says event-stream and not json — the spec allows either,
+  and we have nothing to stream).
+  **Three security rules that are the point of the design**, because enabling
+  this normally ends with the endpoint reachable from the internet:
+  (1) off by default (`mcp_enabled`), and `/mcp` 404s while off, so a probe
+  can't tell this app from one without the feature; (2) every request needs
+  the token (`mcp_token`, minted on first enable, rotatable via
+  `POST /api/mcp/token`) — `Authorization: Bearer`, `X-Api-Key`/`X-Auth-Token`/
+  `X-Mcp-Token`, or as a path segment, which is the only form that works with
+  claude.ai's "No sign-in" connectors since its Request-headers auth is a
+  limited beta; `token_matches` compares in constant time and an UNSET token
+  matches nothing; (3) `hide_my_rank` is honoured here too — `handle(scrub=)`
+  takes app.py's `_scrub_my_ranks`, because the response middleware only
+  covers `/api` and a second door onto the same data must not be the
+  exception. **A tunnel must expose only the `/mcp` path**: everything else is
+  unauthenticated and `GET /api/settings` returns the Riot API key.
+  Tools are deliberately COARSE (~15 — ten reads, five writes) and registered
+  with the `@tool(name, description, schema, writes=)` decorator, which is the
+  single source for `tools/list`, the read-only hint, and the Settings list
+  (`GET /api/mcp/tools`, so the UI can't drift from the registry). A model
+  picks well from a short, well-described list and badly from one endpoint per
+  route. Write tools REPLACE the text they are given (said so in every
+  description and in `initialize`'s `instructions`) and reuse the existing
+  partial-update db setters, so a tags-only or patch-only write can't clobber
+  a neighbouring field. A bad argument comes back as a tool error (`isError`,
+  via `McpError`) rather than a JSON-RPC error — the model can then fix itself.
+  **claude.ai in a browser cannot reach localhost at all**: connectors are
+  called from Anthropic's servers, so that route needs cloudflared/ngrok and
+  the app running; an assistant on the same machine (Claude Code:
+  `claude mcp add --transport http coach-potato http://127.0.0.1:8321/mcp`)
+  connects directly. Settings → **AI access** carries the switch, the address,
+  the token, the tunnel walkthrough and the tool list.
+
 ## Schema (data/lol.sqlite)
 
 `players(puuid PK, game_name, tag_line, is_tracked, solo_tier/division/lp, rank_fetched_at_ms)`

@@ -3828,6 +3828,59 @@ function applyObsEnabled() {
   if (card) card.classList.toggle("hidden", state.obsEnabled === false);
 }
 
+function applyMcpEnabled() {
+  const card = $("#mcp-settings");
+  if (card) card.classList.toggle("hidden", state.mcpEnabled !== true);
+}
+
+function renderMcpAccess(token) {
+  // Built from this page's own origin, so the address shown is the one that
+  // actually works (the packaged app picks a free port, not always 8321).
+  state.mcpToken = token || "";
+  $("#mcp-token").value = state.mcpToken;
+  $("#mcp-url-local").value = `${location.origin}/mcp`;
+}
+
+async function copyMcpValue(selector, label) {
+  const status = $("#mcp-status");
+  try {
+    await navigator.clipboard.writeText($(selector).value);
+    status.textContent = `${label} copied ✓`;
+  } catch {
+    $(selector).select();  // clipboard blocked: leave it selected to copy by hand
+    status.textContent = "press Ctrl+C to copy";
+  }
+}
+
+async function rotateMcpToken() {
+  if (!confirm("Generate a new token?\n\nEvery AI client already set up with the "
+    + "old one will stop working until you update it.")) return;
+  const status = $("#mcp-status");
+  status.textContent = "generating…";
+  const response = await fetch("/api/mcp/token", { method: "POST" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    status.textContent = body.detail || `error ${response.status}`;
+    return;
+  }
+  renderMcpAccess(body.mcp_token);
+  status.textContent = "new token ✓";
+}
+
+async function loadMcpTools() {
+  const host = $("#mcp-tools");
+  if (!host || host.dataset.loaded) return;
+  const tools = await getJSON("/api/mcp/tools").then((d) => d.tools).catch(() => []);
+  if (!tools.length) return;
+  host.dataset.loaded = "1";
+  host.innerHTML = tools.map((tool) => `
+    <div class="mcp-tool">
+      <code>${escapeHtml(tool.name)}</code>
+      ${tool.writes ? '<span class="mcp-writes">writes</span>' : ""}
+      <p class="muted">${escapeHtml(tool.description)}</p>
+    </div>`).join("");
+}
+
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
   if (viewHidden(state.mainView)) {
@@ -4107,6 +4160,11 @@ async function initSettings() {
   $("#setting-obs-enabled").checked = data.obs_enabled !== false;
   state.obsEnabled = data.obs_enabled !== false;
   applyObsEnabled();
+  $("#setting-mcp-enabled").checked = Boolean(data.mcp_enabled);
+  state.mcpEnabled = Boolean(data.mcp_enabled);
+  renderMcpAccess(data.mcp_token);
+  applyMcpEnabled();
+  if (state.mcpEnabled) loadMcpTools();
   $("#setting-enable-comparison").checked = Boolean(data.enable_player_comparison);
   $("#comparison-card").classList.toggle("hidden", !data.enable_player_comparison);
   state.enableComparison = Boolean(data.enable_player_comparison);
@@ -4154,6 +4212,14 @@ async function initSettings() {
     state.obsEnabled = e.target.checked;
     applyObsEnabled();
   });
+  $("#setting-mcp-enabled").addEventListener("change", (e) => {
+    state.mcpEnabled = e.target.checked;
+    applyMcpEnabled();
+    if (e.target.checked) loadMcpTools();
+  });
+  $("#mcp-copy-local").addEventListener("click", () => copyMcpValue("#mcp-url-local", "Address"));
+  $("#mcp-copy-token").addEventListener("click", () => copyMcpValue("#mcp-token", "Token"));
+  $("#mcp-rotate").addEventListener("click", rotateMcpToken);
   $("#setting-enable-comparison").addEventListener("change", (e) => {
     $("#comparison-card").classList.toggle("hidden", !e.target.checked);
     state.enableComparison = e.target.checked;
@@ -4331,6 +4397,7 @@ function settingsPayload() {
     main_role: $("#setting-main-role").value,
     secondary_role: $("#setting-secondary-role").value,
     runes_mode: $("#setting-runes-mode").value,
+    mcp_enabled: $("#setting-mcp-enabled").checked,
     obs_enabled: $("#setting-obs-enabled").checked,
     obs_host: $("#setting-obs-host").value.trim(),
     obs_port: parseInt($("#setting-obs-port").value, 10) || 4455,
@@ -4379,6 +4446,9 @@ async function saveSettings() {
     applyComparisonEnabled();
     state.obsEnabled = body.obs_enabled !== false;
     applyObsEnabled();
+    state.mcpEnabled = Boolean(body.mcp_enabled);
+    renderMcpAccess(body.mcp_token);  // enabling it for the first time mints the token
+    applyMcpEnabled();
     $("#comparison-card").classList.toggle("hidden", !body.enable_player_comparison);
     $("#settings-banner").classList.add("hidden");
     if (settingsUi.wasUnconfigured && body.configured) {
