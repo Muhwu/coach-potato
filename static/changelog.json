@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.75.0",
+      "date": "2026-10-24",
+      "items": [
+        "Series can have an optional start and end date (inclusive), set in the series popup. Once the end date has passed, the Blocks view shows a prompt at the top to close the series, which opens the closing notes with the goals beside them. The copied series image shows the planned period too."
+      ]
+    },
+    {
       "version": "1.74.0",
       "date": "2026-10-24",
       "items": [

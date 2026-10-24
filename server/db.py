@@ -152,7 +152,9 @@ CREATE TABLE IF NOT EXISTS block_series (
     goals TEXT NOT NULL DEFAULT '',
     closing_notes TEXT NOT NULL DEFAULT '',
     created_at_ms INTEGER,
-    closed_at_ms INTEGER
+    closed_at_ms INTEGER,
+    start_date TEXT NOT NULL DEFAULT '',
+    end_date TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS blocks (
@@ -489,6 +491,10 @@ def _migrate(conn):
         if "closing_notes" not in series_columns:  # the series retrospective
             conn.execute(
                 "ALTER TABLE block_series ADD COLUMN closing_notes TEXT NOT NULL DEFAULT ''")
+        for col in ("start_date", "end_date"):  # optional planned period
+            if col not in series_columns:
+                conn.execute(
+                    f"ALTER TABLE block_series ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         if "closed_at_ms" not in series_columns:  # a series can be closed out
             conn.execute("ALTER TABLE block_series ADD COLUMN closed_at_ms INTEGER")
             # Before this, starting a new series implicitly ended the previous
@@ -1552,16 +1558,20 @@ def current_series_id(conn):
 def list_block_series(conn):
     """All block series, newest first."""
     return conn.execute(
-        """SELECT id, title, goals, closing_notes, created_at_ms, closed_at_ms
+        """SELECT id, title, goals, closing_notes, created_at_ms, closed_at_ms,
+                  start_date, end_date
            FROM block_series ORDER BY id DESC""").fetchall()
 
 
-def update_block_series(conn, series_id, title=None, goals=None, closing_notes=None):
+def update_block_series(conn, series_id, title=None, goals=None, closing_notes=None,
+                        start_date=None, end_date=None):
     """Partial update — only the fields passed are written, so editing the
     goals never clobbers a title being renamed in another tab (and vice
     versa). `closing_notes` is the end-of-series retrospective: how the
     challenge went, whether the goals were met, what was actually learnt.
-    Returns False when the series doesn't exist."""
+    `start_date`/`end_date` are the optional planned period (ISO dates,
+    inclusive; '' = not set) — the UI prompts to close the series once
+    `end_date` has passed. Returns False when the series doesn't exist."""
     sets, params = [], []
     if title is not None:
         sets.append("title=?"); params.append(title)
@@ -1569,6 +1579,10 @@ def update_block_series(conn, series_id, title=None, goals=None, closing_notes=N
         sets.append("goals=?"); params.append(goals)
     if closing_notes is not None:
         sets.append("closing_notes=?"); params.append(closing_notes)
+    if start_date is not None:
+        sets.append("start_date=?"); params.append(start_date)
+    if end_date is not None:
+        sets.append("end_date=?"); params.append(end_date)
     if not sets:
         return False
     with conn:

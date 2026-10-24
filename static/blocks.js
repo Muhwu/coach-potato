@@ -275,9 +275,9 @@ function seriesSnapshotHtml(series) {
   const games = blockState.blocks.filter((b) => b.series_id === series.id)
     .flatMap((b) => b.games);
   const wins = games.filter((g) => g.win).length;
-  const span = seriesClosed(series)
+  const span = seriesPeriodText(series) || (seriesClosed(series)
     ? `${fmtDate(series.created_at_ms)} – ${fmtDate(series.closed_at_ms)}`
-    : `started ${fmtDate(series.created_at_ms)}`;
+    : `started ${fmtDate(series.created_at_ms)}`);
   const goals = (series.goals || "").trim();
   const closing = seriesClosed(series) && (series.closing_notes || "").trim()
     ? `<div class="learnings-callout">
@@ -902,7 +902,60 @@ function seriesClosed(series) {
 // The active series sits on the champion-pool line — the one row that's always
 // on screen — so a series started with "+ New series" is visible immediately,
 // before any game has landed in it. Its goals live in the popup below.
+// local calendar date as YYYY-MM-DD — series periods are plain dates, and
+// "ended" means the end date is behind you where you are, not in UTC
+function localIsoDate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
+    String(d.getDate()).padStart(2, "0")}`;
+}
+
+// the period is inclusive, so a series ending on the 14th is over on the 15th
+function seriesPeriodOver(series) {
+  return Boolean(series && !seriesClosed(series) && series.end_date
+    && localIsoDate() > series.end_date);
+}
+
+// "Later" hides the prompt for the rest of this app session only
+function seriesEndedSnoozed(id) {
+  try { return sessionStorage.getItem(`cp-series-ended-later-${id}`) === "1"; } catch { return false; }
+}
+
+function renderSeriesEndedBanner() {
+  const banner = $("#series-ended-banner");
+  const series = seriesById(blockState.currentSeriesId);
+  const show = blockState.seriesEnabled && seriesPeriodOver(series)
+    && !seriesEndedSnoozed(series.id);
+  banner.classList.toggle("hidden", !show);
+  if (!show) { banner.innerHTML = ""; return; }
+  banner.innerHTML = `<span class="banner-text">🏁 <strong>${escapeHtml(series.title || "Your series")}</strong>
+      ended on ${escapeHtml(fmtDate(seriesDateMs(series.end_date)))}. Time to close it out — how did the goals go?</span>
+    <button class="preset" id="series-ended-close" type="button">Close series…</button>
+    <button class="preset" id="series-ended-later" type="button"
+      title="Hide this until the app is reopened">Later</button>`;
+  banner.querySelector("#series-ended-close").addEventListener("click", () =>
+    openSeriesModal(series.id, { editing: "close" }));
+  banner.querySelector("#series-ended-later").addEventListener("click", () => {
+    try { sessionStorage.setItem(`cp-series-ended-later-${series.id}`, "1"); } catch { /* best effort */ }
+    renderSeriesEndedBanner();
+  });
+}
+
+// a plain YYYY-MM-DD at local noon, so fmtDate never shifts it a day
+function seriesDateMs(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d, 12).getTime();
+}
+
+function seriesPeriodText(series) {
+  const { start_date: start, end_date: end } = series;
+  if (start && end) return `${fmtDate(seriesDateMs(start))} – ${fmtDate(seriesDateMs(end))}`;
+  if (end) return `until ${fmtDate(seriesDateMs(end))}`;
+  if (start) return `from ${fmtDate(seriesDateMs(start))}`;
+  return "";
+}
+
 function renderCurrentSeries() {
+  renderSeriesEndedBanner();
   const box = $("#series-current");
   const series = seriesById(blockState.currentSeriesId);
   const show = blockState.seriesEnabled && (series !== null || blockState.series.length > 0);
@@ -1023,6 +1076,15 @@ function renderSeriesModal() {
         title="Closed ${escapeHtml(fmtDate(series.closed_at_ms))}">closed ${
         escapeHtml(fmtDate(series.closed_at_ms))}</span>` : ""}
     </div>
+    <div class="series-modal-dates">
+      <label class="filter-label" for="series-start-input">Period</label>
+      <input type="date" id="series-start-input" value="${escapeHtml(series.start_date || "")}"
+        aria-label="Start date">
+      <span class="muted">to</span>
+      <input type="date" id="series-end-input" value="${escapeHtml(series.end_date || "")}"
+        aria-label="End date (inclusive)" title="Last day of the series (inclusive)">
+      <span class="muted series-dates-status">optional — Blocks asks you to close the series once it ends</span>
+    </div>
     ${body}
   </div>`;
   wireSeriesModal(series.id);
@@ -1044,6 +1106,26 @@ function wireSeriesModal(seriesId) {
     renderSeriesModal();
   };
   box.querySelector("#modal-close").addEventListener("click", closeModal);
+  ["start", "end"].forEach((which) =>
+    box.querySelector(`#series-${which}-input`).addEventListener("change", async (e) => {
+      const key = `${which}_date`;
+      const status = box.querySelector(".series-dates-status");
+      const response = await fetch(`/api/blocks/series/${seriesId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: e.target.value }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail === "end_date is before start_date"
+          ? "the end date can't be before the start" : "couldn't save the date";
+        return;
+      }
+      status.textContent = "saved ✓";
+      const series = seriesById(seriesId);
+      if (series) series[key] = e.target.value;
+      renderSeriesEndedBanner();
+    }));
   box.querySelector("#series-copy-image").addEventListener("click", () => {
     const series = seriesById(seriesId);
     const status = box.querySelector(".series-copy-status");

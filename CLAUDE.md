@@ -436,6 +436,14 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   another series is open. At most ONE series is open: `start_new_series` closes
   the previous one, and the column's one-time migration closes every series but
   the newest (stamped with its successor's `created_at_ms`).
+  Optional planned period: `block_series.start_date`/`end_date` (ISO date
+  text, inclusive, `''` = unset; additive columns), PATCHed like the other
+  fields (`""` clears; end < start → 400, checked against the stored other
+  side). Once the ACTIVE series' `end_date` is behind the LOCAL date,
+  `renderSeriesEndedBanner` (blocks.js, `#series-ended-banner` at the top of
+  Blocks) offers Close series… → the close form; "Later" snoozes it per
+  series in sessionStorage. Dates are formatted via `seriesDateMs` (local
+  noon) so `fmtDate` never shifts them a day.
   `db.open_series_id` is the active one or None; `current_series_id` (used by
   `create_block`) lazily opens a fresh series when none is — `seed_block_series`
   deliberately does NOT, so restarting the app after a close stays "none

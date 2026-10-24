@@ -2929,3 +2929,26 @@ def test_font_settings_endpoint(client):
     assert _put_settings(client, font_scale=300).status_code == 400
     assert _put_settings(client, font_scale="125").status_code == 400
     assert _put_settings(client, font_scale=True).status_code == 400
+
+
+def test_series_planned_dates_round_trip_and_validate(client):
+    sid = client.get("/api/blocks").json()["current_series_id"]
+    series = client.get("/api/blocks").json()["series"][0]
+    assert series["start_date"] == "" and series["end_date"] == ""  # optional
+    r = client.patch(f"/api/blocks/series/{sid}",
+                     json={"start_date": "2026-10-01", "end_date": "2026-10-14"})
+    assert r.status_code == 200 and r.json()["end_date"] == "2026-10-14"
+    # partial: a goals edit leaves the dates alone
+    client.patch(f"/api/blocks/series/{sid}", json={"goals": "x"})
+    series = client.get("/api/blocks").json()["series"][0]
+    assert (series["start_date"], series["end_date"]) == ("2026-10-01", "2026-10-14")
+    # end before start is refused, also when only one side is sent
+    assert client.patch(f"/api/blocks/series/{sid}",
+                        json={"end_date": "2026-09-30"}).status_code == 400
+    assert client.patch(f"/api/blocks/series/{sid}",
+                        json={"start_date": "10/01/2026"}).status_code == 400
+    assert client.patch(f"/api/blocks/series/{sid}",
+                        json={"end_date": ""}).status_code == 200  # "" clears
+    assert client.get("/api/blocks").json()["series"][0]["end_date"] == ""
+    assert client.patch("/api/blocks/series/9999",
+                        json={"end_date": "2026-10-14"}).status_code == 404

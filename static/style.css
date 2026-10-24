@@ -1086,6 +1086,11 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 /* active series on the champion-pool line: always on screen, so a series with
    no games yet is still visible; both it and the block bubbles open the goals */
 .series-current-inline { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.series-ended-banner { margin: 0 0 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.series-ended-banner .banner-text { flex: 1; min-width: 14em; }
+/* planned period in the series popup: optional start/end, inclusive */
+.series-modal-dates { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.series-modal-dates input[type="date"] { min-width: 10em; }
 .series-chip {
   font-weight: 650; padding: 3px 12px; border-radius: 999px;
   background: var(--accent-wash); border: 1px solid var(--series-1);

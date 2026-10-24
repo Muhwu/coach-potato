@@ -451,6 +451,23 @@ def test_closed_column_backfill_closes_all_but_the_newest_series(tmp_path):
     c.close()
 
 
+def test_series_dates_migrate_onto_an_older_db(tmp_path):
+    path = tmp_path / "old.sqlite"
+    c = db.connect(path)
+    sid = db.current_series_id(c)
+    db.update_block_series(c, sid, goals="keep me")
+    c.execute("ALTER TABLE block_series DROP COLUMN start_date")
+    c.execute("ALTER TABLE block_series DROP COLUMN end_date")
+    c.commit()
+    c.close()
+    c = db.connect(path)
+    row = db.list_block_series(c)[0]
+    assert (row["start_date"], row["end_date"], row["goals"]) == ("", "", "keep me")
+    db.update_block_series(c, sid, end_date="2026-10-14")
+    assert db.list_block_series(c)[0]["end_date"] == "2026-10-14"
+    c.close()
+
+
 def test_connect_does_not_open_a_series_after_the_last_was_closed(tmp_path):
     path = tmp_path / "db.sqlite"
     c = db.connect(path)

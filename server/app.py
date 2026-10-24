@@ -1844,6 +1844,14 @@ def api_start_block_series(body: dict):
         conn.close()
 
 
+def _is_iso_date(value):
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return len(value) == 10
+
+
 @app.patch("/api/blocks/series/{series_id}")
 def api_update_block_series(series_id: int, body: dict):
     """Rename a series and/or set its Markdown `goals` (what a two-week
@@ -1854,15 +1862,30 @@ def api_update_block_series(series_id: int, body: dict):
     title = body.get("title")
     goals = body.get("goals")
     closing_notes = body.get("closing_notes")
-    if title is None and goals is None and closing_notes is None:
-        raise HTTPException(400, "provide title, goals and/or closing_notes")
+    dates = {k: body.get(k) for k in ("start_date", "end_date")}
+    if title is None and goals is None and closing_notes is None \
+            and all(v is None for v in dates.values()):
+        raise HTTPException(400, "provide title, goals, closing_notes and/or dates")
+    for key, value in dates.items():
+        # optional planned period, inclusive; "" clears it
+        if value is not None and (not isinstance(value, str)
+                                  or (value and not _is_iso_date(value))):
+            raise HTTPException(400, f"{key} must be YYYY-MM-DD or empty")
     conn = get_conn()
     try:
+        current = next((r for r in db.list_block_series(conn) if r["id"] == series_id), None)
+        if current is None:
+            raise HTTPException(404, "no such series")
+        start = current["start_date"] if dates["start_date"] is None else dates["start_date"]
+        end = current["end_date"] if dates["end_date"] is None else dates["end_date"]
+        if start and end and end < start:
+            raise HTTPException(400, "end_date is before start_date")
         updated = db.update_block_series(
             conn, series_id,
             title=None if title is None else str(title).strip(),
             goals=None if goals is None else str(goals),
-            closing_notes=None if closing_notes is None else str(closing_notes))
+            closing_notes=None if closing_notes is None else str(closing_notes),
+            start_date=dates["start_date"], end_date=dates["end_date"])
         if not updated:
             raise HTTPException(404, "no such series")
         row = next((r for r in db.list_block_series(conn) if r["id"] == series_id), None)
