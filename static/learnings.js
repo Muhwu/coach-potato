@@ -237,9 +237,9 @@ function learnBlockCard(block) {
 // Goals / closing notes — the same click-to-edit / blur-to-save contract as
 // a block's learnings
 const SERIES_FIELDS = {
-  goals: { heading: "Goals", empty: "No goals set — click to write what this series is for.",
+  goals: { heading: "🎯 Goals", empty: "No goals set — click to write what this series is for.",
            placeholder: "What is this series for? e.g. – 70 CS by 10 min, – no solo deaths" },
-  closing_notes: { heading: "Closing notes",
+  closing_notes: { heading: "🏁 Closing notes",
                    empty: "No closing notes yet — click to write how it went.",
                    placeholder: "Did you hit the goals? What actually changed, and what's next?" },
 };
@@ -250,7 +250,7 @@ function learnSeriesField(series, field) {
     && learnState.editingSeries.id === series.id && learnState.editingSeries.field === field;
   const text = (series[field] || "").trim();
   if (editing) {
-    return `<div class="learn-series-frame">
+    return `<div class="learn-series-frame learn-series-frame-${field}">
       <h4>${def.heading}</h4>
       ${mdToolbar()}
       <textarea class="learn-series-textarea" data-id="${series.id}" data-field="${field}" rows="6"
@@ -258,7 +258,7 @@ function learnSeriesField(series, field) {
       <span class="muted learnings-hint">Markdown · click away to save · Esc to cancel</span>
     </div>`;
   }
-  return `<div class="learn-series-frame${text ? "" : " learn-series-frame-empty"}">
+  return `<div class="learn-series-frame learn-series-frame-${field}${text ? "" : " learn-series-frame-empty"}">
     <h4>${def.heading}</h4>
     <div class="md-body learn-series-body" data-id="${series.id}" data-field="${field}"
       title="Click to edit">${text ? renderNotes(series[field])
@@ -289,7 +289,8 @@ function learnSeriesGroup(series, blocks) {
       · ${written.length} with learnings</span>
     ${learnSeriesActions(series)}
   </div>`;
-  if (collapsed) return `<section class="learn-series${isCurrent ? " learn-series-current" : ""}">${head}</section>`;
+  const cls = `learn-series${isCurrent ? " learn-series-current" : ""}${collapsed ? " learn-series-collapsed" : ""}`;
+  if (collapsed) return `<section class="${cls}">${head}</section>`;
   const body = !blocks.length
     ? `<p class="muted">No blocks in this series yet.</p>`
     : shown.length
@@ -298,11 +299,18 @@ function learnSeriesGroup(series, blocks) {
   const hidden = !learnState.showEmpty && empty
     ? `<p class="muted learn-empty-note">${empty} ${empty === 1 ? "block" : "blocks"}
        without learnings hidden</p>` : "";
-  return `<section class="learn-series${isCurrent ? " learn-series-current" : ""}">
-    ${head}${learnSeriesField(series, "goals")}
-    <div class="learn-cards">${body}</div>
-    ${hidden}${closed || (series.closing_notes || "").trim()
-      ? learnSeriesField(series, "closing_notes") : ""}
+  // one container per series: header band, goals callout, the blocks under
+  // their own label, closing notes callout — so where a series starts and
+  // ends, and what's intent vs. what's a block's note, reads at a glance
+  return `<section class="${cls}">
+    ${head}
+    <div class="learn-series-content">
+      ${learnSeriesField(series, "goals")}
+      <h4 class="learn-blocks-label">Blocks</h4>
+      <div class="learn-cards">${body}</div>
+      ${hidden}${closed || (series.closing_notes || "").trim()
+        ? learnSeriesField(series, "closing_notes") : ""}
+    </div>
   </section>`;
 }
 
@@ -345,8 +353,10 @@ function learnClosingCard(series) {
         · ${games.length ? `${wins}–${games.length - wins}` : "no games"}</span>
       ${learnSeriesActions(series)}
     </div>
-    ${(series.goals || "").trim() ? learnSeriesField(series, "goals") : ""}
-    ${learnSeriesField(series, "closing_notes")}
+    <div class="learn-series-content">
+      ${(series.goals || "").trim() ? learnSeriesField(series, "goals") : ""}
+      ${learnSeriesField(series, "closing_notes")}
+    </div>
   </section>`;
 }
 

@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.78.0",
+      "date": "2026-10-24",
+      "items": [
+        "Learnings view is easier to scan: each series is its own framed section with a header band, its goals and closing notes stand out as tinted callouts, and the block learnings sit under a \"Blocks\" label between them."
+      ]
+    },
+    {
       "version": "1.77.0",
       "date": "2026-10-24",
       "items": [
