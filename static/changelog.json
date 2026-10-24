@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.76.0",
+      "date": "2026-10-24",
+      "items": [
+        "Learnings: every series has a copy button that puts the whole series on your clipboard as an image — name and period, goals, each block's learnings in order, and the closing notes once it's closed."
+      ]
+    },
+    {
       "version": "1.75.0",
       "date": "2026-10-24",
       "items": [

@@ -525,7 +525,9 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   WKWebView reject a write after an await); no image clipboard → PNG download.
   The capture/copy path is generic (`renderSnapshot`/`copySnapshotImage`);
   the series popup's copy button feeds it `seriesSnapshotHtml` (name, span +
-  W–L, goals, and closing notes in a `.learnings-callout` once closed).
+  W–L, goals, and closing notes in a `.learnings-callout` once closed); Learnings'
+  series headers copy the same card with `{withLearnings: true}`, which adds
+  every block's learnings, oldest first, between goals and closing notes).
   `focusBlock` jumps to the page holding that block (`blockPageOf`), and
   adding a game resets to page 1 (`reloadBlocksFromStart`) since the game
   lands in the current block. `openAddGameModal` (the same recent-games

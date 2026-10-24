@@ -314,18 +314,21 @@ function learnSeriesBadges(series) {
 }
 
 // close out the active series (the popup asks for the closing notes), or
-// reopen a closed one while nothing else is active
+// reopen a closed one while nothing else is active — plus copy-as-image
+// (goals, every block's learnings, closing notes)
 function learnSeriesActions(series) {
+  const copy = `<button class="preset icon-btn learn-series-copy" data-id="${series.id}"
+    title="Copy as image" aria-label="Copy series as image">${COPY_ICON}</button>`;
+  let state = "";
   if (!seriesClosed(series)) {
-    return `<span class="learn-card-actions"><button class="preset learn-series-close"
+    state = `<button class="preset learn-series-close"
       data-id="${series.id}" title="End this series and write its closing notes"
-      >Close series…</button></span>`;
+      >Close series…</button>`;
+  } else if (blockState.currentSeriesId === null) {
+    state = `<button class="preset learn-series-reopen"
+      data-id="${series.id}" title="Make this the active series again">Reopen</button>`;
   }
-  if (blockState.currentSeriesId === null) {
-    return `<span class="learn-card-actions"><button class="preset learn-series-reopen"
-      data-id="${series.id}" title="Make this the active series again">Reopen</button></span>`;
-  }
-  return "";
+  return `<span class="learn-card-actions">${copy}${state}</span>`;
 }
 
 // "Closing notes" mode: one card per series — its goals beside how it went,
@@ -448,6 +451,17 @@ function wireLearnings(target) {
       learnState.collapsed.has(id) ? learnState.collapsed.delete(id) : learnState.collapsed.add(id);
       persistLearnCollapsed();
       renderLearnings();
+    }));
+  target.querySelectorAll(".learn-series-copy").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const series = seriesById(+btn.dataset.id);  // blocks.js
+      if (!series) return;
+      const status = $("#learn-copy-status");
+      copySeriesImage(series, (text) => {
+        status.textContent = text;
+        clearTimeout(learnState.copyTimer);
+        learnState.copyTimer = setTimeout(() => { status.textContent = ""; }, 3000);
+      }, { withLearnings: true });
     }));
   target.querySelectorAll(".learn-series-close").forEach((btn) =>
     btn.addEventListener("click", () => openSeriesModal(+btn.dataset.id, { editing: "close" })));

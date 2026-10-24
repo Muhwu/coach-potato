@@ -270,10 +270,11 @@ const COPY_ICON = `<svg class="copy-icon" viewBox="0 0 24 24" width="18" height=
 
 // Static card for a series — the thing you post when starting a two-week
 // challenge: its name and goals, and once it's closed, the closing notes in
-// the same callout a block's learnings get.
-function seriesSnapshotHtml(series) {
-  const games = blockState.blocks.filter((b) => b.series_id === series.id)
-    .flatMap((b) => b.games);
+// the same callout a block's learnings get. `withLearnings` (the Learnings
+// view's copy) adds every block's learnings between the two, oldest first.
+function seriesSnapshotHtml(series, { withLearnings = false } = {}) {
+  const blocks = blockState.blocks.filter((b) => b.series_id === series.id);
+  const games = blocks.flatMap((b) => b.games);
   const wins = games.filter((g) => g.win).length;
   const span = seriesPeriodText(series) || (seriesClosed(series)
     ? `${fmtDate(series.created_at_ms)} – ${fmtDate(series.closed_at_ms)}`
@@ -284,6 +285,22 @@ function seriesSnapshotHtml(series) {
         <h4>${SERIES_MODAL_FIELDS.closing_notes.heading}</h4>
         <div class="md-body">${renderNotes(series.closing_notes)}</div>
       </div>` : "";
+  const learned = withLearnings
+    ? blocks.filter((b) => (b.learnings || "").trim())
+      .sort((a, b) => a.id - b.id)
+    : [];
+  const learnings = learned.length ? `<div class="series-snapshot-learnings">
+      <h4>Learnings</h4>
+      ${learned.map((b) => {
+        const w = b.games.filter((g) => g.win).length;
+        return `<div class="series-snapshot-block">
+          <div class="series-snapshot-block-head"><strong>${escapeHtml(b.title || blockDate(b))}</strong>
+            <span class="muted">#${blockIndex(b)}${b.games.length
+              ? ` · ${w}–${b.games.length - w}` : ""}</span></div>
+          <div class="md-body">${renderNotes(b.learnings)}</div>
+        </div>`;
+      }).join("")}
+    </div>` : "";
   return `<div class="session-card block-snapshot series-snapshot">
     <div class="session-head">
       <strong class="snapshot-title">${escapeHtml(series.title || "Series")}</strong>
@@ -295,6 +312,7 @@ function seriesSnapshotHtml(series) {
       <div class="md-body">${goals ? renderNotes(goals)
         : `<p class="muted">${SERIES_MODAL_FIELDS.goals.empty}</p>`}</div>
     </div>
+    ${learnings}
     ${closing}
   </div>`;
 }
@@ -343,8 +361,8 @@ function copyBlockImage(block) {
   return copySnapshotImage(blockSnapshotHtml(block), `block-${blockIndex(block)}.png`);
 }
 
-function copySeriesImage(series, flash) {
-  return copySnapshotImage(seriesSnapshotHtml(series), `series-${series.id}.png`, flash);
+function copySeriesImage(series, flash, options = {}) {
+  return copySnapshotImage(seriesSnapshotHtml(series, options), `series-${series.id}.png`, flash);
 }
 
 function closeMenus() {

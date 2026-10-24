@@ -1077,10 +1077,16 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 /* the series card: name + span/record, goals, closing notes callout */
 .series-snapshot { min-width: 520px; max-width: 760px; }
 .series-snapshot-goals { padding: 4px 22px 18px; }
-.series-snapshot-goals h4, .series-snapshot .learnings-callout h4 {
+.series-snapshot-goals h4, .series-snapshot .learnings-callout h4,
+.series-snapshot-learnings h4 {
   margin: 8px 0 6px; font-size: calc(13px * var(--font-scale)); color: var(--text-secondary);
 }
 .series-snapshot .learnings-callout { margin-top: 0; }
+.series-snapshot-learnings { padding: 0 22px 18px; }
+.series-snapshot-block { padding: 6px 0 6px 12px; border-left: 3px solid var(--grid); margin-bottom: 8px; }
+.series-snapshot-block-head { display: flex; gap: 8px; align-items: baseline; }
+.series-snapshot-block .md-body > :first-child { margin-top: 2px; }
+.series-snapshot-block .md-body > :last-child { margin-bottom: 0; }
 .series-modal-head-actions { display: inline-flex; align-items: center; gap: 6px; }
 .series-copy-status { font-size: calc(12px * var(--font-scale)); }
 /* active series on the champion-pool line: always on screen, so a series with
