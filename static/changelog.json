@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.74.0",
+      "date": "2026-10-24",
+      "items": [
+        "Series popup has a copy button that puts the series on your clipboard as an image, ready to paste into Discord: the series name, its goals, and — once it's closed — the closing notes in a callout at the bottom."
+      ]
+    },
+    {
       "version": "1.73.1",
       "date": "2026-10-24",
       "items": [

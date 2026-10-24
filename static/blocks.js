@@ -268,10 +268,41 @@ const COPY_ICON = `<svg class="copy-icon" viewBox="0 0 24 24" width="18" height=
   <rect x="9" y="9" width="12" height="12" rx="2"/>
   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
-async function renderBlockSnapshot(block) {
+// Static card for a series — the thing you post when starting a two-week
+// challenge: its name and goals, and once it's closed, the closing notes in
+// the same callout a block's learnings get.
+function seriesSnapshotHtml(series) {
+  const games = blockState.blocks.filter((b) => b.series_id === series.id)
+    .flatMap((b) => b.games);
+  const wins = games.filter((g) => g.win).length;
+  const span = seriesClosed(series)
+    ? `${fmtDate(series.created_at_ms)} – ${fmtDate(series.closed_at_ms)}`
+    : `started ${fmtDate(series.created_at_ms)}`;
+  const goals = (series.goals || "").trim();
+  const closing = seriesClosed(series) && (series.closing_notes || "").trim()
+    ? `<div class="learnings-callout">
+        <h4>${SERIES_MODAL_FIELDS.closing_notes.heading}</h4>
+        <div class="md-body">${renderNotes(series.closing_notes)}</div>
+      </div>` : "";
+  return `<div class="session-card block-snapshot series-snapshot">
+    <div class="session-head">
+      <strong class="snapshot-title">${escapeHtml(series.title || "Series")}</strong>
+      <span class="muted">${escapeHtml(span)}${games.length
+        ? ` · ${games.length} games · ${wins}–${games.length - wins}` : ""}</span>
+    </div>
+    <div class="series-snapshot-goals">
+      <h4>${SERIES_MODAL_FIELDS.goals.heading}</h4>
+      <div class="md-body">${goals ? renderNotes(goals)
+        : `<p class="muted">${SERIES_MODAL_FIELDS.goals.empty}</p>`}</div>
+    </div>
+    ${closing}
+  </div>`;
+}
+
+async function renderSnapshot(html) {
   const host = document.createElement("div");
   host.className = "snapshot-host";
-  host.innerHTML = blockSnapshotHtml(block);
+  host.innerHTML = html;
   // offscreen icons must load eagerly, or the capture can run before them
   host.querySelectorAll("img").forEach((img) => img.removeAttribute("loading"));
   document.body.appendChild(host);
@@ -285,28 +316,35 @@ async function renderBlockSnapshot(block) {
   }
 }
 
-// Copy the block as a PNG. ClipboardItem gets the blob as a PROMISE, created
-// synchronously inside the click — Safari/WKWebView refuse a clipboard write
-// that happens after an await. Webviews without image clipboard support (or
-// that refuse it) fall back to downloading the PNG (downloadBlob: guide.js).
-async function copyBlockImage(block) {
-  const fileName = `block-${blockIndex(block)}.png`;
-  const blobPromise = renderBlockSnapshot(block);
-  flashExportStatus("rendering…");
+// Copy a snapshot card as a PNG. ClipboardItem gets the blob as a PROMISE,
+// created synchronously inside the click — Safari/WKWebView refuse a clipboard
+// write that happens after an await. Webviews without image clipboard support
+// (or that refuse it) fall back to downloading the PNG (downloadBlob: guide.js).
+async function copySnapshotImage(html, fileName, flash = flashExportStatus) {
+  const blobPromise = renderSnapshot(html);
+  flash("rendering…");
   try {
     if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
       throw new Error("no image clipboard");
     }
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise })]);
-    flashExportStatus("image copied ✓");
+    flash("image copied ✓");
   } catch {
     try {
       downloadBlob(await blobPromise, fileName);
-      flashExportStatus(`clipboard unavailable — saved ${fileName} instead`);
+      flash(`clipboard unavailable — saved ${fileName} instead`);
     } catch {
-      flashExportStatus("couldn't render the block image");
+      flash("couldn't render the image");
     }
   }
+}
+
+function copyBlockImage(block) {
+  return copySnapshotImage(blockSnapshotHtml(block), `block-${blockIndex(block)}.png`);
+}
+
+function copySeriesImage(series, flash) {
+  return copySnapshotImage(seriesSnapshotHtml(series), `series-${series.id}.png`, flash);
 }
 
 function closeMenus() {
@@ -969,7 +1007,12 @@ function renderSeriesModal() {
   $("#modal-box").innerHTML = `<div class="series-modal">
     <div class="section-head">
       <h3>${state.editing === "close" ? "Close series" : "Series"}</h3>
-      <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
+      <span class="series-modal-head-actions">
+        <span class="muted series-copy-status" role="status"></span>
+        <button class="preset icon-btn" id="series-copy-image" title="Copy as image"
+          aria-label="Copy series as image">${COPY_ICON}</button>
+        <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
+      </span>
     </div>
     <div class="series-modal-title">
       <label class="filter-label" for="series-title-input">Name</label>
@@ -1001,6 +1044,12 @@ function wireSeriesModal(seriesId) {
     renderSeriesModal();
   };
   box.querySelector("#modal-close").addEventListener("click", closeModal);
+  box.querySelector("#series-copy-image").addEventListener("click", () => {
+    const series = seriesById(seriesId);
+    const status = box.querySelector(".series-copy-status");
+    // copies what's saved — an unsaved goals/closing-notes draft isn't in it
+    if (series) copySeriesImage(series, (text) => { status.textContent = text; });
+  });
   box.querySelector("#series-title-input").addEventListener("change", async (e) => {
     await patchSeries(seriesId, { title: e.target.value });
     const series = seriesById(seriesId);

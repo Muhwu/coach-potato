@@ -1074,6 +1074,15 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 .block-snapshot td.notes-cell .md-body > :first-child { margin-top: 0; }
 .block-snapshot td.notes-cell .md-body > :last-child { margin-bottom: 0; }
 .block-snapshot .snapshot-title { font-size: calc(15px * var(--font-scale)); }
+/* the series card: name + span/record, goals, closing notes callout */
+.series-snapshot { min-width: 520px; max-width: 760px; }
+.series-snapshot-goals { padding: 4px 22px 18px; }
+.series-snapshot-goals h4, .series-snapshot .learnings-callout h4 {
+  margin: 8px 0 6px; font-size: calc(13px * var(--font-scale)); color: var(--text-secondary);
+}
+.series-snapshot .learnings-callout { margin-top: 0; }
+.series-modal-head-actions { display: inline-flex; align-items: center; gap: 6px; }
+.series-copy-status { font-size: calc(12px * var(--font-scale)); }
 /* active series on the champion-pool line: always on screen, so a series with
    no games yet is still visible; both it and the block bubbles open the goals */
 .series-current-inline { display: flex; align-items: center; gap: 6px; margin-left: auto; }
