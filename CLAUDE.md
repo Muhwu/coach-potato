@@ -121,6 +121,18 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   (tree/rune/shard ids) into the same rune-page shape as the matchup guide.
 - Timestamps are **ms epoch** everywhere in the db; match-v5 `startTime`
   param is **seconds**.
+- **Calendar days are the user's LOCAL days, never UTC.** Any
+  "YYYY-MM-DD" <-> ms conversion goes through `server/timeutil.py`
+  (`day_start_ms`/`day_end_ms`/`local_date`/`today`, and the `local_bucket()`
+  SQL function `stats.trend_buckets` groups by — not SQLite's UTC
+  `'unixepoch'`) and, client-side, `localDayStartMs`/`localDayEndMs`/
+  `localIsoDate` in app.js (never `"...T00:00:00Z"` or
+  `toISOString().slice(0, 10)` — `test_static_js.py` guards it). The server
+  only binds 127.0.0.1, so the OS zone IS the browser's zone (`timeutil.TZ =
+  None`). A UTC day ends at 4-8 pm in North America, which hid NA evening games
+  from a "to = today" filter until v1.78.2. `tests/conftest.py` pins
+  `timeutil.TZ` to UTC for every test; timezone tests override it with a
+  `ZoneInfo`.
 
 ## Architecture (one line each)
 
@@ -291,7 +303,7 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   per segment in `segmentUi.cache`, cleared on every loadProgress.
 - Coaching progress: `coaching_sessions` table (global, unique ISO date);
   `stats.progress_segments(conn, puuids, sessions, ...)` returns
-  baseline + between + since-last segments, half-open at session-date UTC
+  baseline + between + since-last segments, half-open at session-date LOCAL
   midnight. `_filtered_base` accepts a puuid list for multi-account queries.
   Frontend defaults the progress champion filter to Gwen; `#progress` hash
   deep-links the view.

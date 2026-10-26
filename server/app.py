@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from . import (ascent_log, config, crypto, db, obs, pdf_export, recordings,
-               rune_data, stats, youtube)
+               rune_data, stats, timeutil, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING, RiotApiError, scrub_secret
@@ -174,12 +174,11 @@ def parse_time_range(params: dict, now_ms: int | None = None):
             raise HTTPException(400, f"unknown range {preset!r}")
         return (now_ms - RANGE_PRESETS[preset] * 86_400_000, None)
     from_ms = to_ms = None
+    # calendar days in the user's own timezone, not UTC (see server/timeutil.py)
     if params.get("from"):
-        dt = datetime.strptime(params["from"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        from_ms = int(dt.timestamp() * 1000)
+        from_ms = timeutil.day_start_ms(params["from"])
     if params.get("to"):
-        dt = datetime.strptime(params["to"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        to_ms = int(dt.timestamp() * 1000) + 86_400_000 - 1  # inclusive end of day
+        to_ms = timeutil.day_end_ms(params["to"])  # inclusive end of day
     return (from_ms, to_ms)
 
 
@@ -859,7 +858,7 @@ def api_export_all():
             if path.exists():
                 zf.write(path, f"screenshots/{row['file_name']}")
 
-    filename = f"coach-potato-export-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.zip"
+    filename = f"coach-potato-export-{timeutil.today().isoformat()}.zip"
     return FileResponse(
         tmp.name, media_type="application/zip", filename=filename,
         background=BackgroundTask(lambda: Path(tmp.name).unlink(missing_ok=True)))
@@ -2269,8 +2268,7 @@ def api_comparison(scope: str = "matchup", my_champion: str = "", opp_champion: 
 
 
 def _game_date(game):
-    return datetime.fromtimestamp(game["game_creation_ms"] / 1000,
-                                  tz=timezone.utc).strftime("%Y-%m-%d")
+    return timeutil.local_date(game["game_creation_ms"]).isoformat()
 
 
 def _blocks_for_export(conn, block_id):

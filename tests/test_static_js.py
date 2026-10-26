@@ -280,3 +280,16 @@ if (checks.length) { console.error(checks.join("\n")); process.exit(1); }
 """
     result = subprocess.run([node, "-e", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_calendar_dates_are_never_parsed_or_formatted_as_utc():
+    """A "YYYY-MM-DD" is the user's local day (localDayStartMs/localDayEndMs/
+    localIsoDate in app.js): a UTC day ends at 4-8 pm in North America, which
+    hid evening games from a "to = today" filter."""
+    offenders = []
+    for js_file in JS_FILES:
+        text = (STATIC / js_file).read_text(encoding="utf-8")
+        for pattern in ('T00:00:00Z"', "toISOString().slice(0, 10)"):
+            if pattern in text:
+                offenders.append(f"{js_file}: {pattern}")
+    assert not offenders, offenders

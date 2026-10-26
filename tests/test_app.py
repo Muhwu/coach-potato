@@ -43,6 +43,32 @@ def test_parse_time_range_explicit_dates():
     assert to_ms == 1_706_745_600_000 + 86_400_000 - 1
 
 
+def test_parse_time_range_uses_the_users_timezone(monkeypatch):
+    """A date is the user's LOCAL day: a UTC day ends at 8 pm in New York, so
+    'to = today' used to drop every evening game (Analyze bug report)."""
+    from zoneinfo import ZoneInfo
+    from server import timeutil
+    monkeypatch.setattr(timeutil, "TZ", ZoneInfo("America/New_York"))
+    from_ms, to_ms = parse_time_range({"from": "2026-10-25", "to": "2026-10-25"})
+    assert from_ms == 1_792_900_800_000           # 2026-10-25 04:00 UTC = local midnight
+    assert to_ms == 1_792_987_200_000 - 1         # 2026-10-26 04:00 UTC − 1 ms
+    # the DST change day is 25 hours long, and all of it is included
+    from_ms, to_ms = parse_time_range({"from": "2026-11-01", "to": "2026-11-01"})
+    assert to_ms - from_ms + 1 == 25 * 3_600_000
+
+
+def test_date_filter_keeps_evening_games_in_the_users_timezone(client, monkeypatch):
+    from zoneinfo import ZoneInfo
+    from server import timeutil
+    monkeypatch.setattr(timeutil, "TZ", ZoneInfo("America/New_York"))
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    add_match(conn, my_champ="Gwen", when=1_792_976_400_000)  # Oct 25, 9 pm EDT
+    conn.close()
+    games = client.get("/api/stats/games?from=2026-10-25&to=2026-10-25").json()
+    assert [g["my_champion"] for g in games] == ["Gwen"]
+    assert client.get("/api/stats/games?from=2026-10-26").json() == []
+
+
 def test_players_endpoint(client):
     players = client.get("/api/players").json()
     assert len(players) == 1

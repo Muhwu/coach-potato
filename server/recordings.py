@@ -27,6 +27,8 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+from . import timeutil
+
 # Ascent's own column names, kept in one place so a rename upstream is a
 # one-line fix here rather than a hunt.
 ASCENT_TABLE = "recordings"
@@ -201,9 +203,7 @@ def build_description(conn, recording, puuid, extra=""):
 
     lines = []
     if row:
-        from datetime import datetime, timezone
-        played = datetime.fromtimestamp(
-            row["game_creation_ms"] / 1000, timezone.utc).strftime("%d %b %Y")
+        played = timeutil.local_date(row["game_creation_ms"]).strftime("%d %b %Y")
         matchup = row["champion_name"]
         if row["opp_champion"]:
             matchup += f" vs {row['opp_champion']}"

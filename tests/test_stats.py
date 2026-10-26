@@ -375,7 +375,7 @@ def test_progress_single_session_gives_baseline_and_since(conn):
     assert since["to_ms"] == NOW_MS
 
 
-def test_progress_boundary_is_utc_midnight_of_session_date(conn):
+def test_progress_boundary_is_local_midnight_of_session_date(conn):
     add_match(conn, when=S1_MS - 1, win=True)   # 1 ms before midnight -> baseline
     add_match(conn, when=S1_MS, win=False)      # exactly midnight -> after
     segments = stats.progress_segments(conn, [ME], sessions(("2026-06-28", "")),
@@ -604,6 +604,33 @@ def test_trend_buckets_week_starts_monday(conn):
     buckets = stats.trend_buckets(conn, [ME], bucket="week")
     assert [b["bucket"] for b in buckets] == ["2024-01-01", "2024-01-08"]
     assert buckets[0]["games"] == 2
+
+
+def test_trend_buckets_follow_the_users_timezone(conn, monkeypatch):
+    from zoneinfo import ZoneInfo
+    from server import timeutil
+    monkeypatch.setattr(timeutil, "TZ", ZoneInfo("America/New_York"))
+    # Sunday 2026-10-25, 9 pm EDT — already Monday the 26th in UTC
+    add_match(conn, when=1_792_976_400_000)
+    assert [b["bucket"] for b in stats.trend_buckets(conn, [ME], bucket="day")] == ["2026-10-25"]
+    assert [b["bucket"] for b in stats.trend_buckets(conn, [ME], bucket="week")] == ["2026-10-19"]
+    # Oct 31, 10 pm EDT is still October locally (November in UTC)
+    add_match(conn, when=1_793_498_400_000)
+    assert [b["bucket"] for b in stats.trend_buckets(conn, [ME], bucket="month")] == ["2026-10"]
+
+
+def test_progress_boundary_follows_the_users_timezone(conn, monkeypatch):
+    from zoneinfo import ZoneInfo
+    from server import timeutil
+    monkeypatch.setattr(timeutil, "TZ", ZoneInfo("America/New_York"))
+    midnight = 1_792_900_800_000  # 2026-10-25 00:00 EDT
+    add_match(conn, when=midnight - 3_600_000, win=True)   # Oct 24, 11 pm local -> before
+    add_match(conn, when=midnight + 3_600_000, win=False)  # session day, 1 am -> after
+    segments = stats.progress_segments(conn, [ME], sessions(("2026-10-25", "")),
+                                       now_ms=midnight + 5 * DAY_MS)
+    assert segments[0]["to_ms"] == midnight
+    assert segments[0]["games"] == 1 and segments[0]["winrate"] == 1.0
+    assert segments[1]["games"] == 1 and segments[1]["winrate"] == 0.0
 
 
 def test_trend_buckets_day_and_bad_bucket(conn):

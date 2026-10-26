@@ -920,13 +920,6 @@ function seriesClosed(series) {
 // The active series sits on the champion-pool line — the one row that's always
 // on screen — so a series started with "+ New series" is visible immediately,
 // before any game has landed in it. Its goals live in the popup below.
-// local calendar date as YYYY-MM-DD — series periods are plain dates, and
-// "ended" means the end date is behind you where you are, not in UTC
-function localIsoDate(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
-    String(d.getDate()).padStart(2, "0")}`;
-}
-
 // the period is inclusive, so a series ending on the 14th is over on the 15th
 function seriesPeriodOver(series) {
   return Boolean(series && !seriesClosed(series) && series.end_date

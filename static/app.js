@@ -90,6 +90,23 @@ function fmtDate(ms) {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`; // iso (default)
 }
 
+// Calendar days are the user's LOCAL days everywhere (server/timeutil.py does
+// the same server-side) — never parse a "YYYY-MM-DD" with a "Z" suffix or
+// take toISOString(): a UTC day ends at 4-8 pm in North America.
+function localDayStartMs(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+function localDayEndMs(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(y, m - 1, d + 1).getTime() - 1; // next local midnight − 1 (DST-safe)
+}
+
+function localIsoDate(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function fmtTime(ms) {
   const d = new Date(ms);
   if (state.dateFormat === "us") {
@@ -418,8 +435,8 @@ function overviewRangeBounds() {
   // mirrors the server's period filter for the overview
   const now = Date.now();
   if (state.range === "custom") {
-    const from = state.from ? Date.parse(state.from + "T00:00:00Z") : null;
-    const to = state.to ? Date.parse(state.to + "T00:00:00Z") + 86_400_000 - 1 : now;
+    const from = state.from ? localDayStartMs(state.from) : null;
+    const to = state.to ? localDayEndMs(state.to) : now;
     return [from, Math.min(to, now)];
   }
   if (state.range !== "all") return [now - parseInt(state.range, 10) * 86_400_000, now];
@@ -511,7 +528,7 @@ function renderRankChart() {
   // coaching sessions as dashed vertical lines
   let sessionLines = "";
   for (const s of data.sessions || []) {
-    const t = Date.parse(s.date + "T00:00:00Z");
+    const t = localDayStartMs(s.date);
     if (isNaN(t) || t < fromMs || t > toMs) continue;
     const sx = x(t).toFixed(1);
     sessionLines += `<line class="rk-session" x1="${sx}" x2="${sx}" y1="${RK_PAD.t}" y2="${RANK_H - RK_PAD.b}"/>
@@ -3255,7 +3272,7 @@ function openSessionModal(session) {
     ? { id: session.id, date: session.session_date, title: session.title,
         coach: session.coach || "", category: session.category || "",
         link: session.link || "", notes: session.notes || "" }
-    : { id: null, date: new Date().toISOString().slice(0, 10),
+    : { id: null, date: localIsoDate(),
         title: "", coach: "", category: defaultSessionCategory(),
         link: "", notes: "" };
   $("#modal-overlay").classList.remove("hidden");

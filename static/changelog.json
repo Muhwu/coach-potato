@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.78.2",
+      "date": "2026-10-26",
+      "items": [
+        "Dates now follow your own timezone everywhere: a custom From/To period includes your evening games (in North America they used to need tomorrow's date), Trends' day/week/month buckets and the coaching-session periods split at your local midnight, and a new session defaults to today's local date."
+      ]
+    },
+    {
       "version": "1.78.0",
       "date": "2026-10-24",
       "items": [

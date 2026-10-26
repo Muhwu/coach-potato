@@ -7,10 +7,9 @@ role (team_position); rank buckets use the opponent's current solo rank
 """
 import json
 import time
-from datetime import datetime, timezone
 
 from .metrics import METRICS, metric_keys, strongside
-from . import minion_waves
+from . import minion_waves, timeutil
 
 REMAKE_S = 300
 
@@ -377,28 +376,26 @@ def progress_segments(conn, puuids, sessions, champion=None, queues=None,
     sessions: dicts with session_date ('YYYY-MM-DD') and title, any order.
     The returned segments expose the title under the 'note' key (existing
     rendering contract).
-    Segments are half-open [from, to): games at a session's UTC midnight
-    count toward the segment after that session. Returns [] without sessions.
+    Segments are half-open [from, to): games at a session's LOCAL midnight
+    (the user's timezone, server/timeutil.py) count toward the segment after
+    that session. Returns [] without sessions.
     """
     if not sessions:
         return []
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
     ordered = sorted(sessions, key=lambda s: s["session_date"])
 
-    def date_ms(date_str):
-        dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        return int(dt.timestamp() * 1000)
-
     def session_ranks(session):
         raw = session["start_ranks"] if "start_ranks" in session.keys() else None
         return json.loads(raw) if raw else None
 
-    bounds = [date_ms(s["session_date"]) for s in ordered]
-    day_ms = 86_400_000
+    bounds = [timeutil.day_start_ms(s["session_date"]) for s in ordered]
+    baseline_from = timeutil.day_start_ms(
+        timeutil.add_days(ordered[0]["session_date"], -baseline_days))
     segments = [
         # kept visible as the "before any coaching" reference; it anchors to no
         # session, so it carries no notes/coach
-        {"label": "Baseline", "note": "", "from_ms": bounds[0] - baseline_days * day_ms,
+        {"label": "Baseline", "note": "", "from_ms": baseline_from,
          "to_ms": bounds[0], "start_ranks": None, "session_id": None,
          "session_date": "", "session_title": "", "coach": "", "link": "",
          "category": "", "notes": ""},
@@ -467,24 +464,23 @@ def segment_metrics(conn, puuids, from_ms=None, to_ms=None, champion=None, queue
     }
 
 
-_BUCKET_EXPRS = {
-    "day": "strftime('%Y-%m-%d', game_creation_ms/1000, 'unixepoch')",
-    "week": "date(game_creation_ms/1000, 'unixepoch', 'weekday 0', '-6 days')",
-    "month": "strftime('%Y-%m', game_creation_ms/1000, 'unixepoch')",
-}
+_BUCKETS = ("day", "week", "month")
 
 
 def trend_buckets(conn, puuids, bucket="month", from_ms=None, to_ms=None, champion=None,
                   queues=None, side=None, roles=None):
     """Base stats + coaching metrics grouped per calendar bucket, oldest first.
-    Week buckets are labeled with their Monday's date. from_ms/to_ms optionally
+    Days/weeks/months are the user's local calendar; week buckets are
+    labeled with their Monday's date. from_ms/to_ms optionally
     restrict to a period (default: full history, as before)."""
-    if bucket not in _BUCKET_EXPRS:
-        raise ValueError(f"bucket must be one of {sorted(_BUCKET_EXPRS)}")
+    if bucket not in _BUCKETS:
+        raise ValueError(f"bucket must be one of {sorted(_BUCKETS)}")
+    # calendar buckets in the user's timezone, not SQLite's UTC 'unixepoch'
+    timeutil.register_sql_functions(conn)
     base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms, champion=champion,
                                   queues=queues, require_opponent=False, side=side, roles=roles)
     rows = conn.execute(
-        f"""SELECT {_BUCKET_EXPRS[bucket]} AS bucket,
+        f"""SELECT local_bucket(game_creation_ms, '{bucket}') AS bucket,
             COUNT(pm_match_id) AS metrics_games,
             {_AGG},
             {_metric_agg_select()}
