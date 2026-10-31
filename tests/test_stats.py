@@ -666,6 +666,18 @@ def test_block_games_detailed_hydrates_from_matches(conn):
     assert g1["runes"] is None and g1["opp_runes"] is None  # nothing recorded yet
 
 
+def test_game_lists_carry_my_summoner_spells(conn):
+    # the optional Spells column on Recent games and block tables reads these
+    m1, _ = add_match(conn, spell1=4, spell2=12, when=5_000)
+    db.add_game_to_block(conn, m1, ME)
+    block_game = stats.block_games_detailed(conn)[0]
+    assert (block_game["spell1"], block_game["spell2"]) == (4, 12)
+    recent = stats.summary(conn, ME)["recent"][0]
+    assert (recent["spell1"], recent["spell2"]) == (4, 12)
+    ranged = stats.games_in_range(conn, [ME])[0]
+    assert (ranged["spell1"], ranged["spell2"]) == (4, 12)
+
+
 def test_block_games_detailed_includes_runes_actually_played(conn):
     match_id, opp_puuid = add_match(conn, opp_champ="Darius")
     db.add_game_to_block(conn, match_id, ME)

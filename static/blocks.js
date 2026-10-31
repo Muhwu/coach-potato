@@ -40,6 +40,7 @@ const BLOCK_COLS = [
   { key: "date", label: "Date", off: true },
   { key: "account", label: "Account" },
   { key: "me", label: "Me" },
+  { key: "spells", label: "Summoner spells", off: true },
   { key: "opponent", label: "Opponent" },
   { key: "lane7", label: "Lane (7m)", off: true },
   { key: "lane14", label: "Lane (14m)" },
@@ -56,7 +57,7 @@ const BLOCK_COLS = [
   { key: "notes", label: "Notes" },
   { key: "rank", label: "Rank (start → end)" },
 ];
-const GAME_COL_KEYS = ["date", "account", "me", "opponent", "lane7", "lane14",
+const GAME_COL_KEYS = ["date", "account", "me", "spells", "opponent", "lane7", "lane14",
                        "cs_diff_7", "level_diff_7", "gold_diff_7",
                        "cs_diff_14", "level_diff_14", "gold_diff_14",
                        "result", "kda", "cs", "notes"];
@@ -65,6 +66,7 @@ const BLOCK_GAME_SORT = {
   date: { type: "num", get: (g) => g.game_creation_ms },
   account: { type: "text", get: (g) => g.account },
   me: { type: "text", get: (g) => displayName(g.my_champion) },
+  spells: { sortable: false },
   opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
   lane7: { type: "num", get: (g) => laneSortValue(g, 7) },
   lane14: { type: "num", get: (g) => laneSortValue(g, 14) },
@@ -83,7 +85,7 @@ const BLOCK_GAME_COLS_ALL = GAME_COL_KEYS.map((k) => ({ key: k, ...BLOCK_GAME_SO
 
 function visibleBlockGameCols() {
   return GAME_COL_KEYS.filter((k) => blockCols.has(k)).map((k) => ({
-    key: k, label: BLOCK_COLS.find((c) => c.key === k).label,
+    key: k, label: k === "spells" ? "Spells" : BLOCK_COLS.find((c) => c.key === k).label,
     cls: k === "notes" ? "notes-col" : "", ...BLOCK_GAME_SORT[k],
   }));
 }
@@ -789,6 +791,7 @@ function blockGameCells(g, snapshot = false) {
     date: `<td>${fmtDate(g.game_creation_ms)}</td>`,
     account: `<td>${escapeHtml(g.account)}</td>`,
     me: `<td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>`,
+    spells: spellsCell(g),  // app.js
     opponent: `<td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>`,
     result: `<td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>`,
     kda: `<td>${g.kills}/${g.deaths}/${g.assists}</td>`,
@@ -1584,15 +1587,20 @@ async function addableGames(limit = 10) {
   return games.filter((g) => !taken.has(`${g.match_id}:${g.my_puuid}`)).slice(0, limit);
 }
 
+// the bottom panel and the popup share one Spells-column choice
+const ADDGAME_SPELLS_KEY = "cp-spells-addgame";
+
 function addableGamesTable(candidates) {
   if (!candidates.length) return `<div class="muted">No unassigned games found.</div>`;
+  const showSpells = spellsColOn(ADDGAME_SPELLS_KEY);  // app.js
   return `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Account</th><th>Me</th><th>Opponent</th>
-    <th>Result</th><th>K/D/A</th><th></th></tr></thead>
+    <thead><tr><th>Date</th><th>Account</th><th>Me</th>${showSpells ? "<th>Spells</th>" : ""}
+    <th>Opponent</th><th>Result</th><th>K/D/A</th><th></th></tr></thead>
     <tbody>${candidates.map((g) => `<tr>
       <td>${fmtDate(g.game_creation_ms)}</td>
       <td>${escapeHtml(g.account)}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
+      ${showSpells ? spellsCell(g) : ""}
       <td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>
       <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
       <td>${g.kills}/${g.deaths}/${g.assists}</td>
@@ -1616,6 +1624,11 @@ function reloadBlocksFromStart() {
 
 async function renderBlockPicker() {
   const target = $("#block-picker");
+  // re-rendered on every toggle, so the open popup's list follows too
+  renderSpellsColPicker($("#block-picker-cols"), ADDGAME_SPELLS_KEY, () => {
+    renderBlockPicker();
+    blockState.rerenderAddGame?.();
+  });
   target.innerHTML = addableGamesTable(await addableGames());
   wireAddableGames(target, reloadBlocksFromStart);
 }
@@ -1638,7 +1651,8 @@ async function openAddGameModal() {
   $("#modal-overlay").classList.remove("hidden");
   box.innerHTML = `<div class="addgame-modal">
     <div class="section-head"><h3>Add a game to a block</h3>
-      <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
+      <span class="addgame-head-actions"><span class="addgame-cols"></span>
+      <button class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button></span>
     </div>
     <div class="addgame-sync muted"></div>
     <p class="muted">Your most recent games that aren't in a block yet. They go
@@ -1651,17 +1665,26 @@ async function openAddGameModal() {
   // the shared modal shell gets reused — stop touching it once it's not ours
   const isOpen = () => body.isConnected;
 
+  let candidates = null;
+  const drawList = () => {
+    if (!isOpen() || !candidates) return;
+    list.innerHTML = addableGamesTable(candidates);
+    // keep the popup open so several games can go in one after another
+    wireAddableGames(list, reloadBlocksFromStart);
+  };
   const renderList = async () => {
     try {
-      const candidates = await addableGames();
-      if (!isOpen()) return;
-      list.innerHTML = addableGamesTable(candidates);
-      // keep the popup open so several games can go in one after another
-      wireAddableGames(list, reloadBlocksFromStart);
+      candidates = await addableGames();
+      drawList();
     } catch (e) {
       if (isOpen()) list.innerHTML = `<p class="muted">Failed to load recent games.</p>`;
     }
   };
+  blockState.rerenderAddGame = drawList;
+  renderSpellsColPicker(body.querySelector(".addgame-cols"), ADDGAME_SPELLS_KEY, () => {
+    drawList();
+    if ($("#block-picker")) renderBlockPicker();
+  });
 
   // show what's stored straight away; refreshed games swap in when they land
   renderList();

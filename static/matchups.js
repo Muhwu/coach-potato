@@ -70,8 +70,8 @@ async function initMatchups() {
     // picker controls the MAIN table's columns (base stats always available,
     // metric averages incl. lane deltas off by default)
     renderColPicker($("#mu-metric-cols"), "cp-mucols",
-      muAllCols().map((c) => ({ key: c.key, label: c.label })),
-      colPrefs("cp-mucols", muAllCols().map((c) => c.key), MU_BASE_COLS.map((c) => c.key)),
+      [...muAllCols().map((c) => ({ key: c.key, label: c.label })), GAME_SPELLS_COL],  // app.js
+      muColPrefs(),
       () => renderMU(muState.rows), MU_BASE_COLS.map((c) => c.key));
   }
   await loadMatchupFilterOptions();
@@ -274,6 +274,7 @@ function matchupGamesTable(key) {
   const games = muState.games.get(key);
   if (!games) return `<div class="muted">Loading…</div>`;
   if (!games.length) return `<div class="muted">No games.</div>`;
+  const showSpells = muColPrefs().has(GAME_SPELLS_COL.key);
   const rows = games.map((g) => {
     const gkey = `${g.match_id}:${g.my_puuid}`;
     const open = muState.statsOpen.has(gkey);
@@ -284,6 +285,7 @@ function matchupGamesTable(key) {
       <td>${fmtDate(g.game_creation_ms)}</td>
       <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
+      ${showSpells ? spellsCell(g) : ""}
       <td>${g.opp_champion ? titleCase(g.rank_tier) : "–"}</td>
       <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
       <td>${g.kills}/${g.deaths}/${g.assists}</td>
@@ -293,13 +295,13 @@ function matchupGamesTable(key) {
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`;
     if (open) {
-      html += `<tr class="games-row"><td colspan="10">${
+      html += `<tr class="games-row"><td colspan="${10 + (showSpells ? 1 : 0)}">${
         metricGroupsPanel(muState.statsCache.get(gkey))}</td></tr>`;  // expanded shows every stat
     }
     return html;
   }).join("");
   return `<table class="games-inner">
-    <thead><tr><th></th><th>Date</th><th>Queue</th><th>Me</th><th>Opp. rank</th>
+    <thead><tr><th></th><th>Date</th><th>Queue</th><th>Me</th>${showSpells ? "<th>Spells</th>" : ""}<th>Opp. rank</th>
     <th>Result</th><th>K/D/A</th><th>CS/min</th><th>Length</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
@@ -354,9 +356,14 @@ function muMetricCols() {
 }
 
 function muAllCols() { return [...MU_BASE_COLS, ...muMetricCols()]; }
+// base on, metrics off by default; GAME_SPELLS_COL (app.js) isn't a table
+// column — it turns on the Spells column in a row's Games tab
+function muColPrefs() {
+  return colPrefs("cp-mucols", [...muAllCols().map((c) => c.key), GAME_SPELLS_COL.key],
+                  MU_BASE_COLS.map((c) => c.key));
+}
 function muVisibleCols() {
-  const vis = colPrefs("cp-mucols", muAllCols().map((c) => c.key),
-                       MU_BASE_COLS.map((c) => c.key));  // base on, metrics off by default
+  const vis = muColPrefs();
   return muAllCols().filter((c) => vis.has(c.key));
 }
 

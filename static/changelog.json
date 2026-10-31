@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.79.0",
+      "date": "2026-10-31",
+      "items": [
+        "Optional Summoner spells column on every list of your games: Recent games, the Blocks table, the add-a-game picker, and the per-game lists in Coaching progress and Matchups. Turn it on from each list's ▥ column picker."
+      ]
+    },
+    {
       "version": "1.78.2",
       "date": "2026-10-26",
       "items": [

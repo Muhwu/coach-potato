@@ -95,29 +95,9 @@ function itemIconUrlById(id) {
     ? `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/item/${id}.png` : "";
 }
 
-// summoner-spell id -> icon filename, from DDragon summoner.json (only needed
-// by the comparison view's per-game spell strip).
-const SPELL_ICONS = {};
-async function loadSummonerSpells() {
-  if (Object.keys(SPELL_ICONS).length || !state.ddragonVersion) return;
-  try {
-    const data = await getJSON(
-      `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/data/en_US/summoner.json`);
-    Object.values(data.data || {}).forEach((s) => { SPELL_ICONS[s.key] = s.image.full; });
-  } catch { /* icons just won't render */ }
-}
-function spellIconUrlById(id) {
-  return id && SPELL_ICONS[id] && state.ddragonVersion
-    ? `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/spell/${SPELL_ICONS[id]}` : "";
-}
-
 // shared per-game strips (comparison + the guide's Recent games column):
 // summoner spells (round) and the first 3 items (square).
-function spellStripHtml(g, size = 18) {
-  const icons = [g.spell1, g.spell2].map((id) => spellIconUrlById(id)).filter(Boolean)
-    .map((u) => `<img class="loadout-spell" src="${u}" width="${size}" height="${size}" alt="">`).join("");
-  return icons ? `<span class="loadout-spells">${icons}</span>` : "";
-}
+// spellStripHtml lives in app.js (every game list can show spells)
 function itemStripHtml(g, size = 20) {
   const icons = (g.items || []).filter(Boolean).slice(0, 3) // first 3 inventory slots
     .map((id) => itemIconUrlById(id)).filter(Boolean)

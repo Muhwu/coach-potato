@@ -191,6 +191,53 @@ function renderColPicker(target, storageKey, columns, visible, onChange, default
   draw();
 }
 
+// ---------- summoner spells (optional "Spells" column on game lists) ----------
+
+// summoner-spell id -> icon filename, from DDragon summoner.json; cached per
+// patch so only the first launch on a new patch pays the fetch
+const SPELL_ICONS = {};
+const SPELL_NAMES = {};
+async function loadSummonerSpells() {
+  if (Object.keys(SPELL_ICONS).length || !state.ddragonVersion) return;
+  const cacheKey = `ddragon-spells-${state.ddragonVersion}`;
+  let spells = null;
+  try { spells = JSON.parse(localStorage.getItem(cacheKey)); } catch { /* refetch */ }
+  if (!Array.isArray(spells)) {
+    try {
+      const data = await getJSON(
+        `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/data/en_US/summoner.json`);
+      spells = Object.values(data.data || {}).map((s) => ({ key: s.key, icon: s.image.full, name: s.name }));
+      try { localStorage.setItem(cacheKey, JSON.stringify(spells)); } catch { /* fine */ }
+    } catch { return; /* offline: icons just won't render */ }
+  }
+  spells.forEach((s) => { SPELL_ICONS[s.key] = s.icon; SPELL_NAMES[s.key] = s.name; });
+}
+function spellIconUrlById(id) {
+  return id && SPELL_ICONS[id] && state.ddragonVersion
+    ? `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/spell/${SPELL_ICONS[id]}` : "";
+}
+// the two summoner spells you took, as small rounded icons
+function spellStripHtml(g, size = 18) {
+  const icons = [g.spell1, g.spell2].map((id) => {
+    const url = spellIconUrlById(id);
+    const name = escapeHtml(SPELL_NAMES[id] || "");
+    return url ? `<img class="loadout-spell" src="${url}" width="${size}" height="${size}"
+      alt="${name}" title="${name}">` : "";
+  }).join("");
+  return icons ? `<span class="loadout-spells">${icons}</span>` : "";
+}
+function spellsCell(g) {
+  return `<td class="spells-cell">${spellStripHtml(g, 20) || `<span class="muted">–</span>`}</td>`;
+}
+// Lists without a column picker of their own get a one-option picker; the
+// choice is stored per list (`storageKey`) and read fresh on every render.
+function spellsColOn(storageKey) { return colPrefs(storageKey, ["spells"], []).has("spells"); }
+function renderSpellsColPicker(target, storageKey, onChange) {
+  if (!target) return;
+  renderColPicker(target, storageKey, [{ key: "spells", label: "Summoner spells" }],
+    colPrefs(storageKey, ["spells"], []), onChange);
+}
+
 // ---------- shared table sorting ----------
 // Column spec entry: {key, label, type: "num"|"text", get?(row), sortable?,
 // cls?}. sortState is {key, dir} (dir 1 asc / -1 desc) held in a view's state.
@@ -796,7 +843,8 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
-  const colCount = 11 + (multi ? 1 : 0);
+  const showSpells = spellsColOn("cp-spells-recent");
+  const colCount = 11 + (multi ? 1 : 0) + (showSpells ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
   const cols = [
     { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
@@ -804,6 +852,7 @@ function renderRecent(recent) {
                    get: (g) => names.get(g.my_puuid) ?? "?" }] : []),
     { key: "queue", label: "Queue", type: "text", get: (g) => QUEUE_NAMES[g.queue_id] ?? String(g.queue_id) },
     { key: "me", label: "Me", type: "text", get: (g) => displayName(g.my_champion) },
+    ...(showSpells ? [{ key: "spells", label: "Spells", sortable: false }] : []),
     { key: "opponent", label: "Opponent", type: "text",
       get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
     { key: "opp_rank", label: "Opp. rank", type: "num",
@@ -827,6 +876,7 @@ function renderRecent(recent) {
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
       <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
+      ${showSpells ? spellsCell(g) : ""}
       <td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>
       <td>${g.opp_champion ? titleCase(g.rank_tier) : "–"}</td>
       <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
@@ -1024,7 +1074,8 @@ async function refresh() {
   state.rankHistory = rankHistory;
   renderSummary(summary);
   renderChampionTable(summary.by_champion ?? []);
-  renderRecent(summary.recent ?? []);
+  state.recentGames = summary.recent ?? [];
+  renderRecent(state.recentGames);
   renderRankChart();
 }
 
@@ -1180,6 +1231,7 @@ async function toggleSegmentGames(segment) {
 function segmentGamesTable(games) {
   if (!games) return `<div class="muted">Loading…</div>`;
   if (!games.length) return `<div class="muted">No games in this period.</div>`;
+  const showSpells = progressVisibleKeys().has(GAME_SPELLS_COL.key);
   // same per-game VOD/reflection panel as Overview's Recent games — a game in
   // a coaching period is exactly where you'd want the footage
   const rows = games.map((g) => {
@@ -1193,6 +1245,7 @@ function segmentGamesTable(games) {
       <td>${fmtDate(g.game_creation_ms)}</td>
       <td>${escapeHtml(g.account)}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
+      ${showSpells ? spellsCell(g) : ""}
       <td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>
       <td>${g.opp_champion ? titleCase(g.rank_tier) : "–"}</td>
       <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
@@ -1204,7 +1257,7 @@ function segmentGamesTable(games) {
     </tr>`;
     if (open) {
       const rec = recordingSection(g.match_id, g.my_puuid);
-      html += `<tr class="games-row"><td colspan="11">
+      html += `<tr class="games-row"><td colspan="${11 + (showSpells ? 1 : 0)}">
         <div class="vod-reflect">${reflectionSection(g.match_id, g.my_puuid, g)}</div>
         ${rec || `<p class="muted">No recording found for this game. Ascent recordings are
             matched by game id — press 🎬 in the header to re-scan.</p>`}
@@ -1213,7 +1266,8 @@ function segmentGamesTable(games) {
     return html;
   }).join("");
   return `<table class="games-inner">
-    <thead><tr><th></th><th>Date</th><th>Account</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
+    <thead><tr><th></th><th>Date</th><th>Account</th><th>Me</th>${showSpells ? "<th>Spells</th>" : ""}
+    <th>Opponent</th><th>Opp. rank</th>
     <th>Result</th><th>K/D/A</th><th>CS/min</th><th>Length</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
@@ -1260,8 +1314,12 @@ function progressMetricCols() {
   }));
 }
 function progressAllCols() { return [...PROGRESS_COLS, ...progressMetricCols()]; }
+// Not a period column: switches the Spells column on in the expanded per-game
+// lists. Shared with the Matchups picker's key name; off by default.
+const GAME_SPELLS_COL = { key: "game_spells", label: "Summoner spells (game lists)" };
 function progressVisibleKeys() {
-  return colPrefs("cp-cols-progress", progressAllCols().map((c) => c.key),
+  return colPrefs("cp-cols-progress",
+                  [...progressAllCols().map((c) => c.key), GAME_SPELLS_COL.key],
                   PROGRESS_COLS.map((c) => c.key)); // base on, metric averages off
 }
 function progressVisibleCols() {
@@ -4669,13 +4727,15 @@ function wireFilters() {
       .map((c) => ({ key: c.key, label: c.label })),
     champCols, () => renderChampionTable(state.byChampion || []),
     CHAMP_DEFAULT_COLS.filter((k) => k !== "champion"));
+  renderSpellsColPicker($("#recent-cols"), "cp-spells-recent",
+    () => renderRecent(state.recentGames || []));
   // Coaching progress compares TOTALS (not the per-session segments), honouring
   // whichever champion filter the view is on
   $("#progress-compare").addEventListener("click", () => openComparison({
     my: state.progressChampion || "",
     scope: state.progressChampion ? "champion" : "overall" }));
   renderColPicker($("#progress-cols"), "cp-cols-progress",
-    progressAllCols().map((c) => ({ key: c.key, label: c.label })),
+    [...progressAllCols().map((c) => ({ key: c.key, label: c.label })), GAME_SPELLS_COL],
     progressVisibleKeys(), () => renderProgress(segmentUi.segments),
     PROGRESS_COLS.map((c) => c.key));
   $("#crawl-btn").addEventListener("click", startCrawl);
@@ -4723,6 +4783,7 @@ async function init(firstLoad = true) {
   state.players = await getJSON("/api/players");
   if (firstLoad) {
     await loadDdragonVersion();
+    await loadSummonerSpells(); // icons for the optional Spells column
     await ensureMetricsMeta(); // metric column pickers (wired below) need it
     wireFilters();
     wireProgress();

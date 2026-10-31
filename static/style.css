@@ -1276,6 +1276,9 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 .guide-game-loadout { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
 .loadout-spells, .loadout-items { display: inline-flex; align-items: center; gap: 2px; }
 .loadout-spell { border-radius: 4px; }
+/* optional Spells column on game lists */
+.spells-cell { white-space: nowrap; }
+.spells-cell .loadout-spell { vertical-align: middle; }
 .loadout-item { border-radius: 3px; }
 
 /* rune page builder (edit mode) */
@@ -2078,6 +2081,7 @@ footer {
    page, reachable from the current block's header when the page is long */
 .addgame-modal { min-width: min(760px, 92vw); max-width: 900px; }
 .addgame-list { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+.addgame-head-actions { display: inline-flex; align-items: center; gap: 8px; }
 /* "Fetching your latest games…" / "Games updated 5 min ago" above the list */
 .addgame-sync { display: flex; align-items: center; gap: 8px; min-height: 1.4em;
   font-size: calc(13px * var(--font-scale)); }

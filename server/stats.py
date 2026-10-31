@@ -292,7 +292,8 @@ def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
     recent = [_decode_game_runes(r) for r in conn.execute(
         f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
                    my_puuid, my_champion, opp_champion, opp_puuid, rank_tier, win,
-                   kills, deaths, assists, cs, my_runes_json, opp_runes_json
+                   kills, deaths, assists, cs, my_runes_json, opp_runes_json,
+                   spell1, spell2
             FROM ({base}) ORDER BY game_creation_ms DESC LIMIT 20""",
         params)]
     result = dict(totals) if totals["games"] else {"games": 0, "wins": 0, "winrate": None}
@@ -596,6 +597,7 @@ def block_games_detailed(conn):
                   me.team_id AS my_team_id, me.team_position AS my_position,
                   me.champion_name AS my_champion, me.win,
                   me.kills, me.deaths, me.assists, me.cs,
+                  me.summoner1_id AS spell1, me.summoner2_id AS spell2,
                   pm.lane_adv_early, pm.lane_adv_late, pm.has_timeline,
                   pm.cs_diff_7, pm.level_diff_7, pm.gold_diff_7,
                   pm.cs_diff_14, pm.level_diff_14, pm.gold_diff_14,
