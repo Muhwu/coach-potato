@@ -23,7 +23,7 @@ from . import (ascent_log, config, crypto, db, obs, pdf_export, recordings,
                rune_data, stats, timeutil, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
-from .riot_client import PLATFORM_ROUTING, RiotApiError, scrub_secret
+from .riot_client import PLATFORM_ROUTING, RiotApiError, clean_riot_id, scrub_secret
 
 app = FastAPI(title="Coach Potato")
 
@@ -337,7 +337,7 @@ def api_put_settings(body: dict):
         raise HTTPException(400, "add at least one account")
     cleaned = []
     for account in accounts:
-        account = str(account).strip()
+        account = clean_riot_id(account)
         name, _, tag = account.partition("#")
         if not name or not tag:
             raise HTTPException(400, f"account {account!r} must be Name#TAG")
@@ -471,8 +471,7 @@ def api_delete_account(body: dict):
     its crawled data from the db (`db.delete_account_data`). Riot can always
     re-supply the crawled data, so this is the one crawled-data delete allowed;
     user-authored content is untouched. Case-insensitive match on Name#TAG."""
-    account = (body or {}).get("account")
-    account = str(account or "").strip()
+    account = clean_riot_id((body or {}).get("account"))
     name, sep, tag = account.partition("#")
     if not sep or not name.strip() or not tag.strip():
         raise HTTPException(400, "account must be Name#TAG")
@@ -480,7 +479,7 @@ def api_delete_account(body: dict):
     try:
         stored = db.get_settings(conn)
         accounts = json.loads(stored.get("accounts") or "[]")
-        accounts = [a for a in accounts if a.strip().lower() != account.lower()]
+        accounts = [a for a in accounts if clean_riot_id(a).lower() != account.lower()]
         db.set_settings(conn, {"accounts": json.dumps(accounts)})
         rows = conn.execute(
             "SELECT puuid FROM players "
@@ -2105,7 +2104,7 @@ def api_add_comparison_player(body: dict):
     from .riot_client import NotFoundError, RateLimiter, RiotClient
     if _riot_job_running():
         raise HTTPException(409, "a data fetch is already running — wait for it to finish")
-    riot_id = (body.get("riot_id") or "").strip()
+    riot_id = clean_riot_id(body.get("riot_id"))
     name, _, tag = riot_id.partition("#")
     if not name.strip() or not tag.strip():
         raise HTTPException(400, "player must be Name#TAG")

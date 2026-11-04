@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .riot_client import PLATFORM_ROUTING
+from .riot_client import PLATFORM_ROUTING, clean_riot_id, clean_riot_id_part
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -55,7 +55,9 @@ def resolve_settings(conn) -> dict:
         env = parse_env_file(env_path)
     api_key = stored.get("riot_api_key") or env.get("RIOT_API_KEY") or ""
     if stored.get("accounts"):
-        accounts = json.loads(stored["accounts"])
+        # clean on read too, so an account saved before invisible pasted
+        # characters were stripped shows (and re-saves) as its real name
+        accounts = [clean_riot_id(a) for a in json.loads(stored["accounts"])]
     elif env.get("ACCOUNTS"):
         accounts = [f"{n}#{t}" for n, t in parse_accounts(env["ACCOUNTS"])]
     else:
@@ -101,7 +103,7 @@ def parse_accounts(raw: str) -> list:
         if "#" not in part:
             raise ConfigError(f"Account {part!r} must be in Name#TAG format")
         name, _, tag = part.partition("#")
-        accounts.append((name.strip(), tag.strip()))
+        accounts.append((clean_riot_id_part(name), clean_riot_id_part(tag)))
     return accounts
 
 

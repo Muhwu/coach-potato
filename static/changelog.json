@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.79.1",
+      "date": "2026-11-04",
+      "items": [
+        "Riot IDs copied from the League client now work: the invisible characters the client wraps names in are stripped when you save an account or add a comparison player, so the account lookup no longer fails with a not-found error."
+      ]
+    },
+    {
       "version": "1.79.0",
       "date": "2026-10-31",
       "items": [

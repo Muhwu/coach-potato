@@ -3,6 +3,7 @@
 Dev-key limits: 20 requests / 1 s and 100 requests / 2 min. Keys expire
 every 24 h; a 403 raises ApiKeyExpiredError with a hint to refresh.
 """
+import re
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -24,6 +25,25 @@ DEV_KEY_LIMITS = [(20, 1.0), (100, 120.0)]
 # headers whose value is a credential and must never leave this machine
 SECRET_HEADERS = {"x-riot-token", "authorization"}
 MAX_BODY_CHARS = 2000  # Riot error bodies are one line; this is room to spare
+
+
+# Invisible formatting characters that ride along when a Riot ID is copied out
+# of the League client (it wraps names in U+2066 ... U+2069 bidi isolates) or
+# some websites. Riot treats them as part of the name, so the lookup 404s.
+# Deliberately NOT NFKC: fullwidth letters (ＮＯＮ) are a real, distinct name.
+_INVISIBLE_RE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")
+
+
+def clean_riot_id_part(value):
+    """Strip invisible bidi/zero-width characters and surrounding whitespace
+    from a Riot ID game name or tag line."""
+    return _INVISIBLE_RE.sub("", str(value or "")).strip()
+
+
+def clean_riot_id(riot_id):
+    """'Name#TAG' with each half cleaned (see `clean_riot_id_part`)."""
+    name, sep, tag = str(riot_id or "").partition("#")
+    return f"{clean_riot_id_part(name)}{sep}{clean_riot_id_part(tag)}"
 
 
 def scrub_secret(value, secret):
@@ -192,6 +212,8 @@ class RiotClient:
             raise RiotApiError(f"An error occurred ({code}).", detail)
 
     def get_account(self, game_name, tag_line):
+        # already-saved accounts may still carry pasted invisible characters
+        game_name, tag_line = clean_riot_id_part(game_name), clean_riot_id_part(tag_line)
         url = (
             f"{self.account_host}/riot/account/v1/accounts/by-riot-id/"
             f"{quote(game_name)}/{quote(tag_line)}"

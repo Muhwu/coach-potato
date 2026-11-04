@@ -495,6 +495,13 @@ def test_settings_put_round_trip(client):
     assert data["platform"] == "na1"
 
 
+def test_settings_put_strips_invisible_pasted_characters(client):
+    response = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-new", "accounts": ["\u2066Foo\u2069#BAR"], "platform": "euw1"})
+    assert response.status_code == 200
+    assert client.get("/api/settings").json()["accounts"] == ["Foo#BAR"]
+
+
 def test_settings_put_validation(client):
     assert client.put("/api/settings", json={
         "riot_api_key": "", "accounts": ["A#B"], "platform": "euw1"}).status_code == 400

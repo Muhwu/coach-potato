@@ -165,6 +165,28 @@ def test_get_account_encodes_unicode_names():
     assert "%C3%9Cn%C3%AF%20c%C3%B6d%C3%A9" in seen["path"]
 
 
+def test_get_account_strips_invisible_characters_pasted_from_the_client():
+    # the League client wraps names in U+2066/U+2069 bidi isolates; copied
+    # along, they made Riot 404 a real account
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.raw_path.decode()
+        return httpx.Response(200, json={"puuid": "x"})
+
+    make_client(handler).get_account("\u2066ＮＯＮーＥＸＩＳ\u2069", "\u200bEUW\ufeff")
+    assert "%E2%81" not in seen["path"] and "%E2%80%8B" not in seen["path"]
+    # fullwidth letters are a distinct, real name: never normalised away
+    assert seen["path"].endswith(
+        "/by-riot-id/%EF%BC%AE%EF%BC%AF%EF%BC%AE%E3%83%BC%EF%BC%A5%EF%BC%B8%EF%BC%A9%EF%BC%B3/EUW")
+
+
+def test_clean_riot_id():
+    from server.riot_client import clean_riot_id
+    assert clean_riot_id(" \u2066Foo Bar\u2069 # \u200eEUW ") == "Foo Bar#EUW"
+    assert clean_riot_id("ＡＢ#ＥＵＷ") == "ＡＢ#ＥＵＷ"
+
+
 def test_get_match_ids_passes_params():
     seen = {}
 
