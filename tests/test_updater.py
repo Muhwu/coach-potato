@@ -166,3 +166,14 @@ def test_helper_is_never_started_detached(monkeypatch):
     updater._spawn_detached(["powershell.exe"])
     assert seen["creationflags"] & 0x8 == 0
     assert seen["creationflags"] & 0x08000000
+
+
+def test_relaunch_is_a_fresh_pyinstaller_instance(monkeypatch):
+    # otherwise the relaunched onefile exe looks for python312.dll in the old
+    # app's deleted _MEI folder ("Failed to load Python DLL")
+    seen = {}
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda cmd, **kw: seen.update(kw))
+    updater._spawn_detached(["powershell.exe"])
+    assert seen["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    script = updater.HELPER_SCRIPT
+    assert script.index("PYINSTALLER_RESET_ENVIRONMENT") < script.index("Start-Process -FilePath $Target")

@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.81.6",
+      "date": "2026-11-10",
+      "items": [
+        "Updates ask first: the banner offers \"Download & install\" (download, install and restart in one go), \"Skip this version\" (you'll still hear about the next one) or ✕ for not now. Either way you can install it any time from Settings → Check for updates.",
+        "Fixed: after installing an update, Coach Potato failed to reopen with a \"Failed to load Python DLL\" error."
+      ]
+    },
+    {
       "version": "1.81.5",
       "date": "2026-11-10",
       "items": [

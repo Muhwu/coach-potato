@@ -93,7 +93,11 @@ try {
 } catch {
   Write-Log "update failed: $_"
 }
-# reopen either way: the new version, or the old one if anything went wrong
+# reopen either way: the new version, or the old one if anything went wrong.
+# PYINSTALLER_RESET_ENVIRONMENT=1 makes it a fresh instance: otherwise it
+# inherits the old app's PyInstaller variables and looks for python312.dll in
+# the old app's (deleted) _MEI temp folder.
+$env:PYINSTALLER_RESET_ENVIRONMENT = '1'
 Start-Process -FilePath $Target -WorkingDirectory (Split-Path -Parent $Target)
 Wait-Ms 4000
 if ($form) { $form.Close() }
@@ -310,6 +314,9 @@ def _spawn_detached(cmd):
     flags = 0
     for name in SPAWN_FLAGS:
         flags |= getattr(subprocess, name, 0)
-    subprocess.Popen(cmd, creationflags=flags, close_fds=True,
+    # belt and braces with the script's own reset: whatever the helper
+    # starts must not inherit this (onefile) app's PyInstaller runtime
+    env = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
+    subprocess.Popen(cmd, creationflags=flags, close_fds=True, env=env,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)

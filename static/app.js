@@ -4664,10 +4664,13 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 
-// In-app updates (server/updater.py): the Windows app downloads a newer
-// release in the background and the banner offers "Restart to update";
-// everywhere else (dev, macOS, Linux) it stays a download link.
-const updateUi = { timer: null, repo: "", version: "" };
+// In-app updates (server/updater.py). A newer release shows a banner that
+// asks first: "Download & install" fetches it, verifies it and restarts into
+// it (Windows app); "Skip this version" stays quiet until a newer one; ✕ hides
+// it for this launch and points at Settings → Check for updates. Where
+// in-app install isn't possible (dev, macOS, Linux) the button is a link.
+const updateUi = { timer: null, repo: "", version: "", supported: false,
+  currentVersion: "", dismissed: "", installing: false };
 
 function updateBannerLink(repo, label = "download the update") {
   return `<a href="https://github.com/${repo}/releases/latest" target="_blank"
@@ -4680,6 +4683,14 @@ function showUpdateBanner(html) {
   banner.classList.remove("hidden");
 }
 
+function hideUpdateBanner() {
+  $("#update-banner").classList.add("hidden");
+}
+
+function skippedVersion() {
+  try { return localStorage.getItem("cp-skip-version") || ""; } catch { return ""; }
+}
+
 // once per launch after an update: confirm it worked, or say why it didn't
 function reportFinishedUpdate(info, status) {
   let pending = "";
@@ -4688,14 +4699,67 @@ function reportFinishedUpdate(info, status) {
   try { localStorage.removeItem("cp-updating-to"); } catch { /* ignore */ }
   if (!isNewerVersion(pending, info.version)) {
     showUpdateBanner(`✓ Updated to <strong>Coach Potato v${escapeHtml(info.version)}</strong>.
-      <a href="#" id="update-whats-new">What's new</a>`);
+      <a href="#" id="update-whats-new">What's new</a>
+      <button type="button" class="preset icon-btn-sm update-close" aria-label="Close">✕</button>`);
     $("#update-whats-new").addEventListener("click", (e) => { e.preventDefault(); openChangelog(); });
+    $("#update-banner .update-close").addEventListener("click", hideUpdateBanner);
     return;
   }
   const log = status && status.last_log
     ? `<pre class="update-log muted">${escapeHtml(status.last_log)}</pre>` : "";
   showUpdateBanner(`⚠ The update to v${escapeHtml(pending)} didn't finish; you're still on
     v${escapeHtml(info.version)}. You can ${updateBannerLink(info.repo)} instead.${log}`);
+}
+
+// the offer itself: nothing is downloaded until the user says so
+function showUpdateOffer(version) {
+  const v = escapeHtml(version);
+  const action = updateUi.supported
+    ? `<button type="button" class="btn-primary" id="update-install">Download &amp; install</button>`
+    : `${updateBannerLink(updateUi.repo, "Download")}`;
+  showUpdateBanner(`⬆ <strong>Coach Potato v${v}</strong> is available
+    (you have v${escapeHtml(updateUi.currentVersion)}).
+    <span class="update-actions">${action}
+      <button type="button" class="preset" id="update-skip">Skip this version</button>
+      <button type="button" class="preset icon-btn-sm update-close" id="update-dismiss"
+        aria-label="Not now" title="Not now">✕</button></span>
+    <span class="muted" id="update-restart-msg"></span>`);
+  if (updateUi.supported) $("#update-install").addEventListener("click", startUpdateInstall);
+  $("#update-skip").addEventListener("click", () => {
+    try { localStorage.setItem("cp-skip-version", version); } catch { /* ignore */ }
+    showUpdateLater(`Skipped v${v}. You'll hear about the next version; to install this one
+      after all, use`);
+  });
+  $("#update-dismiss").addEventListener("click", () => {
+    updateUi.dismissed = version;
+    showUpdateLater(`Not now. You can install v${v} any time with`);
+  });
+}
+
+function showUpdateLater(lead) {
+  showUpdateBanner(`${lead} <a href="#" id="update-goto-settings">Settings → Check for
+    updates</a>. <button type="button" class="preset icon-btn-sm update-close"
+    aria-label="Close">✕</button>`);
+  $("#update-goto-settings").addEventListener("click", (e) => {
+    e.preventDefault();
+    hideUpdateBanner();
+    setMainView("settings");
+  });
+  $("#update-banner .update-close").addEventListener("click", hideUpdateBanner);
+}
+
+async function startUpdateInstall() {
+  updateUi.installing = true; // install as soon as the download is verified
+  $("#update-install").disabled = true;
+  const response = await fetch("/api/update/download", { method: "POST" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    updateUi.installing = false;
+    $("#update-install").disabled = false;
+    $("#update-restart-msg").textContent = body.detail || `error ${response.status}`;
+    return;
+  }
+  renderUpdateStatus(body);
 }
 
 function renderUpdateStatus(status) {
@@ -4707,15 +4771,20 @@ function renderUpdateStatus(status) {
       ${pct === null ? "" : `<span class="update-progress"><span style="width:${pct}%"></span></span>${pct}%`}`);
     updateUi.timer = setTimeout(pollUpdate, 1000);
   } else if (status.status === "ready") {
-    showUpdateBanner(`⬆ <strong>Coach Potato v${v}</strong> is ready to install
-      (you have v${escapeHtml(status.current_version)}).
-      <button type="button" class="preset" id="update-restart">Restart to update</button>
+    if (updateUi.installing) { applyUpdate(); return; }
+    // downloaded in an earlier, interrupted attempt: still ask before restarting
+    showUpdateBanner(`⬆ <strong>Coach Potato v${v}</strong> is downloaded and ready.
+      <button type="button" class="btn-primary" id="update-restart">Install &amp; restart</button>
       <span class="muted" id="update-restart-msg"></span>`);
     $("#update-restart").addEventListener("click", applyUpdate);
   } else if (status.status === "error") {
+    updateUi.installing = false;
     showUpdateBanner(`⬆ <strong>Coach Potato v${v}</strong> is available, but downloading it
-      failed (${escapeHtml(status.error || "unknown error")}). You can
-      ${updateBannerLink(updateUi.repo)} instead.`);
+      failed (${escapeHtml(status.error || "unknown error")}). You can try again from
+      Settings → Check for updates, or ${updateBannerLink(updateUi.repo)} yourself.`);
+  } else if (status.status === "up_to_date") {
+    updateUi.installing = false;
+    hideUpdateBanner();
   }
 }
 
@@ -4725,12 +4794,16 @@ async function pollUpdate() {
 
 async function applyUpdate() {
   const btn = $("#update-restart");
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
   const response = await fetch("/api/update/apply", { method: "POST" });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    $("#update-restart-msg").textContent = body.detail || `error ${response.status}`;
-    btn.disabled = false;
+    updateUi.installing = false;
+    // e.g. a data update still running: say so and let them retry
+    showUpdateBanner(`⬆ <strong>Coach Potato v${escapeHtml(updateUi.version)}</strong> is
+      downloaded. ${escapeHtml(body.detail || `error ${response.status}`)}
+      <button type="button" class="btn-primary" id="update-restart">Install &amp; restart</button>`);
+    $("#update-restart").addEventListener("click", applyUpdate);
     return;
   }
   const { version } = await response.json();
@@ -4739,7 +4812,8 @@ async function applyUpdate() {
   $("#update-overlay").classList.remove("hidden");
 }
 
-async function checkForUpdates() {
+// manual = Settings → Check for updates: ignores skip / "not now"
+async function checkForUpdates(manual = false) {
   try {
     const info = await getJSON("/api/version");
     $("#app-version").textContent = `v${info.version}`;
@@ -4750,8 +4824,16 @@ async function checkForUpdates() {
       setInterval(checkForUpdates, 6 * 3_600_000);
     }
     updateUi.repo = info.repo;
-    // a download in flight or ready keeps its own banner; don't restart it
-    if (status && ["checking", "downloading", "ready", "installing"].includes(status.status)) {
+    updateUi.currentVersion = info.version;
+    updateUi.supported = Boolean(status && status.supported);
+    // a download already in flight (or done) keeps its own banner
+    if (status && ["checking", "downloading", "installing"].includes(status.status)) {
+      return "newer";
+    }
+    if (status && status.status === "ready" && status.version
+        && isNewerVersion(status.version, info.version)) {
+      updateUi.version = status.version;
+      renderUpdateStatus(status);
       return "newer";
     }
     // asked on every launch and every few hours while open (GitHub allows
@@ -4768,13 +4850,15 @@ async function checkForUpdates() {
     const version = latest.replace(/^v/, "");
     if (!version || !isNewerVersion(version, info.version)) return reached ? "current" : "error";
     updateUi.version = version;
-    if (status && status.supported) {
-      // fetch it quietly; the banner turns into "Restart to update" when done
-      const response = await fetch("/api/update/download", { method: "POST" });
-      if (response.ok) { renderUpdateStatus(await response.json()); return "newer"; }
+    if (manual) {
+      updateUi.dismissed = "";
+      try {  // checking on purpose un-skips it
+        if (skippedVersion() === version) localStorage.removeItem("cp-skip-version");
+      } catch { /* ignore */ }
+    } else if (skippedVersion() === version || updateUi.dismissed === version) {
+      return "skipped";
     }
-    showUpdateBanner(`⬆ <strong>Coach Potato v${escapeHtml(version)}</strong> is available —
-      ${updateBannerLink(info.repo)} (you have v${escapeHtml(info.version)})`);
+    showUpdateOffer(version);
     return "newer";
   } catch {
     // offline, rate-limited, or no releases published yet — stay quiet
@@ -4787,13 +4871,14 @@ async function checkForUpdatesNow(e) {
   e.preventDefault();
   const out = $("#check-updates-result");
   out.textContent = "checking…";
-  const result = await checkForUpdates();
+  const result = await checkForUpdates(true);
   out.textContent = {
     current: "· you're up to date ✓",
-    newer: "· a new version is on its way: see the banner at the top",
+    newer: "· a new version is available: see the banner at the top",
     dev: "· development build: no updates",
     error: "· couldn't reach GitHub; try again later",
   }[result] || "";
+  if (result === "newer") window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // ---------- crawl ----------

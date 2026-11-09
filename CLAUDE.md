@@ -764,13 +764,19 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `install_kind()` = `installer` when Inno's `unins000.exe` sits beside the
   exe, else `portable`; dev/macOS/Linux are `unsupported` and the banner keeps
   its download link. The frontend's release check (every launch + every 6 h; it was once a day,
-  which hid same-day releases) calls
+  which hid same-day releases) only OFFERS it: Download & install /
+  Skip this version (localStorage `cp-skip-version`; a newer release still
+  shows) / ✕ (hidden until next launch, points at Settings → Check for
+  updates, which ignores both). Download & install calls
   `POST /api/update/download` (background thread, `Updater.state`, polled via
   `/api/update/status`) → banner "Restart to update" → `POST /api/update/apply`
   (409 while a Riot job runs) writes `<db_dir>/updates/apply-update.ps1`
   (`HELPER_SCRIPT`), starts it (`_spawn_detached` — **never with
   `DETACHED_PROCESS`**: powershell.exe then exits 0 without running the
-  script, which silently broke v1.81.0–v1.81.3) and `os._exit`s 1.5 s later. The
+  script, which silently broke v1.81.0–v1.81.3) and with `PYINSTALLER_RESET_ENVIRONMENT=1`
+  (also set by the script before relaunching — without it the relaunched
+  onefile exe inherits the old `_PYI_*` vars and fails with "Failed to load
+  Python DLL" from the deleted `_MEI` dir, which broke v1.81.4's relaunch) and `os._exit`s 1.5 s later. The
   helper shows a small WinForms "Updating…" window, waits until the exe is no
   longer LOCKED (not a pid — onefile has a bootloader parent), runs
   `CoachPotatoSetup.exe /VERYSILENT` or copies the portable exe over (keeping
