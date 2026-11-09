@@ -120,6 +120,17 @@
 </div>
 
 <div id="update-banner" class="welcome-banner hidden"></div>
+<!-- shown while an in-app update closes the app (server/updater.py) -->
+<div id="update-overlay" class="overlay update-overlay hidden" role="status">
+  <div class="overlay-card update-card">
+    <span class="spinner" aria-hidden="true"></span>
+    <div>
+      <strong id="update-overlay-title">Updating Coach Potato…</strong>
+      <p class="muted">The app will close now and reopen by itself in a few seconds.
+        A small “Updating Coach Potato” window shows while it installs.</p>
+    </div>
+  </div>
+</div>
 
 <div id="settings-view" class="hidden">
   <div id="settings-banner" class="welcome-banner hidden">

@@ -59,6 +59,25 @@ jobs:
           $version = (Get-Content VERSION -Raw).Trim()
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
             "/DMyAppVersion=$version" packaging\windows-installer.iss
+      - name: Smoke-test the update helper
+        # runs the real PowerShell helper from server/updater.py in portable
+        # mode against throwaway exes: waits for the lock, swaps the file,
+        # keeps a .old copy, relaunches, logs success
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP "upd"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          python -c "from server.updater import HELPER_SCRIPT; open(r'$d\apply-update.ps1','w').write(HELPER_SCRIPT)"
+          Copy-Item "$env:SystemRoot\System32\whoami.exe" "$d\app.exe"
+          Copy-Item "$env:SystemRoot\System32\hostname.exe" "$d\new.exe"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\apply-update.ps1" `
+            -AppPid 0 -Mode portable -Source "$d\new.exe" -Target "$d\app.exe" `
+            -Version 9.9.9 -Log "$d\update.log"
+          Get-Content "$d\update.log"
+          if (-not (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet)) { throw "helper did not install" }
+          if ((Get-FileHash "$d\app.exe").Hash -ne (Get-FileHash "$d\new.exe").Hash) { throw "exe not replaced" }
+          if (-not (Test-Path "$d\app.exe.old")) { throw "no backup kept" }
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -89,3 +108,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: gh release upload "$GITHUB_REF_NAME" dist/installer/CoachPotatoSetup.exe --clobber
+      - name: Attach Windows checksums to release
+        # the in-app updater (server/updater.py) refuses a release without
+        # these; names must match the release asset names above
+        if: matrix.os == 'windows-latest' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          cp dist/coach-potato.exe coach-potato-windows.exe
+          cp dist/installer/CoachPotatoSetup.exe CoachPotatoSetup.exe
+          sha256sum coach-potato-windows.exe CoachPotatoSetup.exe > SHA256SUMS-windows.txt
+          cat SHA256SUMS-windows.txt
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS-windows.txt --clobber

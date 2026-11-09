@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.81.0",
+      "date": "2026-11-09",
+      "items": [
+        "Updates install themselves on Windows: when a new version is out, the app downloads it in the background, checks it, and the banner offers \"Restart to update\". Coach Potato closes, a small \"Updating\" window shows while it installs, and the app reopens on the new version. Works for both the installer and the portable .exe."
+      ]
+    },
+    {
       "version": "1.80.0",
       "date": "2026-11-09",
       "items": [

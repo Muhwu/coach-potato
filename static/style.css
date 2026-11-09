@@ -953,6 +953,14 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
   max-width: 620px; width: 100%;
   max-height: 80vh; overflow-y: auto;
 }
+/* in-app update: banner progress + the "closing to update" screen */
+.update-progress { display: inline-block; width: 160px; height: 6px; margin: 0 8px;
+  vertical-align: middle; background: var(--border); border-radius: 3px; overflow: hidden; }
+.update-progress > span { display: block; height: 100%; background: var(--series-1); }
+.update-overlay { align-items: center; }
+.update-card { display: flex; gap: 14px; align-items: center; max-width: 460px; }
+.update-card p { margin: 4px 0 0; }
+.update-log { white-space: pre-wrap; font-size: calc(12px * var(--font-scale)); margin: 6px 0 0; }
 .changelog-entry h3 { margin: 14px 0 6px; display: flex; gap: 8px; align-items: center; }
 .changelog-entry h3 .muted { font-size: calc(13px * var(--font-scale)); font-weight: 400; }
 .changelog-entry ul { margin: 0 0 10px 18px; }

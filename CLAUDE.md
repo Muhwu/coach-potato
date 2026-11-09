@@ -760,6 +760,23 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   the `no_looks_enabled` setting (default OFF); `no_looks_button` (default on)
   shows the 🙈 header toggle. The toggle saves via `PUT /api/no-looks` and
   patches `settingsUi.saved` so Settings doesn't read as dirty.
+- **In-app updates** (`server/updater.py`, Windows packaged build only):
+  `install_kind()` = `installer` when Inno's `unins000.exe` sits beside the
+  exe, else `portable`; dev/macOS/Linux are `unsupported` and the banner keeps
+  its download link. The frontend's existing daily release check calls
+  `POST /api/update/download` (background thread, `Updater.state`, polled via
+  `/api/update/status`) → banner "Restart to update" → `POST /api/update/apply`
+  (409 while a Riot job runs) writes `<db_dir>/updates/apply-update.ps1`
+  (`HELPER_SCRIPT`), starts it detached and `os._exit`s 1.5 s later. The
+  helper shows a small WinForms "Updating…" window, waits until the exe is no
+  longer LOCKED (not a pid — onefile has a bootloader parent), runs
+  `CoachPotatoSetup.exe /VERYSILENT` or copies the portable exe over (keeping
+  `.old`), relaunches either way, and logs to `updates/update.log` (tail shown
+  by the banner if the next launch is still the old version — tracked via
+  localStorage `cp-updating-to`). **A release without `SHA256SUMS-windows.txt`
+  is never installed**; build.yml uploads it on tag builds, and a
+  `Smoke-test the update helper` step runs the real script on the Windows
+  runner every build. Only published releases (pushed `v*` tags) are offered.
 - **YouTube upload** — `server/youtube.py`, behind
   `POST /api/recordings/{uuid}/youtube` (background thread + `UPLOAD_STATE`,
   polled via `/api/recordings/upload-status`, mirroring `CRAWL_STATE`). Needs

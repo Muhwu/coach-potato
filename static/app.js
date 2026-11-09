@@ -4657,11 +4657,89 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 
+// In-app updates (server/updater.py): the Windows app downloads a newer
+// release in the background and the banner offers "Restart to update";
+// everywhere else (dev, macOS, Linux) it stays a download link.
+const updateUi = { timer: null, repo: "", version: "" };
+
+function updateBannerLink(repo, label = "download the update") {
+  return `<a href="https://github.com/${repo}/releases/latest" target="_blank"
+    rel="noopener">${label}</a>`;
+}
+
+function showUpdateBanner(html) {
+  const banner = $("#update-banner");
+  banner.innerHTML = html;
+  banner.classList.remove("hidden");
+}
+
+// once per launch after an update: confirm it worked, or say why it didn't
+function reportFinishedUpdate(info, status) {
+  let pending = "";
+  try { pending = localStorage.getItem("cp-updating-to") || ""; } catch { return; }
+  if (!pending) return;
+  try { localStorage.removeItem("cp-updating-to"); } catch { /* ignore */ }
+  if (!isNewerVersion(pending, info.version)) {
+    showUpdateBanner(`✓ Updated to <strong>Coach Potato v${escapeHtml(info.version)}</strong>.
+      <a href="#" id="update-whats-new">What's new</a>`);
+    $("#update-whats-new").addEventListener("click", (e) => { e.preventDefault(); openChangelog(); });
+    return;
+  }
+  const log = status && status.last_log
+    ? `<pre class="update-log muted">${escapeHtml(status.last_log)}</pre>` : "";
+  showUpdateBanner(`⚠ The update to v${escapeHtml(pending)} didn't finish; you're still on
+    v${escapeHtml(info.version)}. You can ${updateBannerLink(info.repo)} instead.${log}`);
+}
+
+function renderUpdateStatus(status) {
+  const v = escapeHtml(status.version || updateUi.version);
+  clearTimeout(updateUi.timer);
+  if (status.status === "checking" || status.status === "downloading") {
+    const pct = status.total ? Math.floor((100 * status.downloaded) / status.total) : null;
+    showUpdateBanner(`⬆ Downloading <strong>Coach Potato v${v}</strong>…
+      ${pct === null ? "" : `<span class="update-progress"><span style="width:${pct}%"></span></span>${pct}%`}`);
+    updateUi.timer = setTimeout(pollUpdate, 1000);
+  } else if (status.status === "ready") {
+    showUpdateBanner(`⬆ <strong>Coach Potato v${v}</strong> is ready to install
+      (you have v${escapeHtml(status.current_version)}).
+      <button type="button" class="preset" id="update-restart">Restart to update</button>
+      <span class="muted" id="update-restart-msg"></span>`);
+    $("#update-restart").addEventListener("click", applyUpdate);
+  } else if (status.status === "error") {
+    showUpdateBanner(`⬆ <strong>Coach Potato v${v}</strong> is available, but downloading it
+      failed (${escapeHtml(status.error || "unknown error")}). You can
+      ${updateBannerLink(updateUi.repo)} instead.`);
+  }
+}
+
+async function pollUpdate() {
+  try { renderUpdateStatus(await getJSON("/api/update/status")); } catch { /* app closing */ }
+}
+
+async function applyUpdate() {
+  const btn = $("#update-restart");
+  btn.disabled = true;
+  const response = await fetch("/api/update/apply", { method: "POST" });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    $("#update-restart-msg").textContent = body.detail || `error ${response.status}`;
+    btn.disabled = false;
+    return;
+  }
+  const { version } = await response.json();
+  try { localStorage.setItem("cp-updating-to", version); } catch { /* ignore */ }
+  $("#update-overlay-title").textContent = `Updating Coach Potato to v${version}…`;
+  $("#update-overlay").classList.remove("hidden");
+}
+
 async function checkForUpdates() {
   try {
     const info = await getJSON("/api/version");
     $("#app-version").textContent = `v${info.version}`;
     if (info.version === "dev") return;
+    updateUi.repo = info.repo;
+    const status = await getJSON("/api/update/status").catch(() => null);
+    reportFinishedUpdate(info, status);
     let latest = localStorage.getItem("cp-latest-tag") || "";
     const lastCheck = +localStorage.getItem("cp-update-checked") || 0;
     if (Date.now() - lastCheck > 86_400_000) {  // at most one GitHub call per day
@@ -4672,13 +4750,15 @@ async function checkForUpdates() {
       localStorage.setItem("cp-update-checked", String(Date.now()));
     }
     const version = latest.replace(/^v/, "");
-    if (version && isNewerVersion(version, info.version)) {
-      const banner = $("#update-banner");
-      banner.innerHTML = `⬆ <strong>Coach Potato v${escapeHtml(version)}</strong> is available —
-        <a href="https://github.com/${info.repo}/releases/latest" target="_blank"
-        rel="noopener">download the update</a> (you have v${escapeHtml(info.version)})`;
-      banner.classList.remove("hidden");
+    if (!version || !isNewerVersion(version, info.version)) return;
+    updateUi.version = version;
+    if (status && status.supported) {
+      // fetch it quietly; the banner turns into "Restart to update" when done
+      const response = await fetch("/api/update/download", { method: "POST" });
+      if (response.ok) { renderUpdateStatus(await response.json()); return; }
     }
+    showUpdateBanner(`⬆ <strong>Coach Potato v${escapeHtml(version)}</strong> is available —
+      ${updateBannerLink(info.repo)} (you have v${escapeHtml(info.version)})`);
   } catch {
     // offline, rate-limited, or no releases published yet — stay quiet
   }

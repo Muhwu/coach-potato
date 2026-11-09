@@ -3031,3 +3031,17 @@ def test_no_looks_settings_and_header_toggle(client, monkeypatch):
         "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"], "no_looks_button": 1})
     assert bad.status_code == 400
     assert client.get("/api/no-looks").json()["enabled"] in (True, False)
+
+
+def test_update_endpoints_in_a_dev_run(client, monkeypatch):
+    monkeypatch.setattr(app_module, "_UPDATER", {"instance": None})
+    status = client.get("/api/update/status").json()
+    # not the packaged Windows app: no in-app update, the banner keeps its link
+    assert status["supported"] is False and status["status"] == "idle"
+    assert client.post("/api/update/download").status_code == 400
+    assert client.post("/api/update/apply").status_code == 400
+
+
+def test_update_apply_waits_for_a_running_crawl(client, monkeypatch):
+    monkeypatch.setitem(app_module.CRAWL_STATE, "running", True)
+    assert client.post("/api/update/apply").status_code == 409

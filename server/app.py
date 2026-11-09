@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from . import (ascent_log, config, crypto, db, lcu, obs, pdf_export, recordings,
-               rune_data, stats, timeutil, youtube)
+               rune_data, stats, timeutil, updater, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING, RiotApiError, clean_riot_id, scrub_secret
@@ -492,6 +492,44 @@ def api_put_settings(body: dict):
         return settings
     finally:
         conn.close()
+
+
+_UPDATER = {"instance": None}
+
+
+def get_updater():
+    """Created on first use: the updates folder sits beside the db, which
+    tests point elsewhere per test."""
+    if _UPDATER["instance"] is None:
+        _UPDATER["instance"] = updater.Updater(
+            config.GITHUB_REPO, config.app_version(), get_db_path().parent / "updates")
+    return _UPDATER["instance"]
+
+
+@app.get("/api/update/status")
+def api_update_status():
+    return get_updater().status()
+
+
+@app.post("/api/update/download")
+def api_update_download():
+    try:
+        get_updater().start_download()
+    except updater.UpdateError as e:
+        raise HTTPException(400, str(e))
+    return get_updater().status()
+
+
+@app.post("/api/update/apply")
+def api_update_apply():
+    # quitting mid-crawl is safe (every write is a transaction) but would
+    # throw the user's fetch away; ask them to let it finish
+    if _riot_job_running():
+        raise HTTPException(409, "Match data is still updating; restart when it's done.")
+    try:
+        return get_updater().apply()
+    except updater.UpdateError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/no-looks")
