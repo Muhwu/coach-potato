@@ -74,11 +74,11 @@ jobs:
           Copy-Item "$env:SystemRoot\System32\hostname.exe" "$d\new.exe"
           python -c "import os, sys; sys.path.insert(0, '.'); from server import updater; d = sys.argv[1]; open(os.path.join(d, 'apply-update.ps1'), 'w').write(updater.HELPER_SCRIPT); updater._spawn_detached(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', os.path.join(d, 'apply-update.ps1'), '-AppPid', '0', '-Mode', 'portable', '-Source', os.path.join(d, 'new.exe'), '-Target', os.path.join(d, 'app.exe'), '-Version', '9.9.9', '-Log', os.path.join(d, 'update.log')]); os._exit(0)" $d
           for ($i = 0; $i -lt 60; $i++) {
-            if (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet -ErrorAction SilentlyContinue) { break }
+            if ((Test-Path "$d\update.log") -and (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet)) { break }
             Start-Sleep -Milliseconds 500
           }
           Get-Content "$d\update.log" -ErrorAction SilentlyContinue
-          if (-not (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet -ErrorAction SilentlyContinue)) { throw "helper did not install" }
+          if (-not ((Test-Path "$d\update.log") -and (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet))) { throw "helper did not install" }
           if ((Get-FileHash "$d\app.exe").Hash -ne (Get-FileHash "$d\new.exe").Hash) { throw "exe not replaced" }
           if (-not (Test-Path "$d\app.exe.old")) { throw "no backup kept" }
       - name: Smoke-test an installer-mode update
@@ -97,11 +97,11 @@ jobs:
           New-Item -ItemType Directory -Force $d | Out-Null
           python -c "import os, sys; sys.path.insert(0, '.'); from server import updater; d, setup, target = sys.argv[1:4]; open(os.path.join(d, 'apply-update.ps1'), 'w').write(updater.HELPER_SCRIPT); updater._spawn_detached(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', os.path.join(d, 'apply-update.ps1'), '-AppPid', '0', '-Mode', 'installer', '-Source', setup, '-Target', target, '-Version', '9.9.9', '-Log', os.path.join(d, 'update.log')]); os._exit(0)" $d $setup $target
           for ($i = 0; $i -lt 120; $i++) {
-            if (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9|update failed" -Quiet -ErrorAction SilentlyContinue) { break }
+            if ((Test-Path "$d\update.log") -and (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9|update failed" -Quiet)) { break }
             Start-Sleep -Milliseconds 500
           }
           Get-Content "$d\update.log" -ErrorAction SilentlyContinue
-          if (-not (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet -ErrorAction SilentlyContinue)) { throw "installer-mode update failed" }
+          if (-not ((Test-Path "$d\update.log") -and (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet))) { throw "installer-mode update failed" }
           Get-Process coach-potato -ErrorAction SilentlyContinue | Stop-Process -Force
       - uses: actions/upload-artifact@v4
         with:
