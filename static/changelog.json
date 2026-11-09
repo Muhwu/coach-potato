@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.81.5",
+      "date": "2026-11-10",
+      "items": [
+        "Settings has a \"Check for updates\" link next to the version number at the bottom, so you can look for a new version right away instead of waiting for the automatic check."
+      ]
+    },
+    {
       "version": "1.81.4",
       "date": "2026-11-09",
       "items": [

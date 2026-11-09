@@ -4295,6 +4295,7 @@ async function initSettings() {
   // stays here because it enables the feature, and the view follows it
   $("#settings-players-link").addEventListener("click", () => setMainView("players"));
   $("#sync-recordings").addEventListener("click", syncRecordings);
+  $("#check-updates").addEventListener("click", checkForUpdatesNow);
   $("#obs-test").addEventListener("click", testObsConnection);
   $("#setting-obs-enabled").addEventListener("change", (e) => {
     state.obsEnabled = e.target.checked;
@@ -4742,7 +4743,7 @@ async function checkForUpdates() {
   try {
     const info = await getJSON("/api/version");
     $("#app-version").textContent = `v${info.version}`;
-    if (info.version === "dev") return;
+    if (info.version === "dev") return "dev";
     const status = await getJSON("/api/update/status").catch(() => null);
     if (!updateUi.repo) {  // first run this launch
       reportFinishedUpdate(info, status);
@@ -4750,30 +4751,49 @@ async function checkForUpdates() {
     }
     updateUi.repo = info.repo;
     // a download in flight or ready keeps its own banner; don't restart it
-    if (status && ["checking", "downloading", "ready", "installing"].includes(status.status)) return;
+    if (status && ["checking", "downloading", "ready", "installing"].includes(status.status)) {
+      return "newer";
+    }
     // asked on every launch and every few hours while open (GitHub allows
     // 60 unauthenticated calls an hour). This used to be cached for a day,
     // which hid a release published a few hours after the last check.
     let latest = localStorage.getItem("cp-latest-tag") || "";
+    let reached = true;
     try {
       const release = await getJSON(
         `https://api.github.com/repos/${info.repo}/releases/latest`);
       latest = release.tag_name || "";
       localStorage.setItem("cp-latest-tag", latest); // also feeds What's new badges
-    } catch { /* offline or rate-limited: fall back to the last tag seen */ }
+    } catch { reached = false; /* offline or rate-limited: use the last tag seen */ }
     const version = latest.replace(/^v/, "");
-    if (!version || !isNewerVersion(version, info.version)) return;
+    if (!version || !isNewerVersion(version, info.version)) return reached ? "current" : "error";
     updateUi.version = version;
     if (status && status.supported) {
       // fetch it quietly; the banner turns into "Restart to update" when done
       const response = await fetch("/api/update/download", { method: "POST" });
-      if (response.ok) { renderUpdateStatus(await response.json()); return; }
+      if (response.ok) { renderUpdateStatus(await response.json()); return "newer"; }
     }
     showUpdateBanner(`⬆ <strong>Coach Potato v${escapeHtml(version)}</strong> is available —
       ${updateBannerLink(info.repo)} (you have v${escapeHtml(info.version)})`);
+    return "newer";
   } catch {
     // offline, rate-limited, or no releases published yet — stay quiet
+    return "error";
   }
+}
+
+// Settings → "Check for updates": the same check, on demand, with an answer
+async function checkForUpdatesNow(e) {
+  e.preventDefault();
+  const out = $("#check-updates-result");
+  out.textContent = "checking…";
+  const result = await checkForUpdates();
+  out.textContent = {
+    current: "· you're up to date ✓",
+    newer: "· a new version is on its way: see the banner at the top",
+    dev: "· development build: no updates",
+    error: "· couldn't reach GitHub; try again later",
+  }[result] || "";
 }
 
 // ---------- crawl ----------
