@@ -1062,7 +1062,7 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
    Surfaces are forced SOLID so a low UI opacity / background picture never
    bleeds into the shared image, and the table is laid out at its natural
    width — .table-wrap would otherwise clip it behind a scrollbar. */
-.block-copy-image { display: inline-flex; align-items: center; }
+.block-copy-image, .block-close { display: inline-flex; align-items: center; }
 .copy-icon { display: block; height: 1em; width: 1em; margin: 0.125em 0; }
 .snapshot-host { position: fixed; left: -10000px; top: 0; pointer-events: none; }
 .block-snapshot {

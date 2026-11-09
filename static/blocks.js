@@ -269,6 +269,11 @@ const COPY_ICON = `<svg class="copy-icon" viewBox="0 0 24 24" width="18" height=
   fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="9" y="9" width="12" height="12" rx="2"/>
   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+// "Close early" on the active block's header: a finish flag
+const CLOSE_EARLY_ICON = `<svg class="copy-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+  <line x1="4" y1="22" x2="4" y2="15"/></svg>`;
 
 // Static card for a series — the thing you post when starting a two-week
 // challenge: its name and goals, and once it's closed, the closing notes in
@@ -1290,9 +1295,10 @@ function blockCard(block, isCurrent) {
         ${seriesBubble}
         ${isCurrent && !block.complete ? `<button class="preset block-add-game" type="button"
           title="Add one of your recent games to this block">+ Game</button>` : ""}
-        ${isCurrent && !block.complete && block.games.length ? `<button class="preset block-close"
-          data-id="${block.id}" title="Close this block before it reaches ${blockState.blockSize} games">
-          Close early</button>` : ""}
+        ${isCurrent && !block.complete && block.games.length ? `<button class="preset icon-btn block-close"
+          data-id="${block.id}" type="button"
+          aria-label="Close block ${blockIndex(block)} early"
+          title="Close early: finish this block before it reaches ${blockState.blockSize} games">${CLOSE_EARLY_ICON}</button>` : ""}
         ${block.games.length ? `<button class="preset icon-btn block-copy-image block-discord-image"
           data-id="${block.id}" type="button" aria-label="Copy block ${blockIndex(block)} as an image"
           title="Copy as image">${COPY_ICON}</button>` : ""}

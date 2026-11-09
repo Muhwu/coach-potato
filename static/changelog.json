@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.81.1",
+      "date": "2026-11-09",
+      "items": [
+        "The active block's \"Close early\" button is now a compact flag icon next to the copy and export buttons; hover it for what it does."
+      ]
+    },
+    {
       "version": "1.81.0",
       "date": "2026-11-09",
       "items": [
