@@ -1938,6 +1938,7 @@ footer {
 }
 .rec-map-key { display: inline-flex; align-items: center; gap: 4px; }
 .rec-map-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.rec-map-glyph { font-size: calc(13px * var(--font-scale)); line-height: 1; }
 @media (max-width: 780px) { .recording-main { grid-template-columns: 1fr; } }
 
 /* ---------- schematic Summoner's Rift (VOD map + Trends death map) ---------- */

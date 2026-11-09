@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.81.3",
+      "date": "2026-11-09",
+      "items": [
+        "A game recording's event summary is more compact: the map legend and the event-list tabs show icons (⚔ ☠ ✚ 🏰 🐉) with counts instead of the words Kills, Deaths, Assists, Structures and Objectives; hover for the name."
+      ]
+    },
+    {
       "version": "1.81.2",
       "date": "2026-11-09",
       "items": [

@@ -2718,13 +2718,14 @@ const RECORDING_MARK_GLYPHS = {
 
 // tab -> which event types it covers. "all" is everything; structures group
 // towers with inhibitors because that's how you think about them.
+// The tab shows only the glyph + count; the name is its tooltip/aria-label.
 const RECORDING_MARK_TABS = [
   ["all", "All", null],
-  ["kill", "⚔ Kills", ["kill"]],
-  ["death", "☠ Deaths", ["death"]],
-  ["assist", "✚ Assists", ["assist"]],
-  ["tower", "🏰 Structures", ["tower", "inhibitor"]],
-  ["objective", "🐉 Objectives", ["objective"]],
+  ["kill", "Kills", ["kill"]],
+  ["death", "Deaths", ["death"]],
+  ["assist", "Assists", ["assist"]],
+  ["tower", "Structures", ["tower", "inhibitor"]],
+  ["objective", "Objectives", ["objective"]],
 ];
 
 function markLabel(m, ordinals) {
@@ -2752,8 +2753,11 @@ function recordingSeekRow(r) {
     const count = kinds ? labelled.filter((m) => kinds.includes(m.event_type)).length
       : labelled.length;
     if (!count) return "";
+    const glyph = kinds ? RECORDING_MARK_GLYPHS[key] : "";
     return `<button type="button" class="recording-mark-tab ${key === active ? "active" : ""}"
-      data-uuid="${escapeHtml(r.uuid)}" data-tab="${key}">${label} ${count}</button>`;
+      data-uuid="${escapeHtml(r.uuid)}" data-tab="${key}"
+      ${glyph ? `title="${label}" aria-label="${label}: ${count}"` : ""}
+      >${glyph ? `<span aria-hidden="true">${glyph}</span>` : label} ${count}</button>`;
   }).join("");
 
   const kinds = (RECORDING_MARK_TABS.find((t) => t[0] === active) || [])[2];
@@ -2836,8 +2840,10 @@ function recordingMap(r) {
     return acc;
   }, {});
   const legend = RECORDING_MAP_LEGEND.filter(([key]) => counts[key])
-    .map(([key, label]) => `<span class="rec-map-key">
-      <span class="rec-map-swatch ${RECORDING_MAP_MARKS[key][0]}"></span>${label} ${counts[key]}
+    .map(([key, label]) => `<span class="rec-map-key" title="${label}"
+      aria-label="${label}: ${counts[key]}">
+      <span class="rec-map-swatch ${RECORDING_MAP_MARKS[key][0]}"></span><span
+        class="rec-map-glyph" aria-hidden="true">${RECORDING_MARK_GLYPHS[key]}</span>${counts[key]}
     </span>`).join("");
   return `<div class="recording-map">
     <svg class="rec-map-svg" viewBox="0 0 ${S} ${S}" role="img"
