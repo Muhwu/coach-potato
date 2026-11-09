@@ -4737,18 +4737,24 @@ async function checkForUpdates() {
     const info = await getJSON("/api/version");
     $("#app-version").textContent = `v${info.version}`;
     if (info.version === "dev") return;
-    updateUi.repo = info.repo;
     const status = await getJSON("/api/update/status").catch(() => null);
-    reportFinishedUpdate(info, status);
+    if (!updateUi.repo) {  // first run this launch
+      reportFinishedUpdate(info, status);
+      setInterval(checkForUpdates, 6 * 3_600_000);
+    }
+    updateUi.repo = info.repo;
+    // a download in flight or ready keeps its own banner; don't restart it
+    if (status && ["checking", "downloading", "ready", "installing"].includes(status.status)) return;
+    // asked on every launch and every few hours while open (GitHub allows
+    // 60 unauthenticated calls an hour). This used to be cached for a day,
+    // which hid a release published a few hours after the last check.
     let latest = localStorage.getItem("cp-latest-tag") || "";
-    const lastCheck = +localStorage.getItem("cp-update-checked") || 0;
-    if (Date.now() - lastCheck > 86_400_000) {  // at most one GitHub call per day
+    try {
       const release = await getJSON(
         `https://api.github.com/repos/${info.repo}/releases/latest`);
       latest = release.tag_name || "";
-      localStorage.setItem("cp-latest-tag", latest);
-      localStorage.setItem("cp-update-checked", String(Date.now()));
-    }
+      localStorage.setItem("cp-latest-tag", latest); // also feeds What's new badges
+    } catch { /* offline or rate-limited: fall back to the last tag seen */ }
     const version = latest.replace(/^v/, "");
     if (!version || !isNewerVersion(version, info.version)) return;
     updateUi.version = version;

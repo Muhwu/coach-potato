@@ -763,7 +763,8 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
 - **In-app updates** (`server/updater.py`, Windows packaged build only):
   `install_kind()` = `installer` when Inno's `unins000.exe` sits beside the
   exe, else `portable`; dev/macOS/Linux are `unsupported` and the banner keeps
-  its download link. The frontend's existing daily release check calls
+  its download link. The frontend's release check (every launch + every 6 h; it was once a day,
+  which hid same-day releases) calls
   `POST /api/update/download` (background thread, `Updater.state`, polled via
   `/api/update/status`) → banner "Restart to update" → `POST /api/update/apply`
   (409 while a Riot job runs) writes `<db_dir>/updates/apply-update.ps1`

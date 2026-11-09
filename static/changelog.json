@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.81.2",
+      "date": "2026-11-09",
+      "items": [
+        "New versions are noticed sooner: the app checks for updates every time it opens and every few hours while it stays open, instead of once a day, which could hide a release published later the same day."
+      ]
+    },
+    {
       "version": "1.81.1",
       "date": "2026-11-09",
       "items": [
