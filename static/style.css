@@ -958,6 +958,8 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
   vertical-align: middle; background: var(--border); border-radius: 3px; overflow: hidden; }
 .update-progress > span { display: block; height: 100%; background: var(--series-1); }
 .update-overlay { align-items: center; }
+.update-notes { margin: 8px 0 0 18px; }
+.update-notes li { margin: 2px 0; }
 .update-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: 6px; }
 #update-banner .update-close { margin-left: 4px; }
 .update-card { display: flex; gap: 14px; align-items: center; max-width: 460px; }

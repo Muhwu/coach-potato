@@ -4691,16 +4691,34 @@ function skippedVersion() {
   try { return localStorage.getItem("cp-skip-version") || ""; } catch { return ""; }
 }
 
-// once per launch after an update: confirm it worked, or say why it didn't
-function reportFinishedUpdate(info, status) {
+// once per launch after an update: confirm it worked (with what changed
+// since the version you came from), or say why it didn't
+async function reportFinishedUpdate(info, status) {
   let pending = "";
-  try { pending = localStorage.getItem("cp-updating-to") || ""; } catch { return; }
+  let from = "";
+  try {
+    pending = localStorage.getItem("cp-updating-to") || "";
+    from = localStorage.getItem("cp-updating-from") || "";
+  } catch { return; }
   if (!pending) return;
-  try { localStorage.removeItem("cp-updating-to"); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem("cp-updating-to");
+    localStorage.removeItem("cp-updating-from");
+  } catch { /* ignore */ }
   if (!isNewerVersion(pending, info.version)) {
+    await ensureChangelog();
+    // every version after the one you had, up to this one (older updaters
+    // didn't record where they came from: then just this version's notes)
+    const items = state.changelog
+      .filter((e) => !isNewerVersion(e.version, info.version)
+        && (from ? isNewerVersion(e.version, from) : e.version === info.version))
+      .flatMap((e) => e.items);
+    const notes = items.length
+      ? `<ul class="update-notes">${items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>` : "";
     showUpdateBanner(`✓ Updated to <strong>Coach Potato v${escapeHtml(info.version)}</strong>.
-      <a href="#" id="update-whats-new">What's new</a>
-      <button type="button" class="preset icon-btn-sm update-close" aria-label="Close">✕</button>`);
+      <a href="#" id="update-whats-new">All release notes</a>
+      <button type="button" class="preset icon-btn-sm update-close" aria-label="Close">✕</button>
+      ${notes}`);
     $("#update-whats-new").addEventListener("click", (e) => { e.preventDefault(); openChangelog(); });
     $("#update-banner .update-close").addEventListener("click", hideUpdateBanner);
     return;
@@ -4807,7 +4825,10 @@ async function applyUpdate() {
     return;
   }
   const { version } = await response.json();
-  try { localStorage.setItem("cp-updating-to", version); } catch { /* ignore */ }
+  try {
+    localStorage.setItem("cp-updating-to", version);
+    localStorage.setItem("cp-updating-from", updateUi.currentVersion);
+  } catch { /* ignore */ }
   $("#update-overlay-title").textContent = `Updating Coach Potato to v${version}…`;
   $("#update-overlay").classList.remove("hidden");
 }

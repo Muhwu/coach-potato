@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.81.7",
+      "date": "2026-11-10",
+      "items": [
+        "After an update, the \"Updated\" banner lists what's new in the versions you just got, instead of only linking to the release notes."
+      ]
+    },
+    {
       "version": "1.81.6",
       "date": "2026-11-10",
       "items": [
