@@ -745,6 +745,21 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   Frontend: `recordingSection`/`wireRecordingSection` in app.js, the same
   shared-component pattern as `clipsSection`/`reflectionSection`, used by
   Overview's Recent games and blocks.js's per-game panel.
+- **No-looks** (`server/lcu.py`, port of NoLooksies): skips the League
+  client's end-of-game LP screen after ranked Solo/Duo (queue 420). Talks to
+  the League CLIENT's local API (LCU: lockfile → port + password, basic auth
+  `riot:<pw>`, self-signed cert so `verify=False`) — not the Riot web API, so
+  no key and no rate limiter. Lockfile is found via
+  `%PROGRAMDATA%\Riot Games\RiotClientInstalls.json` (`associated_client`
+  keys) then `C:\Riot Games\League of Legends`. `NoLooksWatcher` POLLS
+  `gameflow-phase` (0.5 s near game end, 2 s otherwise, 5 s with no client),
+  remembers the game's queue from `/lol-gameflow/v1/session` while a game is
+  on, and on `EndOfGame` POSTs `/lol-end-of-game/v1/state/dismiss-stats` once
+  per gameId (retries if the client says not yet). `tick()` must never raise.
+  One process-wide `NO_LOOKS` in app.py, started in the FastAPI lifespan from
+  the `no_looks_enabled` setting (default OFF); `no_looks_button` (default on)
+  shows the 🙈 header toggle. The toggle saves via `PUT /api/no-looks` and
+  patches `settingsUi.saved` so Settings doesn't read as dirty.
 - **YouTube upload** — `server/youtube.py`, behind
   `POST /api/recordings/{uuid}/youtube` (background thread + `UPLOAD_STATE`,
   polled via `/api/recordings/upload-status`, mirroring `CRAWL_STATE`). Needs

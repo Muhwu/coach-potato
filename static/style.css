@@ -636,6 +636,10 @@ td.notes-cell { text-align: left; white-space: normal; }
 .game-notes:hover, .game-notes:focus { border-color: var(--border); background: var(--page); }
 .promote-btn { font-size: calc(15px * var(--font-scale)); padding: 1px 7px; }
 .icon-btn { font-size: calc(19px * var(--font-scale)); padding: 4px 11px; line-height: 1.25; }
+/* No-looks header toggle: accent-tinted while on, faded monkey while off */
+.no-looks-btn[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--series-1); }
+.no-looks-btn.no-looks-off { filter: grayscale(1); opacity: 0.55; }
+.no-looks-btn.no-looks-off:hover { opacity: 0.85; }
 .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .col-menu a, .col-menu button {
   display: block;

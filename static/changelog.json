@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.80.0",
+      "date": "2026-11-09",
+      "items": [
+        "No-looks: a 🙈 button in the top bar skips the League client's end-of-game screen after ranked Solo/Duo games, so you don't see your LP gain or loss and can focus on how you played (based on NoLooksies). Works while Coach Potato is open, needs no API key, and the button can be hidden in Settings → Interface → Privacy."
+      ]
+    },
+    {
       "version": "1.79.1",
       "date": "2026-11-04",
       "items": [

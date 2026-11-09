@@ -3898,6 +3898,69 @@ function wireDiagnostics() {
 
 // With OBS recording switched off, its connection settings are irrelevant —
 // hide them rather than leave dead fields on the page.
+// ---- No-looks: skip the LP screen after Solo/Duo games (server/lcu.py) ----
+// The 🙈 header button toggles it and saves straight away (PUT /api/no-looks);
+// Settings has the same switch plus one to hide the button.
+const noLooksUi = { enabled: false, button: true, status: null, timer: null };
+
+function applyNoLooks(settings) {
+  noLooksUi.enabled = Boolean(settings.no_looks_enabled);
+  noLooksUi.button = settings.no_looks_button !== false;
+  renderNoLooksBtn();
+  pollNoLooks();
+}
+
+function renderNoLooksBtn() {
+  const btn = $("#no-looks-btn");
+  if (!btn) return;
+  const on = noLooksUi.enabled;
+  const status = noLooksUi.status;
+  btn.classList.toggle("hidden", !noLooksUi.button);
+  btn.classList.toggle("no-looks-off", !on);
+  btn.setAttribute("aria-pressed", String(on));
+  const lines = on
+    ? ["No-looks is ON: the LP screen is skipped after Solo/Duo games.",
+      status && status.client_connected ? "League client: connected." : "League client: not detected (start League).",
+      ...(status && status.skipped ? [`Skipped ${status.skipped} LP screen${status.skipped === 1 ? "" : "s"} since launch.`] : []),
+      "Click to turn off."]
+    : ["No-looks is OFF.", "Click to skip the LP screen after Solo/Duo games."];
+  btn.title = lines.join("\n");
+}
+
+// status only matters (and is only fetched) while the feature is on and the
+// button is there to show it
+async function pollNoLooks() {
+  clearTimeout(noLooksUi.timer);
+  if (!noLooksUi.enabled || !noLooksUi.button) return;
+  try {
+    noLooksUi.status = await getJSON("/api/no-looks");
+    noLooksUi.enabled = noLooksUi.status.enabled;
+  } catch { /* server busy or gone; try again later */ }
+  renderNoLooksBtn();
+  noLooksUi.timer = setTimeout(pollNoLooks, 10000);
+}
+
+async function toggleNoLooks() {
+  const enabled = !noLooksUi.enabled;
+  const response = await fetch("/api/no-looks", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) return;
+  noLooksUi.status = await response.json();
+  noLooksUi.enabled = noLooksUi.status.enabled;
+  // saved server-side already: keep the Settings form (and its saved
+  // snapshot) in step so it doesn't read as an unsaved change
+  $("#setting-no-looks").checked = noLooksUi.enabled;
+  if (settingsUi.saved) {
+    settingsUi.saved.no_looks_enabled = noLooksUi.enabled;
+    updateSettingsDirty();
+  }
+  renderNoLooksBtn();
+  pollNoLooks();
+}
+
 function applyObsEnabled() {
   const card = $("#obs-settings");
   if (card) card.classList.toggle("hidden", state.obsEnabled === false);
@@ -4187,6 +4250,8 @@ async function initSettings() {
   state.enableComparison = Boolean(data.enable_player_comparison);
   applyComparisonEnabled();
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
+  $("#setting-no-looks").checked = Boolean(data.no_looks_enabled);
+  $("#setting-no-looks-button").checked = data.no_looks_button !== false;
   await loadChampionRoster(); // legacy migrate select needs display names
   refreshLegacySection();
   $("#setting-theme").value = data.theme || "auto";
@@ -4415,6 +4480,8 @@ function settingsPayload() {
     youtube_privacy: $("#setting-youtube-privacy").value,
     enable_player_comparison: $("#setting-enable-comparison").checked,
     hide_my_rank: $("#setting-hide-rank").checked,
+    no_looks_enabled: $("#setting-no-looks").checked,
+    no_looks_button: $("#setting-no-looks-button").checked,
     ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
     accent_color: $("#setting-accent-reset").classList.contains("hidden")
       ? null : $("#setting-accent-color").value,
@@ -4454,6 +4521,7 @@ async function saveSettings() {
     applyComparisonEnabled();
     state.obsEnabled = body.obs_enabled !== false;
     applyObsEnabled();
+    applyNoLooks(body);
     $("#comparison-card").classList.toggle("hidden", !body.enable_player_comparison);
     $("#settings-banner").classList.add("hidden");
     if (settingsUi.wasUnconfigured && body.configured) {
@@ -4801,6 +4869,8 @@ async function init(firstLoad = true) {
     state.youtubePrivacy = settings.youtube_privacy || "private";
     state.youtubeReady = Boolean(settings.youtube_ready);
     state.obsEnabled = settings.obs_enabled !== false;
+    $("#no-looks-btn").addEventListener("click", toggleNoLooks);
+    applyNoLooks(settings);
     applyRoleSettings(settings);
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);

@@ -11,6 +11,7 @@ import traceback
 import uuid
 import zipfile
 from collections import deque
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,13 +20,31 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (ascent_log, config, crypto, db, obs, pdf_export, recordings,
+from . import (ascent_log, config, crypto, db, lcu, obs, pdf_export, recordings,
                rune_data, stats, timeutil, youtube)
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING, RiotApiError, clean_riot_id, scrub_secret
 
-app = FastAPI(title="Coach Potato")
+# No-looks (skip the LP screen after Solo/Duo games, server/lcu.py): one
+# watcher for the process, started from the stored setting at launch and
+# switched by the header toggle / Settings.
+NO_LOOKS = lcu.NoLooksWatcher()
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    conn = get_conn()
+    try:
+        enabled = db.get_settings(conn).get("no_looks_enabled") == "1"
+    finally:
+        conn.close()
+    NO_LOOKS.set_enabled(enabled)
+    yield
+    NO_LOOKS.set_enabled(False)
+
+
+app = FastAPI(title="Coach Potato", lifespan=_lifespan)
 
 CRAWL_STATE = {"running": False, "message": "idle", "last_result": None, "error": None,
                "error_detail": None, "rate_limited": False}
@@ -267,6 +286,9 @@ def _extra_settings(conn):
         # websocket-client missing -> the UI explains instead of offering a
         # Record button that could only fail (same idea as youtube_ready)
         "obs_available": obs.libraries_available(),
+        # No-looks: the feature itself, and whether its header toggle shows
+        "no_looks_enabled": stored.get("no_looks_enabled") == "1",
+        "no_looks_button": stored.get("no_looks_button") != "0",
     }
 
 
@@ -426,6 +448,10 @@ def api_put_settings(body: dict):
     obs_enabled = body.get("obs_enabled", True)
     if not isinstance(obs_enabled, bool):
         raise HTTPException(400, "obs_enabled must be a boolean")
+    no_looks_enabled = body.get("no_looks_enabled", False)
+    no_looks_button = body.get("no_looks_button", True)
+    if not isinstance(no_looks_enabled, bool) or not isinstance(no_looks_button, bool):
+        raise HTTPException(400, "no_looks_enabled / no_looks_button must be booleans")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -456,13 +482,37 @@ def api_put_settings(body: dict):
             "obs_host": obs_host,
             "obs_port": str(obs_port),
             "obs_password": obs_password,
+            "no_looks_enabled": "1" if no_looks_enabled else "0",
+            "no_looks_button": "1" if no_looks_button else "0",
         })
+        NO_LOOKS.set_enabled(no_looks_enabled)
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
         settings.update(_extra_settings(conn))
         return settings
     finally:
         conn.close()
+
+
+@app.get("/api/no-looks")
+def api_no_looks_status():
+    return NO_LOOKS.status()
+
+
+@app.put("/api/no-looks")
+def api_no_looks_set(body: dict):
+    """The header toggle: saved immediately (not through the Settings form),
+    so the choice survives a restart."""
+    enabled = (body or {}).get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(400, "enabled must be a boolean")
+    conn = get_conn()
+    try:
+        db.set_settings(conn, {"no_looks_enabled": "1" if enabled else "0"})
+    finally:
+        conn.close()
+    NO_LOOKS.set_enabled(enabled)
+    return NO_LOOKS.status()
 
 
 @app.delete("/api/accounts")

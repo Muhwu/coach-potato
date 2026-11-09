@@ -3008,3 +3008,26 @@ def test_series_game_template_prefills_new_game_notes(client):
     newest = client.get("/api/blocks").json()["blocks"]
     entry = next(g for b in newest for g in b["games"] if g["match_id"] == second["match_id"])
     assert entry["notes"] == ""
+
+
+def test_no_looks_settings_and_header_toggle(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(app_module.NO_LOOKS, "set_enabled", calls.append)
+    settings = client.get("/api/settings").json()
+    # off by default (opt-in), button shown by default
+    assert settings["no_looks_enabled"] is False and settings["no_looks_button"] is True
+    # the header toggle saves straight away and switches the watcher
+    assert client.put("/api/no-looks", json={"enabled": True}).status_code == 200
+    assert calls[-1] is True
+    assert client.get("/api/settings").json()["no_looks_enabled"] is True
+    assert client.put("/api/no-looks", json={"enabled": "yes"}).status_code == 400
+    # Settings can hide the button and switch the feature too
+    saved = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"],
+        "no_looks_enabled": False, "no_looks_button": False}).json()
+    assert saved["no_looks_enabled"] is False and saved["no_looks_button"] is False
+    assert calls[-1] is False
+    bad = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"], "no_looks_button": 1})
+    assert bad.status_code == 400
+    assert client.get("/api/no-looks").json()["enabled"] in (True, False)
