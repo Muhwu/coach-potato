@@ -768,16 +768,19 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `POST /api/update/download` (background thread, `Updater.state`, polled via
   `/api/update/status`) → banner "Restart to update" → `POST /api/update/apply`
   (409 while a Riot job runs) writes `<db_dir>/updates/apply-update.ps1`
-  (`HELPER_SCRIPT`), starts it detached and `os._exit`s 1.5 s later. The
+  (`HELPER_SCRIPT`), starts it (`_spawn_detached` — **never with
+  `DETACHED_PROCESS`**: powershell.exe then exits 0 without running the
+  script, which silently broke v1.81.0–v1.81.3) and `os._exit`s 1.5 s later. The
   helper shows a small WinForms "Updating…" window, waits until the exe is no
   longer LOCKED (not a pid — onefile has a bootloader parent), runs
   `CoachPotatoSetup.exe /VERYSILENT` or copies the portable exe over (keeping
   `.old`), relaunches either way, and logs to `updates/update.log` (tail shown
   by the banner if the next launch is still the old version — tracked via
   localStorage `cp-updating-to`). **A release without `SHA256SUMS-windows.txt`
-  is never installed**; build.yml uploads it on tag builds, and a
-  `Smoke-test the update helper` step runs the real script on the Windows
-  runner every build. Only published releases (pushed `v*` tags) are offered.
+  is never installed**; build.yml uploads it on tag builds, and the
+  two `Smoke-test …` steps run the real script on the Windows runner every
+  build, LAUNCHED via `_spawn_detached` (portable swap + a real `/VERYSILENT`
+  installer-mode update of a fresh install). Only published releases (pushed `v*` tags) are offered.
 - **YouTube upload** — `server/youtube.py`, behind
   `POST /api/recordings/{uuid}/youtube` (background thread + `UPLOAD_STATE`,
   polled via `/api/recordings/upload-status`, mirroring `CRAWL_STATE`). Needs

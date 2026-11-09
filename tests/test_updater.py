@@ -153,3 +153,16 @@ def test_last_log_tail(tmp_path):
     (tmp_path / "updates").mkdir()
     (tmp_path / "updates" / "update.log").write_text("a\nb\nc\nd\nupdate failed: x\n")
     assert u.last_log() == "b\nc\nd\nupdate failed: x"
+
+
+def test_helper_is_never_started_detached(monkeypatch):
+    # DETACHED_PROCESS makes powershell.exe exit without running the script
+    seen = {}
+    monkeypatch.setattr(updater.subprocess, "DETACHED_PROCESS", 0x8, raising=False)
+    monkeypatch.setattr(updater.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, raising=False)
+    monkeypatch.setattr(updater.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(updater.subprocess, "Popen",
+                        lambda cmd, **kw: seen.update(kw))
+    updater._spawn_detached(["powershell.exe"])
+    assert seen["creationflags"] & 0x8 == 0
+    assert seen["creationflags"] & 0x08000000

@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.81.4",
+      "date": "2026-11-09",
+      "items": [
+        "\"Restart to update\" now actually installs the update: the installer step was being started in a way Windows quietly ignored, so the app closed and never came back. Updating from v1.81.3 or earlier still needs one manual install of this version."
+      ]
+    },
+    {
       "version": "1.81.3",
       "date": "2026-11-09",
       "items": [

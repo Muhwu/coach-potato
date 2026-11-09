@@ -61,23 +61,48 @@ jobs:
             "/DMyAppVersion=$version" packaging\windows-installer.iss
       - name: Smoke-test the update helper
         # runs the real PowerShell helper from server/updater.py in portable
-        # mode against throwaway exes: waits for the lock, swaps the file,
-        # keeps a .old copy, relaunches, logs success
+        # mode against throwaway exes, LAUNCHED THE WAY THE APP LAUNCHES IT
+        # (updater._spawn_detached, then the launcher exits): waits for the
+        # lock, swaps the file, keeps a .old copy, relaunches, logs success.
+        # Running the script directly missed v1.81.2's DETACHED_PROCESS bug.
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           $d = Join-Path $env:RUNNER_TEMP "upd"
           New-Item -ItemType Directory -Force $d | Out-Null
-          python -c "from server.updater import HELPER_SCRIPT; open(r'$d\apply-update.ps1','w').write(HELPER_SCRIPT)"
           Copy-Item "$env:SystemRoot\System32\whoami.exe" "$d\app.exe"
           Copy-Item "$env:SystemRoot\System32\hostname.exe" "$d\new.exe"
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\apply-update.ps1" `
-            -AppPid 0 -Mode portable -Source "$d\new.exe" -Target "$d\app.exe" `
-            -Version 9.9.9 -Log "$d\update.log"
-          Get-Content "$d\update.log"
-          if (-not (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet)) { throw "helper did not install" }
+          python -c "import os, sys; sys.path.insert(0, '.'); from server import updater; d = sys.argv[1]; open(os.path.join(d, 'apply-update.ps1'), 'w').write(updater.HELPER_SCRIPT); updater._spawn_detached(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', os.path.join(d, 'apply-update.ps1'), '-AppPid', '0', '-Mode', 'portable', '-Source', os.path.join(d, 'new.exe'), '-Target', os.path.join(d, 'app.exe'), '-Version', '9.9.9', '-Log', os.path.join(d, 'update.log')]); os._exit(0)" $d
+          for ($i = 0; $i -lt 60; $i++) {
+            if (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet -ErrorAction SilentlyContinue) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          Get-Content "$d\update.log" -ErrorAction SilentlyContinue
+          if (-not (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet -ErrorAction SilentlyContinue)) { throw "helper did not install" }
           if ((Get-FileHash "$d\app.exe").Hash -ne (Get-FileHash "$d\new.exe").Hash) { throw "exe not replaced" }
           if (-not (Test-Path "$d\app.exe.old")) { throw "no backup kept" }
+      - name: Smoke-test an installer-mode update
+        # install the fresh CoachPotatoSetup.exe silently, then update that
+        # install through the helper exactly as the app would (installer mode
+        # = Inno /VERYSILENT over the existing install)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path dist\installer\CoachPotatoSetup.exe).Path
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "first install failed: $($p.ExitCode)" }
+          $target = Join-Path $env:LOCALAPPDATA "Programs\CoachPotato\coach-potato.exe"
+          if (-not (Test-Path (Join-Path (Split-Path $target) "unins000.exe"))) { throw "not an installer install" }
+          $d = Join-Path $env:RUNNER_TEMP "upd-installer"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          python -c "import os, sys; sys.path.insert(0, '.'); from server import updater; d, setup, target = sys.argv[1:4]; open(os.path.join(d, 'apply-update.ps1'), 'w').write(updater.HELPER_SCRIPT); updater._spawn_detached(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', os.path.join(d, 'apply-update.ps1'), '-AppPid', '0', '-Mode', 'installer', '-Source', setup, '-Target', target, '-Version', '9.9.9', '-Log', os.path.join(d, 'update.log')]); os._exit(0)" $d $setup $target
+          for ($i = 0; $i -lt 120; $i++) {
+            if (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9|update failed" -Quiet -ErrorAction SilentlyContinue) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          Get-Content "$d\update.log" -ErrorAction SilentlyContinue
+          if (-not (Select-String -Path "$d\update.log" -Pattern "installed v9.9.9" -Quiet -ErrorAction SilentlyContinue)) { throw "installer-mode update failed" }
+          Get-Process coach-potato -ErrorAction SilentlyContinue | Stop-Process -Force
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

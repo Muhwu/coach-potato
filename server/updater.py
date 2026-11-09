@@ -299,9 +299,16 @@ class Updater:
         return {"version": self.state["version"]}
 
 
+# NOT DETACHED_PROCESS: powershell.exe started without a console exits 0
+# straight away and never runs -File (verified on Windows 11 / PS 5.1; that
+# is what broke the first real update, v1.81.2 -> v1.81.3). A console-less
+# child is enough: it already outlives this process, which os._exit()s.
+SPAWN_FLAGS = ("CREATE_NEW_PROCESS_GROUP", "CREATE_NO_WINDOW")
+
+
 def _spawn_detached(cmd):
     flags = 0
-    for name in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "CREATE_NO_WINDOW"):
+    for name in SPAWN_FLAGS:
         flags |= getattr(subprocess, name, 0)
     subprocess.Popen(cmd, creationflags=flags, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
