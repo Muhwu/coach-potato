@@ -1045,7 +1045,15 @@ timeline fetch used for lane deltas and stores rows via `db.replace_map_events`
 / `./crawl.sh --backfill-map-events` (mirrors `backfill_lane_deltas`, incl.
 `block_games_only`) skips already-processed matches; a missing/failed
 timeline still marks the row done with zero events so it isn't retried
-forever. `stats.map_events(conn, puuids, from_ms=, to_ms=, champion=,
+forever. **Deaths before 4/7/14 min** (`deaths_4/7/14`, `source="deaths"` in
+`metrics.METRICS`, marks in `metrics.DEATH_MARKS`) are NOT parsed from any
+payload: `db.fill_early_deaths` (run on every `db.connect`, ~10 ms) counts
+them from these death rows for metrics rows still NULL — only when ONE
+source's death count equals `participants.deaths` (so a partial log or failed
+timeline never reads as "no early deaths", and timeline + log are never
+summed); deathless games are 0 without events; marks past the game's end stay
+NULL. Coverage therefore = games with stored death events.
+`stats.map_events(conn, puuids, from_ms=, to_ms=, champion=,
 roles=)` joins `player_map_events` onto the same `_filtered_base` every other
 Trends-style query uses, behind `GET /api/stats/map-events?champion=&role=&
 from_ms=&to_ms=` (or `range=`/`from=`/`to=` like `/api/stats/games`).

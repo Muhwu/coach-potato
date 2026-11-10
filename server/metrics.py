@@ -86,6 +86,15 @@ METRICS = [
     _metric("time_dead", "Time dead (% of game)", "Vision & survival",
             "totalTimeSpentDead", source="participant", agg="pct_time",
             direction=-1, suffix="%"),
+    # --- Deaths by a game-time mark (source="deaths"): counted from the death
+    # timestamps already stored in player_map_events, by db.fill_early_deaths
+    # — no API call of their own. Cumulative: "by 7:00" includes the 4:00 ones.
+    _metric("deaths_4", "Deaths before 4:00 (early gank)", "Vision & survival",
+            "deaths_4", source="deaths", direction=-1, decimals=2),
+    _metric("deaths_7", "Deaths before 7:00 (2nd rotation)", "Vision & survival",
+            "deaths_7", source="deaths", direction=-1, decimals=2),
+    _metric("deaths_14", "Deaths before 14:00 (laning)", "Vision & survival",
+            "deaths_14", source="deaths", direction=-1, decimals=2),
 ]
 
 GROUPS = ["Laning", "Damage & fighting", "Objectives & map", "Vision & survival"]
@@ -104,8 +113,8 @@ def parse_metrics(match_json, puuid):
     challenges = participant.get("challenges") or {}
     values = {"has_challenges": int(bool(challenges))}
     for m in METRICS:
-        if m["source"] == "timeline":
-            values[m["key"]] = None  # filled separately from the match timeline
+        if m["source"] in ("timeline", "deaths"):
+            values[m["key"]] = None  # filled separately (timeline / stored deaths)
         elif m["source"] == "participant":
             values[m["key"]] = participant.get(m["field"])
         else:
@@ -118,6 +127,8 @@ def parse_metrics(match_json, puuid):
 LANE_DELTA_MARKS = {7: 420_000, 14: 840_000}
 FRAME_TOLERANCE_MS = 90_000
 TIMELINE_KEYS = [m["key"] for m in METRICS if m["source"] == "timeline"]
+# minute -> metric key for the deaths-by-mark metrics (db.fill_early_deaths)
+DEATH_MARKS = {4: "deaths_4", 7: "deaths_7", 14: "deaths_14"}
 
 
 def _frame_near(frames, target_ms):

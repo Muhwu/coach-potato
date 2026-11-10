@@ -925,3 +925,52 @@ def test_two_enemies_in_my_role_still_count_as_one_game(conn):
     assert [g["match_id"] for g in games] == ["EUW1_dup"]
     assert games[0]["opp_champion"] == "Darius"
     assert stats.summary(conn, ME)["games"] == 1
+
+
+def _deaths_at(conn, match_id, stamps_s, source="timeline"):
+    from server.metrics import metric_keys
+    if not conn.execute("SELECT 1 FROM participant_metrics WHERE match_id=? AND puuid=?",
+                        (match_id, ME)).fetchone():
+        db.insert_participant_metrics(conn, match_id, ME, {"has_challenges": 1, **{k: None for k in metric_keys()}})
+    db.replace_map_events(conn, match_id, ME, [
+        {"event_type": "death", "x": None, "y": None, "timestamp_ms": s * 1000}
+        for s in stamps_s], source=source)
+
+
+def test_deaths_by_mark_come_from_stored_death_times(conn):
+    from server.metrics import metric_keys
+    a, _ = add_match(conn, deaths=3, when=1_700_000_000_000)          # 3:00, 6:00, 20:00
+    _deaths_at(conn, a, [180, 360, 1200])
+    b, _ = add_match(conn, deaths=0, when=1_700_000_100_000)          # deathless: no events needed
+    db.insert_participant_metrics(conn, b, ME, {"has_challenges": 1, **{k: None for k in metric_keys()}})
+    c, _ = add_match(conn, deaths=2, when=1_700_000_200_000)          # partial log: 1 of 2 deaths
+    _deaths_at(conn, c, [100], source="ascent_log")
+    d, _ = add_match(conn, deaths=1, when=1_700_000_300_000)          # both sources complete:
+    _deaths_at(conn, d, [500])                                      # counted once, not twice
+    _deaths_at(conn, d, [501], source="ascent_log")
+    db.fill_early_deaths(conn)
+    row = lambda m: dict(conn.execute(
+        "SELECT deaths_4, deaths_7, deaths_14 FROM participant_metrics WHERE match_id=?",
+        (m,)).fetchone())
+    assert row(a) == {"deaths_4": 1, "deaths_7": 2, "deaths_14": 2}
+    assert row(b) == {"deaths_4": 0, "deaths_7": 0, "deaths_14": 0}
+    assert row(c) == {"deaths_4": None, "deaths_7": None, "deaths_14": None}
+    assert row(d) == {"deaths_4": 0, "deaths_7": 0, "deaths_14": 1}
+    # the partial game fills in once its full timeline arrives
+    _deaths_at(conn, c, [100, 700])
+    db.fill_early_deaths(conn)
+    assert row(c) == {"deaths_4": 1, "deaths_7": 1, "deaths_14": 2}
+    # and the trend averages them (plus whole-game deaths, a core stat)
+    bucket = stats.trend_buckets(conn, [ME], bucket="month")[0]
+    assert bucket["metrics"]["deaths_4"] == pytest.approx((1 + 0 + 1 + 0) / 4)
+    assert bucket["metrics"]["deaths_14"] == pytest.approx((2 + 0 + 2 + 1) / 4)
+    assert bucket["deaths"] == pytest.approx((3 + 0 + 2 + 1) / 4)
+
+
+def test_marks_a_short_game_never_reached_stay_empty(conn):
+    from server.metrics import metric_keys
+    m, _ = add_match(conn, deaths=0, duration=600)  # ended at 10:00
+    db.insert_participant_metrics(conn, m, ME, {"has_challenges": 1, **{k: None for k in metric_keys()}})
+    db.fill_early_deaths(conn)
+    r = conn.execute("SELECT deaths_7, deaths_14 FROM participant_metrics").fetchone()
+    assert (r["deaths_7"], r["deaths_14"]) == (0, None)

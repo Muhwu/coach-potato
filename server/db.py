@@ -462,6 +462,7 @@ def connect(db_path) -> sqlite3.Connection:
     seed_block_series(conn)
     seed_coaches(conn)
     seed_session_categories(conn)
+    fill_early_deaths(conn)
     # stamp only after the migrations succeeded, so a crash mid-upgrade leaves
     # the old version recorded and the next launch backs up again
     set_settings(conn, {"app_version": version})
@@ -1096,6 +1097,50 @@ def insert_participant_metrics(conn, match_id, puuid, values):
             f"VALUES ({placeholders})",
             row,
         )
+
+
+def fill_early_deaths(conn):
+    """Fill the deaths-by-4/7/14-min metrics (metrics.DEATH_MARKS) from the
+    death timestamps in player_map_events, for metrics rows still missing them.
+
+    A game only gets values once ONE source's death events add up to the
+    game's own death count (participants.deaths): a partial Ascent log or a
+    failed timeline would otherwise read as "no early deaths". Picking a
+    single complete source also keeps the timeline and the log from being
+    added together (the "never mix sources" rule). A deathless game needs no
+    events at all: it is 0 at every mark. A mark the game never reached
+    (shorter than that) stays NULL. Cheap and idempotent — runs on connect,
+    so whatever wrote the events (crawl, backfill, Ascent sync) is picked up
+    on the next request."""
+    from .metrics import DEATH_MARKS
+    first = DEATH_MARKS[min(DEATH_MARKS)]
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(participant_metrics)")}
+    if not set(DEATH_MARKS.values()) <= cols:
+        return
+    counts = ", ".join(f"SUM(timestamp_ms < {minute * 60_000}) AS d{minute}"
+                       for minute in DEATH_MARKS)
+    picks = ", ".join(
+        f"CASE WHEN m.game_duration_s >= {minute * 60} THEN "
+        f"(CASE WHEN p.deaths = 0 THEN 0 ELSE e.d{minute} END) END AS {key}"
+        for minute, key in DEATH_MARKS.items())
+    sets = ", ".join(f"{key} = c.{key}" for key in DEATH_MARKS.values())
+    with conn:
+        conn.execute(f"""
+            UPDATE participant_metrics SET {sets}
+            FROM (
+                SELECT p.match_id, p.puuid, {picks}
+                FROM participants p
+                JOIN matches m ON m.match_id = p.match_id
+                LEFT JOIN (
+                    SELECT match_id, puuid, COUNT(*) AS n, {counts}
+                    FROM player_map_events WHERE event_type = 'death'
+                    GROUP BY match_id, puuid, source
+                ) e ON e.match_id = p.match_id AND e.puuid = p.puuid AND e.n = p.deaths
+                WHERE p.deaths = 0 OR e.n IS NOT NULL
+            ) c
+            WHERE participant_metrics.match_id = c.match_id
+              AND participant_metrics.puuid = c.puuid
+              AND participant_metrics.{first} IS NULL""")
 
 
 def update_participant_timeline(conn, match_id, puuid, deltas):

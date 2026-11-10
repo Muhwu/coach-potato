@@ -19,6 +19,7 @@ const CORE_METRICS = [
   { key: "games", label: "Games played", decimals: 0, suffix: "", direction: 0 },
   { key: "winrate", label: "Winrate", decimals: 0, suffix: "%", scale: 100, refline: 50, direction: 1 },
   { key: "kda", label: "KDA", decimals: 2, suffix: "", direction: 1 },
+  { key: "deaths", label: "Deaths / game", decimals: 2, suffix: "", direction: -1 },
   { key: "cs_min", label: "CS/min", decimals: 1, suffix: "", direction: 1 },
   { key: "gold_min", label: "Gold/min", decimals: 0, suffix: "", direction: 1 },
   { key: "dmg_min", label: "DMG/min", decimals: 0, suffix: "", direction: 1 },

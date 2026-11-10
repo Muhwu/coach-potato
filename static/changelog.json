@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.83.0",
+      "date": "2026-11-11",
+      "items": [
+        "Trends shows deaths per game, plus average deaths before 4:00 (early gank), 7:00 (second rotation) and 14:00 (end of laning). The timed ones come from games whose death timings are stored."
+      ]
+    },
+    {
       "version": "1.82.0",
       "date": "2026-11-10",
       "items": [
