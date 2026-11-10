@@ -779,6 +779,7 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 .settings-field input[type="text"], .settings-field select { max-width: 100%; }
 .settings-field p { margin: 0; }
 .settings-field a { color: var(--series-1); }
+.no-looks-queues { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-left: 22px; }
 
 .chip-x {
   border: none;

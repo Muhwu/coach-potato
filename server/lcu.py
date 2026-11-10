@@ -1,8 +1,8 @@
-"""No-looks: skip the LP screen after a ranked Solo/Duo game.
+"""No-looks: skip the LP screen after ranked games (Solo/Duo by default).
 
 Ported from NoLooksies (https://github.com/WoedWoef/NoLooksies, MIT), itself
 based on Timmifer's "no look challenge": you play for improvement, not for the
-LP number. When a Solo/Duo game reaches the client's end-of-game phase, we ask
+LP number. When a game in one of the chosen queues (QUEUES) reaches the client's end-of-game phase, we ask
 the League client to dismiss its stats screen before you've read your LP gain
 or loss.
 
@@ -27,8 +27,14 @@ from pathlib import Path
 
 import httpx
 
-RANKED_SOLO_QUEUE_ID = 420
-RANKED_SOLO_QUEUE_TYPE = "RANKED_SOLO_5x5"
+# Queues whose end-of-game screen can be skipped: key -> (queue id, queue
+# type, label). The key is what the `no_looks_queues` setting stores, so keep
+# keys stable; add a queue by adding a line here (Settings lists them all).
+QUEUES = {
+    "solo": (420, "RANKED_SOLO_5x5", "Ranked Solo/Duo"),
+    "flex": (440, "RANKED_FLEX_SR", "Ranked Flex"),
+}
+DEFAULT_QUEUES = ("solo",)
 
 # phases during which a game exists whose queue we want to remember, so the
 # end-of-game check never has to guess
@@ -113,16 +119,28 @@ def connect():
     return LcuClient(*creds) if creds else None
 
 
-def _is_ranked_solo(queue_id, queue_type):
-    return queue_id == RANKED_SOLO_QUEUE_ID or queue_type == RANKED_SOLO_QUEUE_TYPE
+def queue_key(queue_id, queue_type):
+    """The QUEUES key a game was played in, or None for any other queue."""
+    for key, (qid, qtype, _label) in QUEUES.items():
+        if queue_id == qid or queue_type == qtype:
+            return key
+    return None
+
+
+def clean_queues(keys):
+    """Known queue keys only, in QUEUES order; None if `keys` isn't a list."""
+    if not isinstance(keys, (list, tuple)):
+        return None
+    return [k for k in QUEUES if k in keys]
 
 
 class NoLooksWatcher:
     """Background poller. `tick()` is one step (tests drive it directly);
     `set_enabled()` starts/stops the daemon thread that loops it."""
 
-    def __init__(self, connect_fn=connect, clock=time.time):
+    def __init__(self, connect_fn=connect, clock=time.time, queues=DEFAULT_QUEUES):
         self._connect = connect_fn
+        self.queues = set(queues)
         self._clock = clock
         self._client = None
         self._lock = threading.Lock()
@@ -190,7 +208,7 @@ class NoLooksWatcher:
                 return  # stats not loaded yet; retry on the next tick
             game_id = block.get("gameId")
             queue_type = block.get("queueType")
-        if not _is_ranked_solo(queue_id, queue_type):
+        if queue_key(queue_id, queue_type) not in self.queues:
             return
         if game_id is not None and game_id == self._dismissed_game:
             return
@@ -224,9 +242,13 @@ class NoLooksWatcher:
             elif not self.enabled:
                 self._wake.set()  # let the loop notice promptly
 
+    def set_queues(self, keys):
+        self.queues = set(keys)
+
     def status(self):
         return {
             "enabled": self.enabled,
+            "queues": [k for k in QUEUES if k in self.queues],
             "client_connected": self.enabled and self.connected,
             "phase": self.phase if self.enabled else None,
             "skipped": self.skipped,

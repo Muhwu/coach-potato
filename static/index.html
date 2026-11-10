@@ -59,10 +59,10 @@
         aria-expanded="false" title="Last Ascent scan — click for details"></button>
       <div id="recordings-pop" class="recordings-pop hidden" role="status"></div>
     </span>
-    <!-- No-looks: skip the LP screen after Solo/Duo games (server/lcu.py);
+    <!-- No-looks: skip the LP screen after ranked games (server/lcu.py);
          hidden via Settings → Interface → Privacy -->
     <button id="no-looks-btn" class="preset icon-btn no-looks-btn hidden" type="button"
-      aria-pressed="false" aria-label="No-looks: skip the LP screen after Solo/Duo games">🙈</button>
+      aria-pressed="false" aria-label="No-looks: skip the LP screen after ranked games">🙈</button>
     <button id="nav-changelog" class="preset icon-btn" title="What's new" aria-label="What's new">📋</button>
     <button id="nav-settings" class="preset icon-btn" title="Settings" aria-label="Settings">⚙</button>
   </div>
@@ -256,11 +256,13 @@
       </div>
       <div class="settings-field">
         <label><input type="checkbox" id="setting-no-looks"> No-looks: skip the LP screen after
-          Solo/Duo games</label>
+          ranked games</label>
         <p class="muted">While Coach Potato is open, the League client's end-of-game screen is
-          dismissed as soon as a ranked Solo/Duo game ends, so you don't see your LP gain or loss
-          and can focus on how you played. Talks only to the League client on this PC; no API key
-          needed. Based on <em>NoLooksies</em> by WoedWoef.</p>
+          dismissed as soon as a game in one of the queues below ends, so you don't see your LP
+          gain or loss and can focus on how you played. Talks only to the League client on this
+          PC; no API key needed. Based on <em>NoLooksies</em> by WoedWoef.</p>
+        <div id="setting-no-looks-queues" class="no-looks-queues" role="group"
+          aria-label="Queues to skip the LP screen in"></div>
         <label><input type="checkbox" id="setting-no-looks-button" checked> Show the 🙈 toggle in
           the top bar</label>
         <p class="muted">Untick to hide the button. No-looks keeps its on/off state either way.</p>

@@ -73,12 +73,39 @@ def test_solo_duo_end_of_game_screen_is_dismissed_once():
 
 
 def test_other_queues_are_left_alone():
-    fake = FakeLcu("InProgress", session(5, 440, "RANKED_FLEX_SR"))
+    # Flex is off by default; normals are never in the list
+    for queue in ((440, "RANKED_FLEX_SR"), (400, "NORMAL_5x5_DRAFT")):
+        fake = FakeLcu("InProgress", session(5, *queue))
+        w = watcher_for(fake)
+        w.tick()
+        fake.phase = "EndOfGame"
+        w.tick()
+        assert fake.dismissed == 0 and w.skipped == 0
+
+
+def test_flex_is_skipped_once_chosen():
+    fake = FakeLcu("InProgress", session(6, 440, "RANKED_FLEX_SR"))
     w = watcher_for(fake)
+    w.set_queues(["solo", "flex"])
     w.tick()
     fake.phase = "EndOfGame"
     w.tick()
-    assert fake.dismissed == 0 and w.skipped == 0
+    assert fake.dismissed == 1 and w.status()["queues"] == ["solo", "flex"]
+    # and solo can be turned off on its own
+    fake = FakeLcu("InProgress", session(7, 420, "RANKED_SOLO_5x5"))
+    w = watcher_for(fake)
+    w.set_queues(["flex"])
+    w.tick()
+    fake.phase = "EndOfGame"
+    w.tick()
+    assert fake.dismissed == 0
+
+
+def test_clean_queues():
+    assert lcu.clean_queues(["flex", "bogus", "solo"]) == ["solo", "flex"]
+    assert lcu.clean_queues("solo") is None
+    assert lcu.queue_key(None, "RANKED_FLEX_SR") == "flex"
+    assert lcu.queue_key(450, "ARAM") is None
 
 
 def test_started_on_the_eog_screen_asks_the_stats_block():

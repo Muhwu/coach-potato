@@ -746,7 +746,10 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   shared-component pattern as `clipsSection`/`reflectionSection`, used by
   Overview's Recent games and blocks.js's per-game panel.
 - **No-looks** (`server/lcu.py`, port of NoLooksies): skips the League
-  client's end-of-game LP screen after ranked Solo/Duo (queue 420). Talks to
+  client's end-of-game LP screen after ranked games in the chosen queues
+  (`lcu.QUEUES`: solo 420 on by default, flex 440 off; setting
+  `no_looks_queues` = JSON list of keys — add a queue with one line there,
+  Settings renders the checkboxes from `no_looks_queue_options`). Talks to
   the League CLIENT's local API (LCU: lockfile → port + password, basic auth
   `riot:<pw>`, self-signed cert so `verify=False`) — not the Riot web API, so
   no key and no rate limiter. Lockfile is found via

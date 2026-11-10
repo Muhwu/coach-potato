@@ -26,20 +26,31 @@ from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING, RiotApiError, clean_riot_id, scrub_secret
 
-# No-looks (skip the LP screen after Solo/Duo games, server/lcu.py): one
+# No-looks (skip the LP screen after ranked games, server/lcu.py): one
 # watcher for the process, started from the stored setting at launch and
 # switched by the header toggle / Settings.
 NO_LOOKS = lcu.NoLooksWatcher()
+
+
+def _no_looks_queues(stored):
+    """The stored `no_looks_queues` (JSON list of lcu.QUEUES keys); unset or
+    unreadable -> lcu.DEFAULT_QUEUES (Solo/Duo only, as before the setting)."""
+    try:
+        keys = lcu.clean_queues(json.loads(stored["no_looks_queues"]))
+    except (KeyError, TypeError, ValueError):
+        keys = None
+    return keys if keys is not None else list(lcu.DEFAULT_QUEUES)
 
 
 @asynccontextmanager
 async def _lifespan(_app):
     conn = get_conn()
     try:
-        enabled = db.get_settings(conn).get("no_looks_enabled") == "1"
+        stored = db.get_settings(conn)
     finally:
         conn.close()
-    NO_LOOKS.set_enabled(enabled)
+    NO_LOOKS.set_queues(_no_looks_queues(stored))
+    NO_LOOKS.set_enabled(stored.get("no_looks_enabled") == "1")
     yield
     NO_LOOKS.set_enabled(False)
 
@@ -289,6 +300,9 @@ def _extra_settings(conn):
         # No-looks: the feature itself, and whether its header toggle shows
         "no_looks_enabled": stored.get("no_looks_enabled") == "1",
         "no_looks_button": stored.get("no_looks_button") != "0",
+        "no_looks_queues": _no_looks_queues(stored),
+        "no_looks_queue_options": [{"key": k, "label": label}
+                                   for k, (_id, _type, label) in lcu.QUEUES.items()],
     }
 
 
@@ -452,6 +466,12 @@ def api_put_settings(body: dict):
     no_looks_button = body.get("no_looks_button", True)
     if not isinstance(no_looks_enabled, bool) or not isinstance(no_looks_button, bool):
         raise HTTPException(400, "no_looks_enabled / no_looks_button must be booleans")
+    no_looks_queues = body.get("no_looks_queues", list(lcu.DEFAULT_QUEUES))
+    if (not isinstance(no_looks_queues, list)
+            or any(k not in lcu.QUEUES for k in no_looks_queues)):
+        raise HTTPException(400, "no_looks_queues must be a list of: "
+                                 + ", ".join(lcu.QUEUES))
+    no_looks_queues = lcu.clean_queues(no_looks_queues)
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -484,7 +504,9 @@ def api_put_settings(body: dict):
             "obs_password": obs_password,
             "no_looks_enabled": "1" if no_looks_enabled else "0",
             "no_looks_button": "1" if no_looks_button else "0",
+            "no_looks_queues": json.dumps(no_looks_queues),
         })
+        NO_LOOKS.set_queues(no_looks_queues)
         NO_LOOKS.set_enabled(no_looks_enabled)
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)

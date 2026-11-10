@@ -3033,6 +3033,24 @@ def test_no_looks_settings_and_header_toggle(client, monkeypatch):
     assert client.get("/api/no-looks").json()["enabled"] in (True, False)
 
 
+def test_no_looks_queues_setting(client, monkeypatch):
+    monkeypatch.setattr(app_module.NO_LOOKS, "set_enabled", lambda on: None)
+    settings = client.get("/api/settings").json()
+    # Solo/Duo only by default; every known queue is offered
+    assert settings["no_looks_queues"] == ["solo"]
+    assert [o["key"] for o in settings["no_looks_queue_options"]] == ["solo", "flex"]
+    base = {"riot_api_key": "RGAPI-x", "accounts": ["Name#TAG"]}
+    saved = client.put("/api/settings", json={**base, "no_looks_queues": ["flex", "solo"]}).json()
+    assert saved["no_looks_queues"] == ["solo", "flex"]
+    assert app_module.NO_LOOKS.queues == {"solo", "flex"}
+    assert client.get("/api/settings").json()["no_looks_queues"] == ["solo", "flex"]
+    # none at all is allowed (the feature then skips nothing)
+    assert client.put("/api/settings", json={**base, "no_looks_queues": []}).json()["no_looks_queues"] == []
+    for bad in (["aram"], "solo", [1]):
+        assert client.put("/api/settings", json={**base, "no_looks_queues": bad}).status_code == 400
+    app_module.NO_LOOKS.set_queues(["solo"])
+
+
 def test_update_endpoints_in_a_dev_run(client, monkeypatch):
     monkeypatch.setattr(app_module, "_UPDATER", {"instance": None})
     status = client.get("/api/update/status").json()

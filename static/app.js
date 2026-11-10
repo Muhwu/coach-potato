@@ -3904,16 +3904,33 @@ function wireDiagnostics() {
 
 // With OBS recording switched off, its connection settings are irrelevant —
 // hide them rather than leave dead fields on the page.
-// ---- No-looks: skip the LP screen after Solo/Duo games (server/lcu.py) ----
+// ---- No-looks: skip the LP screen after ranked games (server/lcu.py) ----
 // The 🙈 header button toggles it and saves straight away (PUT /api/no-looks);
-// Settings has the same switch plus one to hide the button.
-const noLooksUi = { enabled: false, button: true, status: null, timer: null };
+// Settings has the same switch, which queues it acts in (the server's
+// lcu.QUEUES, Solo/Duo by default) and one to hide the button.
+const noLooksUi = { enabled: false, button: true, status: null, timer: null, queues: [], options: [] };
 
 function applyNoLooks(settings) {
   noLooksUi.enabled = Boolean(settings.no_looks_enabled);
   noLooksUi.button = settings.no_looks_button !== false;
+  noLooksUi.queues = settings.no_looks_queues || [];
+  noLooksUi.options = settings.no_looks_queue_options || noLooksUi.options;
   renderNoLooksBtn();
   pollNoLooks();
+}
+
+// "Ranked Solo/Duo and Ranked Flex" — the chosen queues, for the tooltip
+function noLooksQueueText() {
+  const labels = noLooksUi.options.filter((o) => noLooksUi.queues.includes(o.key)).map((o) => o.label);
+  if (!labels.length) return "no queues (pick some in Settings)";
+  return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+}
+
+function renderNoLooksQueues(selected) {
+  const box = $("#setting-no-looks-queues");
+  if (!box) return;
+  box.innerHTML = noLooksUi.options.map((o) => `<label><input type="checkbox" value="${escapeHtml(o.key)}"
+    ${selected.includes(o.key) ? "checked" : ""}> ${escapeHtml(o.label)}</label>`).join("");
 }
 
 function renderNoLooksBtn() {
@@ -3925,11 +3942,11 @@ function renderNoLooksBtn() {
   btn.classList.toggle("no-looks-off", !on);
   btn.setAttribute("aria-pressed", String(on));
   const lines = on
-    ? ["No-looks is ON: the LP screen is skipped after Solo/Duo games.",
+    ? [`No-looks is ON: the LP screen is skipped after ${noLooksQueueText()} games.`,
       status && status.client_connected ? "League client: connected." : "League client: not detected (start League).",
       ...(status && status.skipped ? [`Skipped ${status.skipped} LP screen${status.skipped === 1 ? "" : "s"} since launch.`] : []),
       "Click to turn off."]
-    : ["No-looks is OFF.", "Click to skip the LP screen after Solo/Duo games."];
+    : ["No-looks is OFF.", `Click to skip the LP screen after ${noLooksQueueText()} games.`];
   btn.title = lines.join("\n");
 }
 
@@ -4258,6 +4275,8 @@ async function initSettings() {
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   $("#setting-no-looks").checked = Boolean(data.no_looks_enabled);
   $("#setting-no-looks-button").checked = data.no_looks_button !== false;
+  noLooksUi.options = data.no_looks_queue_options || noLooksUi.options;
+  renderNoLooksQueues(data.no_looks_queues || []);
   await loadChampionRoster(); // legacy migrate select needs display names
   refreshLegacySection();
   $("#setting-theme").value = data.theme || "auto";
@@ -4489,6 +4508,7 @@ function settingsPayload() {
     hide_my_rank: $("#setting-hide-rank").checked,
     no_looks_enabled: $("#setting-no-looks").checked,
     no_looks_button: $("#setting-no-looks-button").checked,
+    no_looks_queues: [...document.querySelectorAll("#setting-no-looks-queues input:checked")].map((i) => i.value),
     ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
     accent_color: $("#setting-accent-reset").classList.contains("hidden")
       ? null : $("#setting-accent-color").value,

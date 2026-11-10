@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.82.0",
+      "date": "2026-11-10",
+      "items": [
+        "No-looks can skip the LP screen in Ranked Flex too: Settings → Interface lists the queues it acts in (Ranked Solo/Duo on by default, Ranked Flex off)."
+      ]
+    },
+    {
       "version": "1.81.7",
       "date": "2026-11-10",
       "items": [
