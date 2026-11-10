@@ -963,6 +963,9 @@ td.rank-cell { font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
 .update-notes li { margin: 2px 0; }
 .update-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: 6px; }
 #update-banner .update-close { margin-left: 4px; }
+/* bubbles whose only action is closing: ✕ pinned to the top-right corner */
+#update-banner:has(.update-close-corner) { position: relative; padding-right: 44px; }
+#update-banner .update-close-corner { position: absolute; top: 8px; right: 8px; margin: 0; }
 .update-card { display: flex; gap: 14px; align-items: center; max-width: 460px; }
 .update-card p { margin: 4px 0 0; }
 .update-log { white-space: pre-wrap; font-size: calc(12px * var(--font-scale)); margin: 6px 0 0; }

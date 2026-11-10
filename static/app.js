@@ -4735,9 +4735,10 @@ async function reportFinishedUpdate(info, status) {
       .flatMap((e) => e.items);
     const notes = items.length
       ? `<ul class="update-notes">${items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>` : "";
-    showUpdateBanner(`✓ Updated to <strong>Coach Potato v${escapeHtml(info.version)}</strong>.
+    showUpdateBanner(`<button type="button" class="preset icon-btn-sm update-close update-close-corner"
+        aria-label="Close" title="Close">✕</button>
+      ✓ Updated to <strong>Coach Potato v${escapeHtml(info.version)}</strong>.
       <a href="#" id="update-whats-new">All release notes</a>
-      <button type="button" class="preset icon-btn-sm update-close" aria-label="Close">✕</button>
       ${notes}`);
     $("#update-whats-new").addEventListener("click", (e) => { e.preventDefault(); openChangelog(); });
     $("#update-banner .update-close").addEventListener("click", hideUpdateBanner);
@@ -4775,9 +4776,9 @@ function showUpdateOffer(version) {
 }
 
 function showUpdateLater(lead) {
-  showUpdateBanner(`${lead} <a href="#" id="update-goto-settings">Settings → Check for
-    updates</a>. <button type="button" class="preset icon-btn-sm update-close"
-    aria-label="Close">✕</button>`);
+  showUpdateBanner(`<button type="button" class="preset icon-btn-sm update-close update-close-corner"
+    aria-label="Close" title="Close">✕</button>
+    ${lead} <a href="#" id="update-goto-settings">Settings → Check for updates</a>.`);
   $("#update-goto-settings").addEventListener("click", (e) => {
     e.preventDefault();
     hideUpdateBanner();
