@@ -19,19 +19,42 @@ Before you start, know Google's limits for a personal project like this:
 
 ## 1. Create a Google Cloud project
 
-Open <https://console.cloud.google.com/projectcreate>, sign in with any Google
-account, name the project (e.g. `Coach Potato`) and click **Create**. Make sure
-the new project is selected in the project picker at the top of the page for
-every following step.
+Open <https://console.cloud.google.com/projectcreate> and sign in with any
+Google account. Name the project (e.g. `Coach Potato`), leave *Parent resource*
+as *No organization*, and click **Create**.
+
+![New Project form with the name "Coach Potato"](images/youtube-upload/1-create-project.png)
+
+Make sure the new project is selected in the project picker at the top of the
+page (the pill next to the Google Cloud logo) for every following step.
 
 ## 2. Enable the YouTube Data API v3
 
-Open <https://console.cloud.google.com/apis/library/youtube.googleapis.com> and
-click **Enable**.
+Open **APIs & Services** (☰ menu, or
+<https://console.cloud.google.com/apis/dashboard>) and click **Enable APIs and
+services**.
+
+![APIs & Services with "Enable APIs and services" highlighted](images/youtube-upload/2-enable-apis.png)
+
+Search for `youtube data api v3` and open the **YouTube Data API v3** result.
+
+![API Library search showing the YouTube Data API v3 result](images/youtube-upload/3-search-youtube-api.png)
+
+Click **Enable**.
+
+![YouTube Data API v3 product page with the Enable button](images/youtube-upload/4-enable-youtube-api.png)
+
+(Shortcut: <https://console.cloud.google.com/apis/library/youtube.googleapis.com>
+opens that page directly.)
 
 ## 3. Set up the consent screen
 
-Open <https://console.cloud.google.com/auth/overview> → **Get started**:
+In the **APIs & Services** sidebar, click **OAuth consent screen**. It takes
+you to the *Google Auth Platform*.
+
+![APIs & Services sidebar with "OAuth consent screen" highlighted](images/youtube-upload/5-oauth-consent-screen.png)
+
+Click **Get started** and fill in:
 
 - **App name**: `Coach Potato` (anything — only you will see it)
 - **User support email**: your email
@@ -41,19 +64,37 @@ Open <https://console.cloud.google.com/auth/overview> → **Get started**:
 
 ## 4. Add yourself as a test user
 
-Open <https://console.cloud.google.com/auth/audience> → **Test users** →
-**Add users**, and add the Google account **that owns your YouTube channel**.
+In the Google Auth Platform sidebar, open **Audience**, scroll to **Test
+users** and click **Add users**. Add the Google account **that owns your
+YouTube channel** and save.
+
+![Audience page: publishing status Testing, user type External, and the Add users button under Test users](images/youtube-upload/6-add-test-user.png)
+
 Skipping this is the most common setup problem: sign-in then fails with
 *"Access blocked: … has not completed the Google verification process"*.
 
 ## 5. Create a Desktop app client and download its JSON
 
-Open <https://console.cloud.google.com/auth/clients> → **Create client**:
+Open **Clients** in the same sidebar and click **Create client**.
+
+![Clients page with "Create client" highlighted](images/youtube-upload/7-create-client.png)
 
 - **Application type**: **Desktop app** (not *Web application*)
-- **Name**: anything
+- **Name**: anything, e.g. `Coach Potato`
 
-Click **Create**, then **Download JSON**.
+Click **Create**.
+
+![Create OAuth client ID form with Desktop app and the name filled in](images/youtube-upload/8-desktop-app-client.png)
+
+A dialog shows the new client. Click **Download JSON** **before closing it**:
+Google never shows the client secret again after this dialog. If you closed it
+already, just create another client.
+
+![OAuth client created dialog with the Download JSON button](images/youtube-upload/9-download-json.png)
+
+Google notes that a new client can take from a few minutes up to a few hours
+to start working. If sign-in fails right away with a client error, wait a bit
+and try again.
 
 ## 6. Load it in Coach Potato and sign in
 
@@ -91,4 +132,5 @@ project.
 | Not enabled for this Google Cloud project | Enable the API (step 2) in the **same** project as the client |
 | Google refused the sign-in (access_denied) | Add your account as a test user (step 4) |
 | The saved sign-in no longer works | Sign in again; see step 7 to stop it expiring |
-| Today's quota is used up | Wait until midnight Pacific time, or use the 📁 manual upload |
+| invalid_client / redirect_uri_mismatch right after creating the client | Wait a few minutes (new clients can take a while), and check it's a **Desktop app** client |
+| Today's quota is used up | Wait until midnight Pacific time, or use **Manual upload** |
