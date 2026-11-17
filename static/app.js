@@ -3219,34 +3219,90 @@ function wireRecordingSection(container, reload) {
     }));
 
   container.querySelectorAll(".recording-upload").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const section = btn.closest(".recording-section");
-      const card = btn.closest(".recording-card");
-      const privacy = state.youtubePrivacy || "private";
-      // uploading publishes to the user's channel — always confirm first
-      if (!confirm(`Upload this recording to YouTube as ${privacy}?`)) return;
-      recordingUi.upload = { uuid: btn.dataset.uuid, progress: 0, error: null, timer: null };
-      btn.disabled = true;
-      btn.textContent = "Uploading…";
-      const response = await fetch(
-        `/api/recordings/${encodeURIComponent(btn.dataset.uuid)}/youtube`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-          title: recordingTitle(card), privacy,
-          // lets the server generate the chapter list server-side
-          puuid: section ? section.dataset.puuid : undefined,
-        }),
-        });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        recordingUi.upload.error = body.detail || `error ${response.status}`;
-        recordingUi.upload.uuid = null;
-        if (section) await reload(section.dataset.match, section.dataset.puuid);
-        return;
-      }
-      pollUploadStatus(section, reload);
-    }));
+    btn.addEventListener("click", () => openUploadDialog(btn, reload)));
+}
+
+/* "Upload to YouTube" confirmation — uploading publishes to the user's
+   channel, so it always asks first. Privacy is read fresh from /api/settings
+   (a cached copy went stale after a Settings save) and can be changed for this
+   one upload; the server receives exactly what the dialog shows. */
+async function openUploadDialog(btn, reload) {
+  const section = btn.closest(".recording-section");
+  const card = btn.closest(".recording-card");
+  let settings = {};
+  try { settings = await getJSON("/api/settings"); } catch { /* fall back to defaults */ }
+  const privacy = settings.youtube_privacy || "private";
+  const channel = settings.youtube_channel_title || "your channel";
+  const option = (value, label) =>
+    `<option value="${value}" ${value === privacy ? "selected" : ""}>${label}</option>`;
+  $("#modal-box").innerHTML = `
+    <div class="modal-head">
+      <h3>${YT_ICON} Upload to YouTube</h3>
+      <button type="button" class="icon-btn" id="yt-up-close" aria-label="Close">✕</button>
+    </div>
+    <div class="yt-up-form">
+      <p class="muted">Uploads to <strong>${escapeHtml(channel)}</strong>, with chapters for every
+        death, kill and objective in the description.</p>
+      <label class="filter-label" for="yt-up-title">Title</label>
+      <input type="text" id="yt-up-title" maxlength="100" value="${escapeHtml(recordingTitle(card))}">
+      <label class="filter-label" for="yt-up-privacy">Visibility</label>
+      <select id="yt-up-privacy">
+        ${option("private", "Private")}${option("unlisted", "Unlisted — anyone with the link")}${option("public", "Public")}
+      </select>
+      <p class="muted yt-up-note hidden" id="yt-up-note">YouTube keeps uploads from Google projects
+        that haven't been through Google's audit <strong>private</strong>, whatever you pick here.
+        If yours hasn't, switch it to <span id="yt-up-chosen"></span> in YouTube Studio
+        once it's up.</p>
+    </div>
+    <div class="session-actions">
+      <button type="button" class="btn-primary" id="yt-up-go">Upload</button>
+      <button type="button" class="preset" id="yt-up-cancel">Cancel</button>
+    </div>`;
+  $("#modal-overlay").classList.remove("hidden");
+  const note = () => {
+    const value = $("#yt-up-privacy").value;
+    $("#yt-up-chosen").textContent = value;
+    $("#yt-up-note").classList.toggle("hidden", value === "private");
+  };
+  note();
+  $("#yt-up-privacy").addEventListener("change", note);
+  $("#yt-up-close").addEventListener("click", closeModal);
+  $("#yt-up-cancel").addEventListener("click", closeModal);
+  $("#yt-up-title").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("#yt-up-go").click(); }
+  });
+  $("#yt-up-title").focus();
+  $("#yt-up-title").select();
+  $("#yt-up-go").addEventListener("click", async () => {
+    const title = $("#yt-up-title").value.trim() || recordingTitle(card);
+    const chosen = $("#yt-up-privacy").value;
+    closeModal();
+    await startRecordingUpload(btn, section, reload, title, chosen);
+  });
+}
+
+async function startRecordingUpload(btn, section, reload, title, privacy) {
+  recordingUi.upload = { uuid: btn.dataset.uuid, progress: 0, error: null, timer: null };
+  btn.disabled = true;
+  btn.textContent = "Uploading…";
+  const response = await fetch(
+    `/api/recordings/${encodeURIComponent(btn.dataset.uuid)}/youtube`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title, privacy,
+        // lets the server generate the chapter list server-side
+        puuid: section ? section.dataset.puuid : undefined,
+      }),
+    });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    recordingUi.upload.error = body.detail || `error ${response.status}`;
+    recordingUi.upload.uuid = null;
+    if (section) await reload(section.dataset.match, section.dataset.puuid);
+    return;
+  }
+  pollUploadStatus(section, reload);
 }
 
 // a readable default title from whatever the surrounding row already shows
@@ -4737,6 +4793,7 @@ async function saveSettings() {
         && state.mainView === "guide") loadGuide();
     state.enableComparison = Boolean(body.enable_player_comparison);
     applyComparisonEnabled();
+    state.youtubePrivacy = body.youtube_privacy || "private";
     state.obsEnabled = body.obs_enabled !== false;
     applyObsEnabled();
     applyNoLooks(body);

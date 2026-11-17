@@ -2349,3 +2349,8 @@ footer {
 .rec-share .btn-primary, .yt-card .btn-primary {
   font-size: calc(13px * var(--font-scale)); padding: 4px 12px;
 }
+/* "Upload to YouTube" dialog */
+.yt-up-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; min-width: min(28em, 80vw); }
+.yt-up-form p { margin: 0 0 4px; }
+.yt-up-note { margin-top: 4px !important; }
+.modal-head h3 .yt-icon { margin-right: 4px; }

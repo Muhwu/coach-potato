@@ -293,3 +293,14 @@ def test_calendar_dates_are_never_parsed_or_formatted_as_utc():
             if pattern in text:
                 offenders.append(f"{js_file}: {pattern}")
     assert not offenders, offenders
+
+
+def test_youtube_upload_asks_in_app_with_fresh_privacy():
+    """The upload confirmation is the in-app dialog, not the browser's confirm(),
+    and it reads privacy from /api/settings rather than a cached state copy
+    (which went stale after a Settings save and sent the old value to YouTube)."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "Upload this recording to YouTube as" not in js
+    dialog = js[js.index("async function openUploadDialog"):js.index("async function startRecordingUpload")]
+    assert 'getJSON("/api/settings")' in dialog
+    assert "state.youtubePrivacy" not in dialog

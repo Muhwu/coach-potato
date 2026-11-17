@@ -822,7 +822,10 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   Token caches as `youtube_token.json` beside the db. Defaults to **private** because
   an unaudited OAuth project cannot produce anything else regardless of the
   setting, and the default quota allows only ~6 uploads/day. The UI always
-  `confirm()`s before uploading — it publishes to the user's channel.
+  asks before uploading — it publishes to the user's channel — via
+  `openUploadDialog` (shared `#modal-overlay`; title + visibility for THIS
+  upload, defaulting to `youtube_privacy` read fresh from `/api/settings`,
+  never from a cached `state` copy, which once went stale after a Settings save).
   Recording cards: a share toolbar (`.rec-share`, `recordingCard` in app.js) —
   ⬆ Upload (only when `youtube_ready`), YouTube-icon **Manual upload** (reveal
   + copy path + open youtube.com/upload + a steps callout; goes to whatever
