@@ -2427,6 +2427,65 @@ async function testObsConnection() {
     body.recording ? " (recording now)" : ""}${where}${fmt}`;
 }
 
+/* Settings → Recordings → "Test configuration" for one-click YouTube upload.
+   Each check row says what's wrong AND how to fix it (server/youtube.py
+   check_setup); "Sign in with Google" runs the browser consent flow up front so
+   the first real upload doesn't stall on it. */
+const YT_CHECK_ICON = { ok: "✓", warn: "!", fail: "✕", skip: "–" };
+
+function renderYoutubeChecks(result) {
+  const list = $("#youtube-test-results");
+  list.innerHTML = (result.checks || []).map((c) => `
+    <li class="yt-check yt-${escapeHtml(c.status)}">
+      <span class="yt-check-icon" aria-hidden="true">${YT_CHECK_ICON[c.status] || "?"}</span>
+      <div>
+        <strong>${escapeHtml(c.label)}</strong>
+        ${c.detail ? `<span class="muted">— ${escapeHtml(c.detail)}</span>` : ""}
+        ${c.fix && c.status !== "ok" ? `<div class="yt-check-fix">${escapeHtml(c.fix)}${
+          c.link ? ` <a href="${escapeHtml(c.link)}" target="_blank" rel="noopener">Open in Google Cloud ↗</a>` : ""}</div>` : ""}
+      </div>
+    </li>`).join("");
+  list.classList.remove("hidden");
+  $("#youtube-signin").classList.toggle("hidden",
+    !(result.checks || []).some((c) => c.key === "signin" && c.status !== "ok" && c.status !== "skip"));
+}
+
+async function testYoutubeConfig(signIn = false) {
+  const status = $("#youtube-test-status");
+  const buttons = [$("#youtube-test"), $("#youtube-signin")];
+  status.classList.remove("status-error");
+  status.textContent = signIn
+    ? "Finish signing in in the browser tab that just opened…"
+    : "Checking…";
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const response = await fetch("/api/youtube/test", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_secrets: $("#setting-youtube-secrets").value,
+        sign_in: signIn,
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || `error ${response.status}`);
+    renderYoutubeChecks(body);
+    if (body.ok) {
+      status.textContent = "All set — one-click upload is ready.";
+      state.youtubeReady = true;
+    } else if (body.needs_sign_in) {
+      status.textContent = "Almost there — sign in with Google to finish.";
+    } else {
+      status.classList.add("status-error");
+      status.textContent = "Not ready yet — see below for what to fix.";
+    }
+  } catch (err) {
+    status.classList.add("status-error");
+    status.textContent = String(err.message || err);
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+
 async function syncRecordings() {
   const status = $("#sync-recordings-status");
   status.classList.remove("status-error");
@@ -4265,6 +4324,9 @@ async function initSettings() {
   $("#setting-youtube-privacy").value = data.youtube_privacy || "private";
   state.youtubePrivacy = data.youtube_privacy || "private";
   state.youtubeReady = Boolean(data.youtube_ready);
+  $("#youtube-no-libraries").classList.toggle("hidden", data.youtube_libraries !== false);
+  // first-time setup: show the steps without making the user hunt for them
+  if (data.youtube_libraries && !data.youtube_client_secrets) $("#youtube-setup-guide").open = true;
   $("#setting-obs-enabled").checked = data.obs_enabled !== false;
   state.obsEnabled = data.obs_enabled !== false;
   applyObsEnabled();
@@ -4316,6 +4378,8 @@ async function initSettings() {
   $("#sync-recordings").addEventListener("click", syncRecordings);
   $("#check-updates").addEventListener("click", checkForUpdatesNow);
   $("#obs-test").addEventListener("click", testObsConnection);
+  $("#youtube-test").addEventListener("click", () => testYoutubeConfig(false));
+  $("#youtube-signin").addEventListener("click", () => testYoutubeConfig(true));
   $("#setting-obs-enabled").addEventListener("change", (e) => {
     state.obsEnabled = e.target.checked;
     applyObsEnabled();

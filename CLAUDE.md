@@ -804,6 +804,17 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   fail. Keep that invariant if you touch the readiness logic; the
   `test_youtube_is_optional_without_the_google_libraries` test pins it, and the
   two tests that genuinely need the libraries skip without them.
+  Settings → Recordings has the setup steps inline (full guide:
+  `docs/youtube-upload.md`) and a **Test configuration** button →
+  `POST /api/youtube/test` → `youtube.check_setup()`: per-check
+  `{status ok|warn|fail|skip, detail, fix, link}` for libraries, the secrets
+  file (Desktop-app vs Web/service-account JSON), the cached sign-in (wrong
+  client, expired refresh) and one 1-unit `videoCategories.list` proving the
+  API is enabled. `sign_in: true` runs the browser consent flow
+  (`run_local_server`, 5 min timeout). Apps left in Google's "Testing" status
+  get 7-day refresh tokens, so `_credentials` falls back to a fresh sign-in
+  when refresh fails rather than raising. `youtube.clean_path` strips the
+  quotes Windows' "Copy as path" adds (also applied on settings save).
   Token caches as `youtube_token.json` beside the db. Defaults to **private** because
   an unaudited OAuth project cannot produce anything else regardless of the
   setting, and the default quota allows only ~6 uploads/day. The UI always

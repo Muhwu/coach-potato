@@ -3063,3 +3063,24 @@ def test_update_endpoints_in_a_dev_run(client, monkeypatch):
 def test_update_apply_waits_for_a_running_crawl(client, monkeypatch):
     monkeypatch.setitem(app_module.CRAWL_STATE, "running", True)
     assert client.post("/api/update/apply").status_code == 409
+
+
+def test_youtube_test_endpoint_checks_the_typed_path(client, tmp_path, monkeypatch):
+    from server import youtube
+    monkeypatch.setattr(youtube, "libraries_available", lambda: False)
+    body = client.post("/api/youtube/test",
+                       json={"client_secrets": str(tmp_path / "nope.json")}).json()
+    checks = {c["key"]: c for c in body["checks"]}
+    assert body["ok"] is False
+    assert checks["secrets"]["status"] == "fail" and "No file at" in checks["secrets"]["detail"]
+    assert client.get("/api/settings").json()["youtube_libraries"] is False
+
+
+def test_settings_save_accepts_a_quoted_youtube_secrets_path(client, tmp_path):
+    secrets = tmp_path / "client.json"
+    secrets.write_text("{}")
+    response = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-new", "accounts": ["Foo#BAR"], "platform": "euw1",
+        "youtube_client_secrets": f'"{secrets}"'})
+    assert response.status_code == 200, response.text
+    assert client.get("/api/settings").json()["youtube_client_secrets"] == str(secrets)

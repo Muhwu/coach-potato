@@ -424,11 +424,51 @@
       <div class="settings-field">
         <label class="filter-label" for="setting-youtube-secrets">One-click upload: client secrets (JSON)</label>
         <input type="text" id="setting-youtube-secrets" placeholder="not configured — manual upload works without this" style="max-width:34em">
-        <p class="muted"><strong>Optional.</strong> Needs your own Google OAuth client: a project at
-          console.cloud.google.com with <em>YouTube Data API v3</em> enabled, an OAuth client ID of
-          type <em>Desktop app</em>, then the downloaded JSON's path here. Google caps unaudited
-          projects at ~6 uploads a day and forces <strong>private</strong> whatever you pick below;
-          the manual button has neither limit.</p>
+        <p class="muted"><strong>Optional.</strong> Uploads straight from the app using your own
+          Google OAuth client. Google keeps these uploads <strong>private</strong> and caps them at
+          ~6 a day; the manual button has neither limit.</p>
+        <p class="muted hidden" id="youtube-no-libraries"><strong>Not available in this build</strong>
+          — one-click upload needs Google's libraries, which only a from-source install has
+          (<code>pip install -r requirements-youtube.txt</code>). Use the 📁 button instead.</p>
+      </div>
+      <details class="yt-setup" id="youtube-setup-guide">
+        <summary>How to set it up (about 10 minutes, once)</summary>
+        <ol>
+          <li><strong>Create a Google Cloud project</strong> at
+            <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com/projectcreate</a>
+            (any name). Keep it selected at the top of the page for every step below.</li>
+          <li><strong>Enable the YouTube Data API v3</strong>:
+            <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">open the API page</a> → Enable.</li>
+          <li><strong>Set up the consent screen</strong>:
+            <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google Auth Platform</a> → Get started.
+            Any app name, your email as support/contact email, Audience <strong>External</strong>.</li>
+          <li><strong>Add yourself as a test user</strong>:
+            <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Audience</a> → Test users → Add users →
+            the Google account that <em>owns your YouTube channel</em>. Skipping this makes sign-in fail with
+            "Access blocked".</li>
+          <li><strong>Create the client</strong>:
+            <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Clients</a> → Create client →
+            Application type <strong>Desktop app</strong> (not Web application) → Create → <strong>Download JSON</strong>.
+            Move the file somewhere permanent, e.g. <code>Documents\CoachPotato</code>.</li>
+          <li><strong>Paste the file's full path above</strong>. On Windows: Shift+right-click the file →
+            Copy as path (the quotes are fine).</li>
+          <li><strong>Test configuration</strong>, then <strong>Sign in with Google</strong>. Google warns it
+            "hasn't verified this app" — it's your own app, so choose Continue. All green = ready. Then Save.</li>
+        </ol>
+        <p class="muted">While the app is in Google's <em>Testing</em> status the sign-in expires after
+          7 days; <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Audience</a>
+          → Publish app stops that (no verification needed for your own use). Full guide with
+          troubleshooting:
+          <a href="https://github.com/Muhwu/coach-potato/blob/main/docs/youtube-upload.md" target="_blank" rel="noopener">docs/youtube-upload.md</a>.</p>
+      </details>
+      <div class="settings-field">
+        <div class="settings-actions">
+          <button type="button" class="preset" id="youtube-test">Test configuration</button>
+          <button type="button" class="preset hidden" id="youtube-signin">Sign in with Google</button>
+          <span class="muted" id="youtube-test-status"></span>
+        </div>
+        <ul class="yt-checks hidden" id="youtube-test-results"></ul>
+        <p class="muted">Tests the path typed above, saved or not. Never uploads anything.</p>
       </div>
       <div class="settings-field">
         <label class="filter-label" for="setting-youtube-privacy">Upload privacy</label>

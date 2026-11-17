@@ -2290,3 +2290,22 @@ footer {
   font-family: ui-monospace, monospace; font-size: calc(12px * var(--font-scale));
   margin-top: 4px; word-break: break-all;
 }
+
+/* Settings → Recordings: YouTube setup guide + "Test configuration" results */
+.yt-setup { margin: 4px 0 10px; max-width: 46em; }
+.yt-setup summary { cursor: pointer; color: var(--series-1); }
+.yt-setup ol { margin: 8px 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; }
+.yt-setup a, .yt-checks a { color: var(--series-1); }
+.yt-checks { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: 46em; }
+.yt-check { display: flex; gap: 8px; align-items: flex-start; }
+.yt-check-icon {
+  flex: none; width: 1.4em; height: 1.4em; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: calc(11px * var(--font-scale)); font-weight: 700;
+  border: 1px solid currentColor;
+}
+.yt-ok .yt-check-icon { color: var(--good-text); }
+.yt-warn .yt-check-icon { color: var(--series-1); }
+.yt-fail .yt-check-icon { color: var(--critical); }
+.yt-skip .yt-check-icon { color: var(--muted); }
+.yt-check-fix { margin-top: 2px; color: var(--text-secondary); }

@@ -2,8 +2,9 @@
   "entries": [
     {
       "version": "1.83.0",
-      "date": "2026-11-11",
+      "date": "2026-11-17",
       "items": [
+        "YouTube one-click upload has a step-by-step setup guide in Settings → Recordings, and a Test configuration button that checks the libraries, your client-secrets file and the Google sign-in (with a Sign in with Google button), saying exactly what to fix when something isn't right. Pasted paths in quotes now work, and an expired sign-in asks you to sign in again instead of failing the upload.",
         "Trends shows deaths per game, plus average deaths before 4:00 (early gank), 7:00 (second rotation) and 14:00 (end of laning). The timed ones come from games whose death timings are stored."
       ]
     },

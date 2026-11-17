@@ -288,6 +288,8 @@ def _extra_settings(conn):
         "youtube_privacy": stored.get("youtube_privacy") or youtube.DEFAULT_PRIVACY,
         "youtube_ready": youtube.has_credentials(
             stored.get("youtube_client_secrets"), get_db_path().parent),
+        "youtube_libraries": youtube.libraries_available(),
+        "youtube_signed_in": youtube.token_path(get_db_path().parent).exists(),
         # the whole OBS session-recording feature can be switched off; the UI
         # then stops offering it (existing recordings stay listed and playable)
         "obs_enabled": stored.get("obs_enabled") != "0",
@@ -437,7 +439,8 @@ def api_put_settings(body: dict):
     # Paths are stored as typed — they point at files this machine owns, and
     # both are optional (blank = auto-detect Ascent / no YouTube configured).
     ascent_db_path = (body.get("ascent_db_path") or "").strip()
-    youtube_client_secrets = (body.get("youtube_client_secrets") or "").strip()
+    # Windows' "Copy as path" wraps the path in quotes — accept it as pasted
+    youtube_client_secrets = youtube.clean_path(body.get("youtube_client_secrets"))
     for label, value in (("ascent_db_path", ascent_db_path),
                          ("youtube_client_secrets", youtube_client_secrets)):
         if value and not Path(value).exists():
@@ -3342,6 +3345,31 @@ def api_upload_recording(rec_uuid: str, body: dict = None):
               client_secrets, str(get_db_path().parent)),
         daemon=True).start()
     return {"started": True, "privacy": privacy}
+
+
+@app.post("/api/youtube/test")
+def api_youtube_test(body: dict = None):
+    """Settings' "Test configuration" button for one-click YouTube upload.
+
+    Uses the client-secrets path currently typed into the form (falls back to
+    the saved one), so a path can be checked before saving. `sign_in: true`
+    runs Google's browser consent flow on this machine and caches the token —
+    the same thing the first upload would do, just before there's a video
+    riding on it. Never uploads anything.
+    """
+    body = body or {}
+    conn = get_conn()
+    try:
+        stored = db.get_settings(conn)
+    finally:
+        conn.close()
+    secrets = body.get("client_secrets")
+    if secrets is None:
+        secrets = stored.get("youtube_client_secrets") or ""
+    if UPLOAD_STATE["running"] and body.get("sign_in"):
+        raise HTTPException(409, "an upload is running — try again when it finishes")
+    return youtube.check_setup(secrets, get_db_path().parent,
+                               sign_in=bool(body.get("sign_in")))
 
 
 # ---------- OBS-recorded coaching sessions (see server/obs.py) ----------
