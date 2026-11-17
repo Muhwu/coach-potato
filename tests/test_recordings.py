@@ -539,12 +539,48 @@ def test_reveal_reports_a_missing_file(tmp_path):
         recordings.reveal_in_file_manager(tmp_path / "gone.mp4")
 
 
-# ---------- YouTube ----------
-# The Google client libraries are optional (requirements-youtube.txt), so the
-# tests that need them skip rather than fail on a default install.
-needs_google = pytest.mark.skipif(
-    not youtube.libraries_available(),
-    reason="optional YouTube libraries not installed (requirements-youtube.txt)")
+# ---------- YouTube (plain httpx — every Google call goes through a MockTransport) ----------
+import json
+
+import httpx
+
+CLIENT_ID = "123-abc.apps.googleusercontent.com"
+
+
+def _secrets(tmp_path, kind="installed", client_id=CLIENT_ID):
+    path = tmp_path / "client.json"
+    path.write_text(json.dumps(
+        {kind: {"client_id": client_id, "client_secret": "s", "project_id": "cp"}}))
+    return path
+
+
+def _token(tmp_path, **extra):
+    youtube.save_token(tmp_path, {"client_id": CLIENT_ID, "refresh_token": "r",
+                                  "access_token": "a", "expires_at": 9e12, **extra})
+
+
+def _by_key(result):
+    return {c["key"]: c for c in result["checks"]}
+
+
+def google(routes):
+    """A MockTransport answering by (method, path); records every request."""
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        key = (request.method, request.url.path)
+        answer = routes.get(key)
+        if answer is None:
+            return httpx.Response(404, json={"error": {"message": f"unmocked {key}"}})
+        return answer(request) if callable(answer) else answer
+    transport = httpx.MockTransport(handler)
+    transport.seen = seen
+    return transport
+
+
+TOKEN_OK = httpx.Response(200, json={"access_token": "fresh", "expires_in": 3600})
+CHANNEL_OK = httpx.Response(200, json={"items": [{"id": "UC1", "snippet": {"title": "Muhwu"}}]})
 
 
 def test_upload_validates_before_touching_the_network():
@@ -552,74 +588,136 @@ def test_upload_validates_before_touching_the_network():
         youtube.upload("x.mp4", "t", privacy="everyone")
 
 
-@needs_google
-def test_upload_requires_configuration(tmp_path):
-    video = tmp_path / "v.mp4"
-    video.write_bytes(b"x")
-    with pytest.raises(youtube.YouTubeError, match="No YouTube client secrets"):
-        youtube.upload(video, "t", client_secrets_path=None, db_dir=tmp_path)
-
-
-@needs_google
-def test_upload_builds_the_request_and_clamps_fields(tmp_path):
-    video = tmp_path / "v.mp4"
-    video.write_bytes(b"x" * 128)
-    captured = {}
-
-    class Request:
-        def next_chunk(self):
-            return None, {"id": "VID"}
-
-    class Videos:
-        def insert(self, part, body, media_body):
-            captured.update(part=part, body=body, media=media_body)
-            return Request()
-
-    with mock.patch.object(youtube, "_credentials", return_value="C"), \
-         mock.patch("googleapiclient.discovery.build",
-                    return_value=mock.Mock(videos=lambda: Videos())):
-        video_id = youtube.upload(video, "T" * 200, "D" * 6000, "unlisted",
-                                  client_secrets_path="x", db_dir=tmp_path)
-
-    assert video_id == "VID"
-    assert len(captured["body"]["snippet"]["title"]) == youtube.MAX_TITLE
-    assert len(captured["body"]["snippet"]["description"]) == youtube.MAX_DESCRIPTION
-    assert captured["body"]["status"]["privacyStatus"] == "unlisted"
-    assert captured["media"].resumable() is True  # these files are gigabytes
-
-
 def test_default_privacy_is_private():
     """Unaudited OAuth projects can only produce private videos anyway."""
     assert youtube.DEFAULT_PRIVACY == "private"
 
 
-def test_youtube_is_optional_without_the_google_libraries(tmp_path, monkeypatch):
-    """With the optional libraries absent the feature must present as "not set
-    up" rather than as a button that errors on click — has_credentials is what
-    the UI gates the one-click upload on."""
-    secrets = tmp_path / "client_secrets.json"
-    secrets.write_text("{}")
-    monkeypatch.setattr(youtube, "libraries_available", lambda: False)
-    assert youtube.has_credentials(str(secrets), tmp_path) is False
-    # and an attempted upload explains what to install, rather than crashing
+def test_upload_requires_a_sign_in(tmp_path):
     video = tmp_path / "v.mp4"
     video.write_bytes(b"x")
-    with pytest.raises(youtube.YouTubeError, match="google-api-python-client"):
-        youtube.upload(video, "t", client_secrets_path=str(secrets), db_dir=tmp_path)
+    with pytest.raises(youtube.SignInRequired, match="Settings"):
+        youtube.upload(video, "t", client_secrets_path=str(_secrets(tmp_path)),
+                       db_dir=tmp_path, transport=google({}))
 
 
-# ---------- YouTube "Test configuration" ----------
+def test_upload_is_resumable_and_clamps_fields(tmp_path, monkeypatch):
+    monkeypatch.setattr(youtube, "CHUNK", 256 * 1024)
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x" * (600 * 1024))  # three chunks
+    _token(tmp_path)
+    captured = {"puts": []}
 
-def _secrets(tmp_path, kind="installed", client_id="123-abc.apps.googleusercontent.com"):
-    path = tmp_path / "client.json"
-    path.write_text(__import__("json").dumps(
-        {kind: {"client_id": client_id, "client_secret": "s", "project_id": "cp"}}))
-    return path
+    def start(request):
+        captured["meta"] = json.loads(request.content)
+        captured["start_headers"] = request.headers
+        return httpx.Response(200, headers={"Location": "https://upload.example/session"})
+
+    def put(request):
+        captured["puts"].append(request.headers["content-range"])
+        end = int(request.headers["content-range"].split("-")[1].split("/")[0])
+        if end + 1 < 600 * 1024:
+            return httpx.Response(308, headers={"Range": f"bytes=0-{end}"})
+        return httpx.Response(200, json={"id": "VID"})
+
+    transport = google({("POST", "/upload/youtube/v3/videos"): start,
+                        ("PUT", "/session"): put})
+    progress = []
+    video_id = youtube.upload(video, "T" * 200, "D" * 6000, "unlisted",
+                              client_secrets_path=str(_secrets(tmp_path)),
+                              db_dir=tmp_path, transport=transport,
+                              on_progress=progress.append)
+    assert video_id == "VID"
+    assert len(captured["meta"]["snippet"]["title"]) == youtube.MAX_TITLE
+    assert len(captured["meta"]["snippet"]["description"]) == youtube.MAX_DESCRIPTION
+    assert captured["meta"]["status"]["privacyStatus"] == "unlisted"
+    assert captured["start_headers"]["authorization"] == "Bearer a"
+    assert captured["puts"] == [f"bytes 0-262143/{600 * 1024}",
+                                f"bytes 262144-524287/{600 * 1024}",
+                                f"bytes 524288-614399/{600 * 1024}"]
+    assert progress[-1] == 1.0
 
 
-def _by_key(result):
-    return {c["key"]: c for c in result["checks"]}
+def test_upload_refreshes_an_expired_access_token(tmp_path):
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+    _token(tmp_path, expires_at=0)
+    transport = google({
+        ("POST", "/token"): TOKEN_OK,
+        ("POST", "/upload/youtube/v3/videos"):
+            httpx.Response(200, headers={"Location": "https://upload.example/s"}),
+        ("PUT", "/s"): httpx.Response(201, json={"id": "V2"}),
+    })
+    assert youtube.upload(video, "t", client_secrets_path=str(_secrets(tmp_path)),
+                          db_dir=tmp_path, transport=transport) == "V2"
+    assert youtube.load_token(tmp_path)["access_token"] == "fresh"
+    put = [r for r in transport.seen if r.method == "PUT"][0]
+    assert put.headers["authorization"] == "Bearer fresh"
 
+
+def test_upload_quota_error_is_explained(tmp_path):
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+    _token(tmp_path)
+    transport = google({("POST", "/upload/youtube/v3/videos"): httpx.Response(
+        403, json={"error": {"errors": [{"reason": "quotaExceeded"}], "message": "q"}})})
+    with pytest.raises(youtube.YouTubeError, match="quota"):
+        youtube.upload(video, "t", client_secrets_path=str(_secrets(tmp_path)),
+                       db_dir=tmp_path, transport=transport)
+
+
+def test_old_google_auth_token_files_still_work(tmp_path):
+    """Users signed in with the earlier google-auth version keep their sign-in."""
+    youtube.token_path(tmp_path).write_text(json.dumps({
+        "token": "old", "refresh_token": "r", "client_id": CLIENT_ID,
+        "client_secret": "s", "scopes": ["x"], "expiry": "2020-01-01T00:00:00Z"}))
+    client, _ = youtube.read_client(str(_secrets(tmp_path)))
+    assert youtube.has_credentials(str(_secrets(tmp_path)), tmp_path)
+    assert youtube.access_token(client, tmp_path, google({("POST", "/token"): TOKEN_OK})) == "fresh"
+
+
+def test_sign_in_runs_the_loopback_flow_with_pkce(tmp_path):
+    client, _ = youtube.read_client(str(_secrets(tmp_path)))
+    exchanged = {}
+
+    def token(request):
+        exchanged.update(dict(httpx.QueryParams(request.content.decode())))
+        return httpx.Response(200, json={"access_token": "A", "refresh_token": "R",
+                                         "expires_in": 3600})
+    transport = google({("POST", "/token"): token,
+                        ("GET", "/youtube/v3/channels"): CHANNEL_OK})
+    flow = youtube.SignIn(client, tmp_path, transport=transport, open_browser=False,
+                          timeout_s=10)
+    url = flow.start()
+    params = dict(httpx.URL(url).params)
+    assert params["code_challenge_method"] == "S256"
+    assert "select_account" in params["prompt"]
+    assert set(params["scope"].split()) == set(youtube.SCOPES)
+    # play the browser: Google redirects back to the loopback server
+    import threading
+    import urllib.request
+    threading.Thread(target=lambda: urllib.request.urlopen(
+        f"{params['redirect_uri']}?code=C&state={params['state']}").read(), daemon=True).start()
+    token_saved = flow.wait()
+    assert exchanged["code"] == "C" and exchanged["code_verifier"] == flow.verifier
+    assert token_saved["channel_title"] == "Muhwu"
+    assert youtube.load_token(tmp_path)["refresh_token"] == "R"
+
+
+def test_sign_in_rejects_a_forged_redirect(tmp_path):
+    client, _ = youtube.read_client(str(_secrets(tmp_path)))
+    flow = youtube.SignIn(client, tmp_path, open_browser=False, timeout_s=10)
+    params = dict(httpx.URL(flow.start()).params)
+    import threading
+    import urllib.request
+    threading.Thread(target=lambda: urllib.request.urlopen(
+        f"{params['redirect_uri']}?code=C&state=wrong").read(), daemon=True).start()
+    with pytest.raises(youtube.YouTubeError, match="state_mismatch"):
+        flow.wait()
+    assert youtube.load_token(tmp_path) is None
+
+
+# ---------- "Test configuration" ----------
 
 def test_clean_path_accepts_windows_copy_as_path_quotes():
     assert youtube.clean_path('  "C:\\Users\\me\\client.json" ') == "C:\\Users\\me\\client.json"
@@ -627,112 +725,80 @@ def test_clean_path_accepts_windows_copy_as_path_quotes():
     assert youtube.clean_path(None) == ""
 
 
-def test_check_setup_without_libraries_still_checks_the_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(youtube, "libraries_available", lambda: False)
-    result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path)
-    checks = _by_key(result)
-    assert result["ok"] is False
-    assert checks["libraries"]["status"] == "fail"
-    assert "requirements-youtube.txt" in checks["libraries"]["fix"]
-    assert checks["secrets"]["status"] == "ok"
-    assert checks["signin"]["status"] == "skip"
-
-
 @pytest.mark.parametrize("make,expect", [
-    (lambda p: None, "No file configured"),
-    (lambda p: str(p), "is a folder"),
+    (lambda p: None, "None loaded"),
     (lambda p: str(p / "missing.json"), "No file at"),
     (lambda p: (p / "bad.json").write_text("{nope") and str(p / "bad.json"), "Not readable as JSON"),
     (lambda p: str(_secrets(p, kind="web")), "Web application"),
     (lambda p: (p / "sa.json").write_text('{"type": "service_account"}') and str(p / "sa.json"),
      "service-account"),
 ])
-def test_check_setup_explains_each_wrong_secrets_file(tmp_path, monkeypatch, make, expect):
-    monkeypatch.setattr(youtube, "libraries_available", lambda: True)
-    result = youtube.check_setup(make(tmp_path), tmp_path)
+def test_check_setup_explains_each_wrong_client_file(tmp_path, make, expect):
+    result = youtube.check_setup(make(tmp_path), tmp_path, transport=google({}))
     secrets = _by_key(result)["secrets"]
     assert secrets["status"] == "fail" and expect in secrets["detail"]
     assert secrets["fix"]  # every failure says how to fix it
+    assert _by_key(result)["signin"]["status"] == "skip"
     assert result["ok"] is False
 
 
-@needs_google
 def test_check_setup_asks_for_sign_in_when_no_token(tmp_path):
-    result = youtube.check_setup(f'"{_secrets(tmp_path)}"', tmp_path)
+    result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path, transport=google({}))
     assert result["needs_sign_in"] is True and result["ok"] is False
     assert _by_key(result)["signin"]["status"] == "warn"
 
 
-@needs_google
 def test_check_setup_flags_a_token_from_another_client(tmp_path):
-    youtube.token_path(tmp_path).write_text(__import__("json").dumps({
-        "client_id": "999-other", "client_secret": "s", "refresh_token": "r",
-        "token": "t", "scopes": youtube.SCOPES}))
-    result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path)
+    _token(tmp_path, client_id="999-other")
+    result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path, transport=google({}))
     assert result["needs_sign_in"] is True
     assert "different OAuth client" in _by_key(result)["signin"]["detail"]
 
 
-@needs_google
 def test_check_setup_reports_an_expired_sign_in(tmp_path):
-    youtube.token_path(tmp_path).write_text(__import__("json").dumps({
-        "client_id": "123-abc.apps.googleusercontent.com", "client_secret": "s",
-        "refresh_token": "r", "scopes": youtube.SCOPES}))
-    from google.oauth2.credentials import Credentials
-    with mock.patch.object(Credentials, "refresh", side_effect=Exception("invalid_grant")):
-        result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path)
+    _token(tmp_path)
+    transport = google({("POST", "/token"): httpx.Response(
+        400, json={"error": "invalid_grant"})})
+    result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path, transport=transport)
     signin = _by_key(result)["signin"]
     assert result["needs_sign_in"] is True and signin["status"] == "fail"
     assert "7 days" in signin["fix"]
 
 
-@needs_google
-def test_check_setup_all_green_with_a_working_token(tmp_path):
-    youtube.token_path(tmp_path).write_text(__import__("json").dumps({
-        "client_id": "123-abc.apps.googleusercontent.com", "client_secret": "s",
-        "refresh_token": "r", "token": "t", "expiry": "2999-01-01T00:00:00Z",
-        "scopes": youtube.SCOPES}))
-    with mock.patch.object(youtube, "_api_check",
-                           return_value=youtube._check("api", "ok", "API")):
-        result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path)
-    assert result["ok"] is True and result["needs_sign_in"] is False
+def test_check_setup_all_green_names_the_channel(tmp_path):
+    _token(tmp_path)
+    transport = google({("POST", "/token"): TOKEN_OK,
+                        ("GET", "/youtube/v3/channels"): CHANNEL_OK})
+    result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path, transport=transport)
+    assert result["ok"] is True and result["channel"]["channel_title"] == "Muhwu"
     assert {c["status"] for c in result["checks"]} == {"ok"}
+    assert youtube.load_token(tmp_path)["channel_id"] == "UC1"
 
 
-@needs_google
-def test_api_check_explains_a_disabled_api():
-    from googleapiclient.errors import HttpError
-    resp = mock.Mock(status=403, reason="Forbidden")
-    err = HttpError(resp, b'{"error": {"message": "YouTube Data API v3 has not been used",'
-                          b' "errors": [{"reason": "accessNotConfigured"}]}}')
-    service = mock.Mock()
-    service.videoCategories.return_value.list.return_value.execute.side_effect = err
-    with mock.patch("googleapiclient.discovery.build", return_value=service):
-        check = youtube._api_check("creds")
-    assert check["status"] == "fail" and "Enable" in check["fix"]
-    assert check["link"] == youtube.CONSOLE["api"]
+def test_check_setup_explains_a_disabled_api(tmp_path):
+    _token(tmp_path)
+    transport = google({
+        ("POST", "/token"): TOKEN_OK,
+        ("GET", "/youtube/v3/channels"): httpx.Response(403, json={"error": {
+            "message": "YouTube Data API v3 has not been used",
+            "errors": [{"reason": "accessNotConfigured"}]}})})
+    api = _by_key(youtube.check_setup(str(_secrets(tmp_path)), tmp_path,
+                                      transport=transport))["api"]
+    assert api["status"] == "fail" and "Enable" in api["fix"]
+    assert api["link"] == youtube.CONSOLE["api"]
 
 
-@needs_google
-def test_check_setup_sign_in_failure_points_at_test_users(tmp_path):
-    with mock.patch.object(youtube, "_sign_in",
-                           side_effect=Exception("access_denied: not a test user")):
-        result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path, sign_in=True)
-    signin = _by_key(result)["signin"]
-    assert signin["status"] == "fail" and "Test users" in signin["fix"]
+def test_check_setup_asks_old_upload_only_sign_ins_to_sign_in_again(tmp_path):
+    _token(tmp_path)
+    transport = google({
+        ("POST", "/token"): TOKEN_OK,
+        ("GET", "/youtube/v3/channels"): httpx.Response(403, json={"error": {
+            "message": "insufficient", "errors": [{"reason": "insufficientPermissions"}]}})})
+    result = youtube.check_setup(str(_secrets(tmp_path)), tmp_path, transport=transport)
+    assert result["needs_sign_in"] is True
+    assert _by_key(result)["api"]["status"] == "warn"
 
 
-@needs_google
-def test_an_expired_sign_in_falls_back_to_signing_in_again(tmp_path):
-    """Testing-status apps get 7-day refresh tokens; an upload after that must
-    re-run the browser sign-in, not die with RefreshError."""
-    youtube.token_path(tmp_path).write_text(__import__("json").dumps({
-        "client_id": "c", "client_secret": "s", "refresh_token": "r",
-        "scopes": youtube.SCOPES}))
-    fresh = mock.Mock(to_json=lambda: '{"fresh": true}')
-    from google.oauth2.credentials import Credentials
-    with mock.patch.object(Credentials, "refresh", side_effect=Exception("invalid_grant")), \
-         mock.patch.object(youtube, "_sign_in", return_value=fresh) as sign_in:
-        assert youtube._credentials(str(_secrets(tmp_path)), tmp_path) is fresh
-    sign_in.assert_called_once()
-    assert youtube.token_path(tmp_path).read_text() == '{"fresh": true}'
+def test_sign_in_failures_point_at_the_fix():
+    assert "Test users" in youtube._signin_failure("sign-in failed: access_denied")["fix"]
+    assert "Desktop app" in youtube._signin_failure("redirect_uri_mismatch")["fix"]

@@ -1,8 +1,8 @@
 # Setting up one-click YouTube upload
 
-Every recording in Coach Potato already has a **📁 Upload to YouTube** button
-that needs no setup: it shows the video in Explorer, copies its path and opens
-youtube.com/upload. **Most people should just use that.**
+Every recording in Coach Potato already has a **Manual upload** button that
+needs no setup: it opens youtube.com/upload, copies the video's path and shows
+it in Explorer. It uploads to whichever channel your browser has selected.
 
 One-click upload sends the video from inside the app instead, with the title
 and the chapter-per-death description already filled in. It needs a free
@@ -16,18 +16,6 @@ Before you start, know Google's limits for a personal project like this:
 | Video privacy | **Always private** until Google audits the project (you can make it unlisted/public on YouTube afterwards) |
 | Uploads per day | About **6** (each upload costs 1,600 of the default 10,000 daily quota units) |
 | Sign-in lasts | **7 days** while the app is in *Testing* — see step 7 to remove that |
-
-## 0. Requirement: the Google upload libraries
-
-One-click upload needs Google's Python client libraries, which are **not part
-of the downloadable Windows/macOS build**. If you run Coach Potato from source:
-
-```bash
-.venv/bin/pip install -r requirements-youtube.txt     # Windows: .venv\Scripts\pip ...
-```
-
-…then restart the app. Settings → Recordings → **Test configuration** tells
-you whether they're available.
 
 ## 1. Create a Google Cloud project
 
@@ -65,32 +53,33 @@ Open <https://console.cloud.google.com/auth/clients> → **Create client**:
 - **Application type**: **Desktop app** (not *Web application*)
 - **Name**: anything
 
-Click **Create**, then **Download JSON**. Move the file somewhere permanent
-(e.g. `Documents\CoachPotato\youtube-client.json`) — the app reads it from that
-path every time it needs to sign in.
+Click **Create**, then **Download JSON**.
 
-## 6. Point Coach Potato at it and test
+## 6. Load it in Coach Potato and sign in
 
 Settings → **Recordings** → *Uploading to YouTube*:
 
-1. Paste the JSON file's full path into **Client secrets (JSON)**. On Windows,
-   Shift+right-click the file → **Copy as path** (the quotes it adds are fine).
-2. Click **Test configuration**. Every row should be green except *Google
-   sign-in*, which says you haven't signed in yet.
-3. Click **Sign in with Google**. A browser tab opens: choose the account from
-   step 4. Google warns that it **hasn't verified this app** — it's your own
-   app, so click **Continue**, then allow the upload permission.
-4. Test again — all green means the next upload goes straight through.
-5. Click **Save**.
+1. **Choose client file…** and pick the downloaded JSON. Coach Potato keeps its
+   own copy, so you can delete the download afterwards.
+2. **Sign in with Google**. A browser tab opens:
+   - choose the Google account from step 4;
+   - if that account manages several channels (brand accounts), Google asks
+     which one — **that's the channel uploads go to**;
+   - Google warns that it **hasn't verified this app** — it's your own app, so
+     click **Continue**, then allow the permissions (upload videos, and view
+     your channel so the app can show which channel it's using).
+3. The card now says *Uploads go to <your channel>*. **Test** re-checks
+   everything at any time; **Switch channel** signs in again so you can pick
+   a different account or channel.
 
 ## 7. Optional: stop the weekly re-sign-in
 
 While the app's publishing status is *Testing*, Google expires the sign-in
-after 7 days, and the next upload (or Test configuration) asks you to sign in
-again. To avoid that, open <https://console.cloud.google.com/auth/audience> and
-click **Publish app**. You don't need to submit it for verification: you'll
-just keep seeing the "unverified app" warning when signing in, which is
-expected for a personal project.
+after 7 days, and you'll be asked to sign in again. To avoid that, open
+<https://console.cloud.google.com/auth/audience> and click **Publish app**. You
+don't need to submit it for verification: you'll just keep seeing the
+"unverified app" warning when signing in, which is expected for a personal
+project.
 
 ## Troubleshooting
 

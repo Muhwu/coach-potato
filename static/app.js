@@ -2427,15 +2427,54 @@ async function testObsConnection() {
     body.recording ? " (recording now)" : ""}${where}${fmt}`;
 }
 
-/* Settings → Recordings → "Test configuration" for one-click YouTube upload.
-   Each check row says what's wrong AND how to fix it (server/youtube.py
-   check_setup); "Sign in with Google" runs the browser consent flow up front so
-   the first real upload doesn't stall on it. */
+/* Settings → Recordings → Uploading to YouTube. One status card driven by the
+   youtube_* fields of /api/settings: not set up → client file loaded → signed
+   in (to a named channel). "Test" runs server/youtube.py check_setup, whose
+   rows say what's wrong AND how to fix it. */
 const YT_CHECK_ICON = { ok: "✓", warn: "!", fail: "✕", skip: "–" };
+let youtubeSignInTimer = null;
 
-function renderYoutubeChecks(result) {
+function applyYoutubeStatus(data) {
+  state.youtube = {
+    clientLoaded: Boolean(data.youtube_client_loaded),
+    project: data.youtube_client_project || "",
+    signedIn: Boolean(data.youtube_signed_in),
+    channel: data.youtube_channel_title || "",
+  };
+  state.youtubeReady = Boolean(data.youtube_ready);
+  renderYoutubeCard();
+}
+
+function renderYoutubeCard() {
+  const yt = state.youtube || {};
+  const ready = yt.clientLoaded && yt.signedIn;
+  const show = (id, on) => $(id).classList.toggle("hidden", !on);
+  $("#youtube-state").innerHTML = ready
+    ? `<span class="yt-dot yt-dot-ok"></span>One-click upload is on — uploads go to
+       <strong>${escapeHtml(yt.channel || "your channel")}</strong>`
+    : yt.clientLoaded
+      ? `<span class="yt-dot yt-dot-warn"></span>Client loaded${yt.project
+          ? ` (${escapeHtml(yt.project)})` : ""} — sign in to finish`
+      : `<span class="yt-dot"></span>One-click upload is off`;
+  $("#youtube-client-btn-text").textContent = yt.clientLoaded ? "Replace client file…" : "Choose client file…";
+  show("#youtube-client-label", !ready);
+  show("#youtube-signin", yt.clientLoaded && !yt.signedIn);
+  show("#youtube-test", yt.clientLoaded);
+  show("#youtube-switch", ready);
+  show("#youtube-remove", yt.clientLoaded);
+  show("#youtube-privacy-field", ready);
+  $("#youtube-setup-guide").open = !yt.clientLoaded;
+}
+
+function youtubeStatusLine(text, isError = false) {
+  const status = $("#youtube-test-status");
+  status.classList.toggle("status-error", isError);
+  status.innerHTML = text;
+}
+
+function renderYoutubeChecks(checks) {
   const list = $("#youtube-test-results");
-  list.innerHTML = (result.checks || []).map((c) => `
+  list.innerHTML = (checks || []).map((c) => `
     <li class="yt-check yt-${escapeHtml(c.status)}">
       <span class="yt-check-icon" aria-hidden="true">${YT_CHECK_ICON[c.status] || "?"}</span>
       <div>
@@ -2445,45 +2484,94 @@ function renderYoutubeChecks(result) {
           c.link ? ` <a href="${escapeHtml(c.link)}" target="_blank" rel="noopener">Open in Google Cloud ↗</a>` : ""}</div>` : ""}
       </div>
     </li>`).join("");
-  list.classList.remove("hidden");
-  $("#youtube-signin").classList.toggle("hidden",
-    !(result.checks || []).some((c) => c.key === "signin" && c.status !== "ok" && c.status !== "skip"));
+  list.classList.toggle("hidden", !(checks || []).length);
 }
 
-async function testYoutubeConfig(signIn = false) {
-  const status = $("#youtube-test-status");
-  const buttons = [$("#youtube-test"), $("#youtube-signin")];
-  status.classList.remove("status-error");
-  status.textContent = signIn
-    ? "Finish signing in in the browser tab that just opened…"
-    : "Checking…";
-  buttons.forEach((b) => { b.disabled = true; });
+async function refreshYoutubeStatus() {
+  try { applyYoutubeStatus(await getJSON("/api/settings")); } catch { /* keep what we show */ }
+}
+
+async function testYoutubeConfig() {
+  youtubeStatusLine("Checking…");
+  $("#youtube-test").disabled = true;
   try {
-    const response = await fetch("/api/youtube/test", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_secrets: $("#setting-youtube-secrets").value,
-        sign_in: signIn,
-      }),
-    });
+    const response = await fetch("/api/youtube/test", { method: "POST" });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || `error ${response.status}`);
-    renderYoutubeChecks(body);
-    if (body.ok) {
-      status.textContent = "All set — one-click upload is ready.";
-      state.youtubeReady = true;
-    } else if (body.needs_sign_in) {
-      status.textContent = "Almost there — sign in with Google to finish.";
-    } else {
-      status.classList.add("status-error");
-      status.textContent = "Not ready yet — see below for what to fix.";
-    }
+    renderYoutubeChecks(body.checks);
+    if (body.ok) youtubeStatusLine("All good — the next upload will go straight through.");
+    else if (body.needs_sign_in) youtubeStatusLine("");
+    else youtubeStatusLine("Not ready yet — see below for what to fix.", true);
+    await refreshYoutubeStatus();
   } catch (err) {
-    status.classList.add("status-error");
-    status.textContent = String(err.message || err);
+    youtubeStatusLine(escapeHtml(String(err.message || err)), true);
   } finally {
-    buttons.forEach((b) => { b.disabled = false; });
+    $("#youtube-test").disabled = false;
   }
+}
+
+async function loadYoutubeClientFile(input) {
+  const file = input.files[0];
+  input.value = "";
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  youtubeStatusLine("Loading…");
+  renderYoutubeChecks([]);
+  const response = await fetch("/api/youtube/client", { method: "POST", body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    youtubeStatusLine(escapeHtml(body.detail || `error ${response.status}`), true);
+    return;
+  }
+  applyYoutubeStatus(body);
+  youtubeStatusLine(body.youtube_signed_in
+    ? "Client file replaced."
+    : "Client file loaded — now sign in with Google.");
+}
+
+async function youtubeSignIn() {
+  const response = await fetch("/api/youtube/sign-in", { method: "POST" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    youtubeStatusLine(escapeHtml(body.detail || `error ${response.status}`), true);
+    return;
+  }
+  renderYoutubeChecks([]);
+  youtubeStatusLine(`Finish signing in in your browser — pick the account and channel to upload to.
+    <a href="${escapeHtml(body.auth_url)}" target="_blank" rel="noopener">Browser didn't open?</a>`);
+  clearInterval(youtubeSignInTimer);
+  youtubeSignInTimer = setInterval(async () => {
+    let s;
+    try { s = await getJSON("/api/youtube/sign-in"); } catch { return; }
+    if (s.running) return;
+    clearInterval(youtubeSignInTimer);
+    await refreshYoutubeStatus();
+    if (s.done) {
+      youtubeStatusLine(s.channel_title
+        ? `Signed in — uploads go to <strong>${escapeHtml(s.channel_title)}</strong>.`
+        : "Signed in.");
+    } else {
+      youtubeStatusLine("Sign-in didn't complete.", true);
+      if (s.check) renderYoutubeChecks([s.check]);
+    }
+  }, 1500);
+}
+
+async function youtubeTurnOff() {
+  if (!confirm("Turn off one-click upload? This forgets the client file and the Google sign-in. Manual upload keeps working.")) return;
+  const response = await fetch("/api/youtube/client", { method: "DELETE" });
+  if (response.ok) applyYoutubeStatus(await response.json());
+  renderYoutubeChecks([]);
+  youtubeStatusLine("");
+}
+
+function wireYoutubeSettings() {
+  $("#youtube-client-file").addEventListener("change", (e) => loadYoutubeClientFile(e.target));
+  $("#youtube-signin").addEventListener("click", youtubeSignIn);
+  $("#youtube-switch").addEventListener("click", youtubeSignIn);
+  $("#youtube-test").addEventListener("click", testYoutubeConfig);
+  $("#youtube-remove").addEventListener("click", youtubeTurnOff);
 }
 
 async function syncRecordings() {
@@ -2596,54 +2684,82 @@ function recordingCard(r) {
     </div>`;
   }
   const marks = recordingSeekRow(r);
-  const uploading = recordingUi.upload.uuid === r.uuid;
-  // Only offer "Upload to YouTube" when it can actually happen — i.e. the
-  // optional Google libraries are installed AND an OAuth client is configured
-  // (youtube_ready covers both). Otherwise the card shows the plain
-  // reveal-the-file action plus an ℹ explaining how to turn upload on, rather
-  // than a YouTube button that would dead-end.
-  const reveal = `<button type="button" class="preset recording-manual"
-    data-uuid="${escapeHtml(r.uuid)}"
-    title="Open the folder containing this recording">📁 Show file</button>`;
-  const uploadBtn = state.youtubeReady
-    ? `<button type="button" class="preset btn-primary recording-upload"
-         data-uuid="${escapeHtml(r.uuid)}" ${uploading ? "disabled" : ""}
-         title="One-click upload using your configured Google OAuth client"
-         >${uploading ? "Uploading…" : "⬆ Upload to YouTube"}</button>`
-    : `<button type="button" class="preset icon-btn recording-yt-info"
-         aria-label="Why is there no YouTube upload button?"
-         title="YouTube upload isn't set up. Install the optional Google libraries (requirements-youtube.txt) and add your OAuth client secrets in Settings → Recordings &amp; YouTube. Click to open Settings.">ℹ</button>`;
-  const yt = r.youtube_video_id
-    ? `<a class="preset recording-yt-link" href="${escapeHtml(r.youtube_url)}"
-         target="_blank" rel="noopener noreferrer">▶ On YouTube</a>`
-    : `${uploadBtn}${reveal}`;
+  const uploading = recordingUi.upload.uuid === r.uuid && !recordingUi.upload.error;
+  const uuid = escapeHtml(r.uuid);
+  const descOpen = recordingUi.descriptionOpen.has(r.uuid);
+  // The share toolbar: everything about getting this video onto YouTube on
+  // the left, housekeeping (show in folder, event sync) on the right.
+  // Manual upload needs no setup, so it is always there; one-click upload only
+  // when it can actually happen (youtube_ready) — otherwise a quiet "set up"
+  // link instead of a button that would dead-end.
+  let share;
+  if (r.youtube_video_id) {
+    share = `<a class="preset rec-yt-btn recording-yt-link" href="${escapeHtml(r.youtube_url)}"
+        target="_blank" rel="noopener noreferrer">${YT_ICON} Watch on YouTube</a>`;
+  } else {
+    const oneClick = state.youtubeReady
+      ? `<button type="button" class="preset btn-primary recording-upload" data-uuid="${uuid}"
+           ${uploading ? "disabled" : ""}
+           title="Upload from Coach Potato with the title and chapters filled in"
+           >${uploading ? `Uploading… ${Math.round(recordingUi.upload.progress * 100)}%`
+             : "⬆ Upload to YouTube"}</button>`
+      : "";
+    share = `${oneClick}
+      <button type="button" class="preset rec-yt-btn recording-manual" data-uuid="${uuid}"
+        title="Opens YouTube's upload page, copies this file's path and shows it in Explorer"
+        >${YT_ICON} ${state.youtubeReady ? "Manual" : "Manual upload"}</button>`;
+  }
   const progress = uploading
     ? `<div class="recording-progress"><div class="recording-progress-fill"
          style="width:${Math.round(recordingUi.upload.progress * 100)}%"></div></div>`
     : "";
   const error = recordingUi.upload.error && recordingUi.upload.uuid === r.uuid
-    ? `<span class="muted status-error">${escapeHtml(recordingUi.upload.error)}</span>` : "";
-  return `<div class="recording-card" data-uuid="${escapeHtml(r.uuid)}">
+    ? `<p class="rec-share-note status-error">${escapeHtml(recordingUi.upload.error)}${
+        /Settings/.test(recordingUi.upload.error)
+          ? ` <button type="button" class="link-btn recording-yt-info">Open Settings</button>` : ""}</p>`
+    : "";
+  const setup = !state.youtubeReady && !r.youtube_video_id
+    ? `<button type="button" class="link-btn rec-setup-link recording-yt-info"
+         title="Upload straight from Coach Potato — Settings → Recordings">Set up one-click upload</button>`
+    : "";
+  return `<div class="recording-card" data-uuid="${uuid}">
     <div class="recording-main">
       <video class="recording-video" controls preload="metadata"
         src="/api/recordings/${encodeURIComponent(r.uuid)}/file"></video>
       ${recordingMap(r)}
     </div>
     ${marks}
-    <div class="recording-actions">
-      ${yt}
-      <label class="recording-offset-label" title="Nudge if the video and game clocks drift">
-        offset
-        <input type="number" class="recording-offset" data-uuid="${escapeHtml(r.uuid)}"
-          step="1000" value="${r.offset_ms}"> ms
-      </label>
-      ${error}
+    <div class="rec-share">
+      <div class="rec-share-main">
+        ${share}
+        <button type="button" class="preset recording-desc-toggle ${descOpen ? "active" : ""}"
+          data-uuid="${uuid}" aria-expanded="${descOpen}"
+          title="A YouTube description with a chapter per death, kill and objective"
+          >☰ Description</button>
+        ${setup}
+      </div>
+      <div class="rec-share-side">
+        <button type="button" class="preset icon-btn rec-icon-btn recording-reveal" data-uuid="${uuid}"
+          title="Show the video file in its folder" aria-label="Show file in folder">📁</button>
+        <label class="recording-offset-label"
+          title="If the event markers land early or late in the video, shift them here (+ = later)">
+          Sync
+          <input type="number" class="recording-offset" data-uuid="${uuid}"
+            step="0.5" value="${(r.offset_ms || 0) / 1000}"> s
+        </label>
+      </div>
     </div>
-    <span class="muted recording-manual-status"></span>
-    ${recordingDescriptionBlock(r)}
     ${progress}
+    ${error}
+    <div class="recording-manual-status"></div>
+    ${recordingDescriptionBlock(r)}
   </div>`;
 }
+
+// YouTube's play-button mark, drawn inline (brand red via --brand-youtube)
+const YT_ICON = `<svg class="yt-icon" viewBox="0 0 28 20" aria-hidden="true">
+  <rect width="28" height="20" rx="5" fill="var(--brand-youtube)"/>
+  <path d="M11 5.5v9l7.8-4.5z" fill="#fff"/></svg>`;
 
 /* ---------- the mini-map beside the player ----------
 
@@ -2918,25 +3034,18 @@ function recordingMap(r) {
    death, so the uploaded video is navigable. Collapsed by default: it's only
    needed at upload time. */
 function recordingDescriptionBlock(r) {
-  const open = recordingUi.descriptionOpen.has(r.uuid);
+  if (!recordingUi.descriptionOpen.has(r.uuid)) return "";
   const text = recordingUi.descriptions.get(r.uuid);
-  if (!open) {
-    return `<button type="button" class="preset seg-toggle recording-desc-toggle"
-      data-uuid="${escapeHtml(r.uuid)}" aria-expanded="false">▸ Description &amp; chapters</button>`;
-  }
   return `<div class="recording-desc">
-    <button type="button" class="preset seg-toggle recording-desc-toggle"
-      data-uuid="${escapeHtml(r.uuid)}" aria-expanded="true">▾ Description &amp; chapters</button>
     ${text === undefined
       ? `<p class="muted">Loading…</p>`
-      : `<textarea class="recording-desc-text" rows="10" readonly>${escapeHtml(text)}</textarea>
-         <div class="session-actions">
+      : `<div class="session-actions">
            <button type="button" class="preset recording-desc-copy"
-             data-uuid="${escapeHtml(r.uuid)}">📋 Copy description</button>
-           <span class="muted recording-desc-status"></span>
+             data-uuid="${escapeHtml(r.uuid)}">📋 Copy</button>
+           <span class="muted recording-desc-status">Paste into YouTube's description box —
+             the timestamps become clickable chapters.</span>
          </div>
-         <p class="muted">Paste into YouTube's description box — timestamps become
-           clickable chapters.</p>`}
+         <textarea class="recording-desc-text" rows="10" readonly>${escapeHtml(text)}</textarea>`}
   </div>`;
 }
 
@@ -3037,7 +3146,7 @@ function wireRecordingSection(container, reload) {
       await fetch(`/api/recordings/${encodeURIComponent(input.dataset.uuid)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ offset_ms: Math.round(+input.value) || 0 }),
+        body: JSON.stringify({ offset_ms: Math.round((+input.value || 0) * 1000) }),
       });
       const section = input.closest(".recording-section");
       if (section) await reload(section.dataset.match, section.dataset.puuid);
@@ -3060,18 +3169,32 @@ function wireRecordingSection(container, reload) {
      windows, so the path is offered either way. */
   // the ℹ shown in place of the upload button when YouTube isn't set up
   container.querySelectorAll(".recording-yt-info").forEach((btn) =>
-    btn.addEventListener("click", () => setMainView("settings")));
+    btn.addEventListener("click", () => {
+      setMainView("settings");
+      setSettingsTab("recordings");
+    }));
+  // 📁 — just show the file, no YouTube
+  container.querySelectorAll(".recording-reveal").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const response = await fetch(
+        `/api/recordings/${encodeURIComponent(btn.dataset.uuid)}/reveal`, { method: "POST" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const note = btn.closest(".recording-card").querySelector(".recording-manual-status");
+        note.innerHTML = `<p class="rec-share-note status-error">${
+          escapeHtml(body.detail || `error ${response.status}`)}</p>`;
+      }
+    }));
   container.querySelectorAll(".recording-manual").forEach((btn) =>
     btn.addEventListener("click", async () => {
-      const status = btn.closest(".recording-card").querySelector(".recording-manual-status");
+      const card = btn.closest(".recording-card");
+      const note = card.querySelector(".recording-manual-status");
       const response = await fetch(
         `/api/recordings/${encodeURIComponent(btn.dataset.uuid)}/reveal`, { method: "POST" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        if (status) {
-          status.classList.add("status-error");
-          status.textContent = body.detail || `error ${response.status}`;
-        }
+        note.innerHTML = `<p class="rec-share-note status-error">${
+          escapeHtml(body.detail || `error ${response.status}`)}</p>`;
         return;
       }
       let copied = false;
@@ -3080,12 +3203,19 @@ function wireRecordingSection(container, reload) {
         copied = true;
       } catch { /* clipboard blocked — Explorer is open anyway */ }
       window.open("https://www.youtube.com/upload", "_blank", "noopener");
-      if (status) {
-        status.classList.remove("status-error");
-        status.textContent = copied
-          ? "Path copied — paste it into YouTube's file picker, or drag from Explorer"
-          : "Explorer opened — drag the file into the YouTube tab";
-      }
+      note.innerHTML = `<div class="rec-manual-steps">
+        <strong>YouTube's upload page is open in your browser.</strong>
+        <ol>
+          <li>Click <em>Select files</em>, then ${copied
+            ? "paste the path (<kbd>Ctrl</kbd>+<kbd>V</kbd>) into the file name box and press Enter"
+            : "pick the file"} — or drag it from the Explorer window that just opened.</li>
+          <li>For chapters, open <em>☰ Description</em> here, copy it and paste it into YouTube's description.</li>
+        </ol>
+        <p class="muted">It goes to the channel currently selected in your browser — switch it from
+          your avatar in YouTube if needed.</p>
+        <button type="button" class="link-btn rec-manual-dismiss">Dismiss</button>
+      </div>`;
+      note.querySelector(".rec-manual-dismiss").addEventListener("click", () => { note.innerHTML = ""; });
     }));
 
   container.querySelectorAll(".recording-upload").forEach((btn) =>
@@ -3144,8 +3274,11 @@ function pollUploadStatus(section, reload) {
       if (section) await reload(section.dataset.match, section.dataset.puuid);
       return;
     }
+    const pct = Math.round(recordingUi.upload.progress * 100);
     const fill = document.querySelector(".recording-progress-fill");
-    if (fill) fill.style.width = `${Math.round(recordingUi.upload.progress * 100)}%`;
+    if (fill) fill.style.width = `${pct}%`;
+    const btn = document.querySelector(".recording-upload[disabled]");
+    if (btn) btn.textContent = `Uploading… ${pct}%`;
   }, 1500);
 }
 
@@ -4320,13 +4453,9 @@ async function initSettings() {
   $("#setting-obs-password").value = data.obs_password || "";
   $("#setting-ascent-db").value = data.ascent_db_path || "";
   $("#ascent-detected").textContent = data.ascent_db_detected || "none found";
-  $("#setting-youtube-secrets").value = data.youtube_client_secrets || "";
   $("#setting-youtube-privacy").value = data.youtube_privacy || "private";
   state.youtubePrivacy = data.youtube_privacy || "private";
-  state.youtubeReady = Boolean(data.youtube_ready);
-  $("#youtube-no-libraries").classList.toggle("hidden", data.youtube_libraries !== false);
-  // first-time setup: show the steps without making the user hunt for them
-  if (data.youtube_libraries && !data.youtube_client_secrets) $("#youtube-setup-guide").open = true;
+  applyYoutubeStatus(data);
   $("#setting-obs-enabled").checked = data.obs_enabled !== false;
   state.obsEnabled = data.obs_enabled !== false;
   applyObsEnabled();
@@ -4378,8 +4507,7 @@ async function initSettings() {
   $("#sync-recordings").addEventListener("click", syncRecordings);
   $("#check-updates").addEventListener("click", checkForUpdatesNow);
   $("#obs-test").addEventListener("click", testObsConnection);
-  $("#youtube-test").addEventListener("click", () => testYoutubeConfig(false));
-  $("#youtube-signin").addEventListener("click", () => testYoutubeConfig(true));
+  wireYoutubeSettings();
   $("#setting-obs-enabled").addEventListener("change", (e) => {
     state.obsEnabled = e.target.checked;
     applyObsEnabled();
@@ -4566,7 +4694,6 @@ function settingsPayload() {
     obs_port: parseInt($("#setting-obs-port").value, 10) || 4455,
     obs_password: $("#setting-obs-password").value,
     ascent_db_path: $("#setting-ascent-db").value.trim(),
-    youtube_client_secrets: $("#setting-youtube-secrets").value.trim(),
     youtube_privacy: $("#setting-youtube-privacy").value,
     enable_player_comparison: $("#setting-enable-comparison").checked,
     hide_my_rank: $("#setting-hide-rank").checked,

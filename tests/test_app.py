@@ -3065,15 +3065,35 @@ def test_update_apply_waits_for_a_running_crawl(client, monkeypatch):
     assert client.post("/api/update/apply").status_code == 409
 
 
-def test_youtube_test_endpoint_checks_the_typed_path(client, tmp_path, monkeypatch):
+def test_youtube_client_file_upload_validates_and_stores_it(client, tmp_path):
     from server import youtube
-    monkeypatch.setattr(youtube, "libraries_available", lambda: False)
-    body = client.post("/api/youtube/test",
-                       json={"client_secrets": str(tmp_path / "nope.json")}).json()
-    checks = {c["key"]: c for c in body["checks"]}
-    assert body["ok"] is False
-    assert checks["secrets"]["status"] == "fail" and "No file at" in checks["secrets"]["detail"]
-    assert client.get("/api/settings").json()["youtube_libraries"] is False
+    web = json.dumps({"web": {"client_id": "1", "client_secret": "s"}})
+    bad = client.post("/api/youtube/client", files={"file": ("c.json", web, "application/json")})
+    assert bad.status_code == 400 and "Desktop app" in bad.json()["detail"]
+
+    good = json.dumps({"installed": {"client_id": "1-x", "client_secret": "s",
+                                     "project_id": "cp"}})
+    body = client.post("/api/youtube/client",
+                       files={"file": ("c.json", good, "application/json")}).json()
+    assert body["youtube_client_loaded"] and body["youtube_client_project"] == "cp"
+    assert body["youtube_signed_in"] is False and body["youtube_ready"] is False
+    db_dir = app_module.get_db_path().parent
+    assert youtube.client_path(db_dir).exists()
+    # a later settings save that doesn't mention it keeps it
+    client.put("/api/settings", json={"riot_api_key": "RGAPI-new", "accounts": ["Foo#BAR"],
+                                      "platform": "euw1"})
+    assert client.get("/api/settings").json()["youtube_client_loaded"] is True
+
+    test = client.post("/api/youtube/test").json()
+    assert test["needs_sign_in"] is True
+
+    off = client.delete("/api/youtube/client").json()
+    assert off["youtube_client_loaded"] is False
+    assert not youtube.client_path(db_dir).exists()
+
+
+def test_youtube_sign_in_needs_a_client_file(client):
+    assert client.post("/api/youtube/sign-in").status_code == 400
 
 
 def test_settings_save_accepts_a_quoted_youtube_secrets_path(client, tmp_path):

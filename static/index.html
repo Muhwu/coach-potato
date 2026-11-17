@@ -417,68 +417,50 @@
 
       <h3 class="settings-group-head">Uploading to YouTube</h3>
       <div class="settings-field">
-        <p class="muted">Every recording has a <strong>📁 Upload to YouTube</strong> button that
-          needs no setup: it reveals the file, copies its path and opens YouTube's upload page.
-          The one-click upload below is only worth configuring if you upload often.</p>
+        <p class="muted">Every recording has a <strong>Manual upload</strong> button, no setup needed.
+          One-click upload sends the video straight from Coach Potato, with title and chapters filled in.</p>
       </div>
-      <div class="settings-field">
-        <label class="filter-label" for="setting-youtube-secrets">One-click upload: client secrets (JSON)</label>
-        <input type="text" id="setting-youtube-secrets" placeholder="not configured — manual upload works without this" style="max-width:34em">
-        <p class="muted"><strong>Optional.</strong> Uploads straight from the app using your own
-          Google OAuth client. Google keeps these uploads <strong>private</strong> and caps them at
-          ~6 a day; the manual button has neither limit.</p>
-        <p class="muted hidden" id="youtube-no-libraries"><strong>Not available in this build</strong>
-          — one-click upload needs Google's libraries, which only a from-source install has
-          (<code>pip install -r requirements-youtube.txt</code>). Use the 📁 button instead.</p>
+      <div class="yt-card" id="youtube-card">
+        <div class="yt-card-head">
+          <span class="yt-card-state" id="youtube-state"></span>
+          <div class="yt-card-actions">
+            <label class="preset yt-file-btn" id="youtube-client-label">
+              <span id="youtube-client-btn-text">Choose client file…</span>
+              <input type="file" id="youtube-client-file" accept=".json,application/json" hidden>
+            </label>
+            <button type="button" class="preset btn-primary hidden" id="youtube-signin">Sign in with Google</button>
+            <button type="button" class="preset hidden" id="youtube-test">Test</button>
+            <button type="button" class="preset hidden" id="youtube-switch" title="Sign in again and pick another account or channel">Switch channel</button>
+            <button type="button" class="link-btn hidden" id="youtube-remove">Turn off</button>
+          </div>
+        </div>
+        <p class="muted yt-card-status" id="youtube-test-status"></p>
+        <ul class="yt-checks hidden" id="youtube-test-results"></ul>
+        <div class="settings-field hidden" id="youtube-privacy-field">
+          <label class="filter-label" for="setting-youtube-privacy">Upload as</label>
+          <select id="setting-youtube-privacy" style="max-width:22em">
+            <option value="private">Private (default)</option>
+            <option value="unlisted">Unlisted</option>
+            <option value="public">Public</option>
+          </select>
+        </div>
       </div>
       <details class="yt-setup" id="youtube-setup-guide">
-        <summary>How to set it up (about 10 minutes, once)</summary>
+        <summary>Setup guide — about 10 minutes, once</summary>
         <ol>
-          <li><strong>Create a Google Cloud project</strong> at
-            <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com/projectcreate</a>
-            (any name). Keep it selected at the top of the page for every step below.</li>
-          <li><strong>Enable the YouTube Data API v3</strong>:
-            <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">open the API page</a> → Enable.</li>
-          <li><strong>Set up the consent screen</strong>:
-            <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google Auth Platform</a> → Get started.
-            Any app name, your email as support/contact email, Audience <strong>External</strong>.</li>
-          <li><strong>Add yourself as a test user</strong>:
-            <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Audience</a> → Test users → Add users →
-            the Google account that <em>owns your YouTube channel</em>. Skipping this makes sign-in fail with
-            "Access blocked".</li>
-          <li><strong>Create the client</strong>:
-            <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Clients</a> → Create client →
-            Application type <strong>Desktop app</strong> (not Web application) → Create → <strong>Download JSON</strong>.
-            Move the file somewhere permanent, e.g. <code>Documents\CoachPotato</code>.</li>
-          <li><strong>Paste the file's full path above</strong>. On Windows: Shift+right-click the file →
-            Copy as path (the quotes are fine).</li>
-          <li><strong>Test configuration</strong>, then <strong>Sign in with Google</strong>. Google warns it
-            "hasn't verified this app" — it's your own app, so choose Continue. All green = ready. Then Save.</li>
+          <li><a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Create a Google Cloud project</a>
+            (any name), then <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">enable the YouTube Data API v3</a>.</li>
+          <li><a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Set up the consent screen</a>:
+            any app name, your email, audience <strong>External</strong>.</li>
+          <li><a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Add yourself as a test user</a>
+            — the Google account that owns your channel.</li>
+          <li><a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Create a client</a> of type
+            <strong>Desktop app</strong> and <strong>Download JSON</strong>.</li>
+          <li><strong>Choose client file…</strong> above, then <strong>Sign in with Google</strong> and pick your channel.</li>
         </ol>
-        <p class="muted">While the app is in Google's <em>Testing</em> status the sign-in expires after
-          7 days; <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Audience</a>
-          → Publish app stops that (no verification needed for your own use). Full guide with
-          troubleshooting:
-          <a href="https://github.com/Muhwu/coach-potato/blob/main/docs/youtube-upload.md" target="_blank" rel="noopener">docs/youtube-upload.md</a>.</p>
+        <p class="muted">Google keeps these uploads private and allows ~6 a day.
+          <a href="https://github.com/Muhwu/coach-potato/blob/main/docs/youtube-upload.md" target="_blank" rel="noopener">Full guide &amp; troubleshooting</a></p>
       </details>
-      <div class="settings-field">
-        <div class="settings-actions">
-          <button type="button" class="preset" id="youtube-test">Test configuration</button>
-          <button type="button" class="preset hidden" id="youtube-signin">Sign in with Google</button>
-          <span class="muted" id="youtube-test-status"></span>
-        </div>
-        <ul class="yt-checks hidden" id="youtube-test-results"></ul>
-        <p class="muted">Tests the path typed above, saved or not. Never uploads anything.</p>
-      </div>
-      <div class="settings-field">
-        <label class="filter-label" for="setting-youtube-privacy">Upload privacy</label>
-        <select id="setting-youtube-privacy" style="max-width:22em">
-          <option value="private">Private (default)</option>
-          <option value="unlisted">Unlisted — anyone with the link</option>
-          <option value="public">Public</option>
-        </select>
-        <p class="muted">Uploading always asks for confirmation first.</p>
-      </div>
     </div>
 
     <div class="settings-panel" data-tab="backup">

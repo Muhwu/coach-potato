@@ -1,10 +1,17 @@
 {
   "entries": [
     {
+      "version": "1.84.0",
+      "date": "2026-11-17",
+      "items": [
+        "One-click YouTube upload now works in the regular download (no extra install). Settings → Recordings has a simpler setup: choose the client file with a file picker, sign in with Google, and it shows which channel uploads go to — with Switch channel and a Test button that says exactly what to fix.",
+        "Recording cards got a cleaner toolbar: a YouTube \"Manual upload\" button (opens YouTube's upload page with step-by-step hints), Description, show in folder, and the event sync offset in seconds."
+      ]
+    },
+    {
       "version": "1.83.0",
       "date": "2026-11-17",
       "items": [
-        "YouTube one-click upload has a step-by-step setup guide in Settings → Recordings, and a Test configuration button that checks the libraries, your client-secrets file and the Google sign-in (with a Sign in with Google button), saying exactly what to fix when something isn't right. Pasted paths in quotes now work, and an expired sign-in asks you to sign in again instead of failing the upload.",
         "Trends shows deaths per game, plus average deaths before 4:00 (early gank), 7:00 (second rotation) and 14:00 (end of laning). The timed ones come from games whose death timings are stored."
       ]
     },

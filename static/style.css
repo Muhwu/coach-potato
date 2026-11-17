@@ -31,6 +31,7 @@
   --critical: #d03b3b;
   --good-text: #006300;
   --accent-wash: color-mix(in srgb, var(--series-1) 10%, transparent);
+  --brand-youtube: #ff0033;  /* YouTube's own red — a brand mark, not a theme color */
 }
 /* Theme. The `theme` setting (Settings → Appearance) writes data-theme="dark"
    or "light" on <html> (index.html/compare.html also read it from localStorage
@@ -1901,7 +1902,7 @@ footer {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
 }
 .recording-offset-label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
-.recording-offset { width: 6.5em; }
+.recording-offset { width: 4.5em; }
 .recording-yt-link { text-decoration: none; }
 .recording-progress {
   height: 6px; border-radius: 999px; margin-top: 8px;
@@ -2291,12 +2292,28 @@ footer {
   margin-top: 4px; word-break: break-all;
 }
 
-/* Settings → Recordings: YouTube setup guide + "Test configuration" results */
-.yt-setup { margin: 4px 0 10px; max-width: 46em; }
+/* Settings → Recordings: YouTube status card, setup guide, test results */
+.yt-card {
+  border: 1px solid var(--grid); border-radius: 8px; padding: 10px 12px;
+  background: var(--surface-1); max-width: 46em; display: flex; flex-direction: column; gap: 8px;
+}
+.yt-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.yt-card-state { display: inline-flex; align-items: center; gap: 8px; }
+.yt-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.yt-card-status:empty { display: none; }
+.yt-card-status a { color: var(--series-1); }
+.yt-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: var(--muted);
+}
+.yt-dot-ok { background: var(--good); }
+.yt-dot-warn { background: var(--series-1); }
+.yt-file-btn { cursor: pointer; }
+.yt-setup { margin: 8px 0 4px; max-width: 46em; }
 .yt-setup summary { cursor: pointer; color: var(--series-1); }
-.yt-setup ol { margin: 8px 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; }
+.yt-setup ol { margin: 8px 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 4px; }
 .yt-setup a, .yt-checks a { color: var(--series-1); }
-.yt-checks { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: 46em; }
+.yt-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .yt-check { display: flex; gap: 8px; align-items: flex-start; }
 .yt-check-icon {
   flex: none; width: 1.4em; height: 1.4em; border-radius: 50%;
@@ -2309,3 +2326,26 @@ footer {
 .yt-fail .yt-check-icon { color: var(--critical); }
 .yt-skip .yt-check-icon { color: var(--muted); }
 .yt-check-fix { margin-top: 2px; color: var(--text-secondary); }
+
+/* Recording card: the share toolbar under the video */
+.yt-icon { width: 1.35em; height: auto; vertical-align: -0.2em; flex: none; }
+.rec-share {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--grid);
+}
+.rec-share-main, .rec-share-side { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rec-yt-btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.recording-desc-toggle.active { background: var(--accent-wash); border-color: var(--series-1); }
+.rec-setup-link { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+.rec-icon-btn { font-size: calc(14px * var(--font-scale)); padding: 3px 8px; }
+.rec-share-note { margin: 6px 0 0; }
+.rec-manual-steps {
+  margin-top: 8px; padding: 8px 12px; border-radius: 6px;
+  background: var(--accent-wash); border: 1px solid var(--border);
+}
+.rec-manual-steps ol { margin: 6px 0; padding-left: 1.3em; }
+.rec-manual-steps p { margin: 0 0 4px; }
+/* the primary button sits in a row of small .preset buttons here — match them */
+.rec-share .btn-primary, .yt-card .btn-primary {
+  font-size: calc(13px * var(--font-scale)); padding: 4px 12px;
+}

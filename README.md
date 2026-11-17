@@ -45,11 +45,10 @@ Requirements: Python 3.11+ on Linux/macOS/WSL.
 ```bash
 git clone <this repo> && cd coach-potato
 ./setup.sh              # creates .venv, installs deps, creates .env from .env.example
-
-# optional: one-click YouTube upload for recorded VODs (everything else works
-# without it — the app falls back to opening the file for a manual upload)
-.venv/bin/pip install -r requirements-youtube.txt
 ```
+
+One-click YouTube upload for recorded VODs needs no extra packages — just your
+own Google OAuth client: see [docs/youtube-upload.md](docs/youtube-upload.md).
 
 The **web app stores its settings in the database** (Settings view / `⚙`), so
 for normal use you don't need `.env` at all — just run the server and fill in

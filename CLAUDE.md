@@ -792,33 +792,42 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   installer-mode update of a fresh install). Only published releases (pushed `v*` tags) are offered.
 - **YouTube upload** — `server/youtube.py`, behind
   `POST /api/recordings/{uuid}/youtube` (background thread + `UPLOAD_STATE`,
-  polled via `/api/recordings/upload-status`, mirroring `CRAWL_STATE`). Needs
-  the user's OWN Google OAuth desktop client (`youtube_client_secrets` setting)
-  — that cannot be automated, it is tied to their Google account.
-  **Entirely optional and NOT installed by default**: the Google libraries live
-  in `requirements-youtube.txt`, not `requirements.txt`, so neither a dev setup
-  nor the packaged build pulls the Google API stack. They're imported lazily,
-  and `youtube.libraries_available()` feeds `has_credentials()` — so with the
-  libraries absent the app reports `youtube_ready: false` and the UI offers the
-  manual "reveal the file" path instead of an upload button that could only
-  fail. Keep that invariant if you touch the readiness logic; the
-  `test_youtube_is_optional_without_the_google_libraries` test pins it, and the
-  two tests that genuinely need the libraries skip without them.
-  Settings → Recordings has the setup steps inline (full guide:
-  `docs/youtube-upload.md`) and a **Test configuration** button →
-  `POST /api/youtube/test` → `youtube.check_setup()`: per-check
-  `{status ok|warn|fail|skip, detail, fix, link}` for libraries, the secrets
-  file (Desktop-app vs Web/service-account JSON), the cached sign-in (wrong
-  client, expired refresh) and one 1-unit `videoCategories.list` proving the
-  API is enabled. `sign_in: true` runs the browser consent flow
-  (`run_local_server`, 5 min timeout). Apps left in Google's "Testing" status
-  get 7-day refresh tokens, so `_credentials` falls back to a fresh sign-in
-  when refresh fails rather than raising. `youtube.clean_path` strips the
-  quotes Windows' "Copy as path" adds (also applied on settings save).
+  polled via `/api/recordings/upload-status`, mirroring `CRAWL_STATE`). **Plain
+  httpx, no Google client libraries** (those were ~150 MB, mostly discovery
+  docs, and kept the feature out of the packaged build until v1.83): sign-in is
+  the installed-app OAuth flow — `youtube.SignIn` binds a one-shot loopback
+  `http.server` on 127.0.0.1:<random>, opens the consent URL (PKCE S256,
+  `prompt=select_account consent`, state checked) and exchanges the code; upload
+  is the resumable protocol (POST metadata → session URL → 8 MiB PUTs, resume
+  from the 308 `Range`, refresh on 401). Every function takes `transport=` so
+  tests use `httpx.MockTransport` (`google()` helper in test_recordings.py).
+  Needs the user's OWN Google OAuth **Desktop app** client — that cannot be
+  automated. Settings → Recordings: a status card (off → client loaded →
+  signed in to a named channel) — `POST/DELETE /api/youtube/client` (file
+  picker upload; validated by `parse_client_secrets`, copied to
+  `<db_dir>/youtube_client_secret.json`, path kept in the
+  `youtube_client_secrets` setting, which `PUT /api/settings` leaves alone
+  unless the key is sent), `POST/GET/DELETE /api/youtube/sign-in` (background
+  sign-in, `SIGNIN_STATE` polled; DELETE signs out), and `POST
+  /api/youtube/test` → `youtube.check_setup()`: per-check `{status
+  ok|warn|fail|skip, detail, fix, link}` for the client file (Desktop vs
+  Web/service-account JSON), the sign-in (wrong client, expired — apps left in
+  Google's "Testing" status get 7-day refresh tokens) and a `channels.list
+  mine=true` that proves the API is enabled AND names the channel. That needs
+  the `youtube.readonly` scope next to `youtube.upload`; the channel id/title
+  are cached in the token file and surfaced as `youtube_channel_title`. Which
+  channel = whatever account/brand channel the user picks in Google's chooser;
+  "Switch channel" re-runs sign-in. `load_token` also reads the older
+  google-auth token format (`token`/`expiry`). Guide: `docs/youtube-upload.md`.
   Token caches as `youtube_token.json` beside the db. Defaults to **private** because
   an unaudited OAuth project cannot produce anything else regardless of the
   setting, and the default quota allows only ~6 uploads/day. The UI always
   `confirm()`s before uploading — it publishes to the user's channel.
+  Recording cards: a share toolbar (`.rec-share`, `recordingCard` in app.js) —
+  ⬆ Upload (only when `youtube_ready`), YouTube-icon **Manual upload** (reveal
+  + copy path + open youtube.com/upload + a steps callout; goes to whatever
+  channel the browser has selected), ☰ Description, 📁 show-in-folder and the
+  event "Sync" offset (entered in seconds, stored as `offset_ms`).
 
 - **OBS session recording** — `server/obs.py` drives OBS Studio's recorder over
   **obs-websocket v5** (built into OBS 28+, `ws://127.0.0.1:4455`, optional
@@ -841,7 +850,7 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   spam OBS's log, since the status poll runs every 2 s while recording.
   `websocket-client` is a normal requirement (pure Python and tiny, unlike the
   Google stack) but is imported lazily and reported via
-  `obs.libraries_available()` → `obs_available`, mirroring `youtube_ready`.
+  `obs.libraries_available()` → `obs_available`.
   Flow: `POST /api/sessions/{id}/recordings/start` opens a `session_recordings`
   row BEFORE the file exists (so live bookmarks have something to attach to)
   and `.../stop` fills in the path. `GET /api/obs/status` is the poll, and it

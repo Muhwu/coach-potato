@@ -286,10 +286,7 @@ def _extra_settings(conn):
         "ascent_db_detected": str(recordings.default_ascent_db_path() or ""),
         "youtube_client_secrets": stored.get("youtube_client_secrets") or "",
         "youtube_privacy": stored.get("youtube_privacy") or youtube.DEFAULT_PRIVACY,
-        "youtube_ready": youtube.has_credentials(
-            stored.get("youtube_client_secrets"), get_db_path().parent),
-        "youtube_libraries": youtube.libraries_available(),
-        "youtube_signed_in": youtube.token_path(get_db_path().parent).exists(),
+        **_youtube_status(stored),
         # the whole OBS session-recording feature can be switched off; the UI
         # then stops offering it (existing recordings stay listed and playable)
         "obs_enabled": stored.get("obs_enabled") != "0",
@@ -439,7 +436,9 @@ def api_put_settings(body: dict):
     # Paths are stored as typed — they point at files this machine owns, and
     # both are optional (blank = auto-detect Ascent / no YouTube configured).
     ascent_db_path = (body.get("ascent_db_path") or "").strip()
-    # Windows' "Copy as path" wraps the path in quotes — accept it as pasted
+    # The YouTube client file is normally loaded through its own endpoint
+    # (POST /api/youtube/client); a save that doesn't mention it keeps it.
+    # Windows' "Copy as path" wraps a typed path in quotes — accept it as pasted.
     youtube_client_secrets = youtube.clean_path(body.get("youtube_client_secrets"))
     for label, value in (("ascent_db_path", ascent_db_path),
                          ("youtube_client_secrets", youtube_client_secrets)):
@@ -499,7 +498,8 @@ def api_put_settings(body: dict):
             "main_role": main_role,
             "secondary_role": secondary_role,
             "ascent_db_path": ascent_db_path,
-            "youtube_client_secrets": youtube_client_secrets,
+            **({"youtube_client_secrets": youtube_client_secrets}
+               if "youtube_client_secrets" in body else {}),
             "youtube_privacy": youtube_privacy,
             "obs_enabled": "1" if obs_enabled else "0",
             "obs_host": obs_host,
@@ -3326,8 +3326,8 @@ def api_upload_recording(rec_uuid: str, body: dict = None):
         client_secrets = stored.get("youtube_client_secrets")
         if not youtube.has_credentials(client_secrets, get_db_path().parent):
             raise HTTPException(
-                400, "YouTube isn't set up yet — add your OAuth client secrets "
-                     "file in Settings first.")
+                400, "One-click upload isn't set up yet — Settings → Recordings "
+                     "→ Uploading to YouTube.")
         title = (body.get("title") or Path(row["video_path"]).stem)[:youtube.MAX_TITLE]
         # default to the generated description (matchup + a chapter per death)
         # so a one-click upload lands with timestamps already on it
@@ -3347,29 +3347,144 @@ def api_upload_recording(rec_uuid: str, body: dict = None):
     return {"started": True, "privacy": privacy}
 
 
-@app.post("/api/youtube/test")
-def api_youtube_test(body: dict = None):
-    """Settings' "Test configuration" button for one-click YouTube upload.
+def _youtube_status(stored):
+    """What Settings and the recording cards need to know about one-click
+    upload — no network: whether a client file is loaded, who is signed in and
+    to which channel (as of the last sign-in / test)."""
+    db_dir = get_db_path().parent
+    client_file = stored.get("youtube_client_secrets") or ""
+    client, _ = youtube.read_client(client_file) if client_file else (None, None)
+    token = youtube.load_token(db_dir) or {}
+    signed_in = bool(token.get("refresh_token")) and \
+        (client is None or token.get("client_id") in (None, client["client_id"]))
+    return {
+        "youtube_client_secrets": client_file,
+        "youtube_client_loaded": client is not None,
+        "youtube_client_project": (client or {}).get("project_id") or "",
+        "youtube_signed_in": signed_in,
+        "youtube_channel_title": token.get("channel_title") or "" if signed_in else "",
+        "youtube_ready": youtube.has_credentials(client_file, db_dir),
+    }
 
-    Uses the client-secrets path currently typed into the form (falls back to
-    the saved one), so a path can be checked before saving. `sign_in: true`
-    runs Google's browser consent flow on this machine and caches the token —
-    the same thing the first upload would do, just before there's a video
-    riding on it. Never uploads anything.
-    """
-    body = body or {}
+
+def _youtube_client_and_stored():
     conn = get_conn()
     try:
         stored = db.get_settings(conn)
     finally:
         conn.close()
-    secrets = body.get("client_secrets")
-    if secrets is None:
-        secrets = stored.get("youtube_client_secrets") or ""
-    if UPLOAD_STATE["running"] and body.get("sign_in"):
+    client, check = youtube.read_client(stored.get("youtube_client_secrets"))
+    return client, check, stored
+
+
+@app.post("/api/youtube/client")
+async def api_youtube_client_upload(file: UploadFile = File(...)):
+    """The "Choose client file…" picker: the downloaded OAuth client JSON is
+    validated and copied beside the db, so the user never types a path and
+    can delete the download afterwards. A sign-in made with a DIFFERENT client
+    can't refresh with this one, so it is dropped."""
+    raw = await file.read(64 * 1024 + 1)
+    if len(raw) > 64 * 1024:
+        raise HTTPException(400, "That file is too big to be an OAuth client JSON.")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "That file isn't a text/JSON file.")
+    client, failure = youtube.parse_client_secrets(text)
+    if failure:
+        raise HTTPException(400, f"{failure['detail']} {failure['fix']}")
+    db_dir = get_db_path().parent
+    target = youtube.client_path(db_dir)
+    youtube._write_private(target, text)
+    token = youtube.load_token(db_dir)
+    if token and token.get("client_id") not in (None, client["client_id"]):
+        youtube.forget_token(db_dir)
+    conn = get_conn()
+    try:
+        db.set_settings(conn, {"youtube_client_secrets": str(target)})
+        return _youtube_status(db.get_settings(conn))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/youtube/client")
+def api_youtube_client_remove():
+    """Turn one-click upload off: forget the client and the sign-in. Only the
+    copy we made beside the db is deleted — a path typed in by hand in an
+    older version points at the user's own file, which is left alone."""
+    db_dir = get_db_path().parent
+    conn = get_conn()
+    try:
+        current = db.get_settings(conn).get("youtube_client_secrets") or ""
+        if current and Path(current) == youtube.client_path(db_dir):
+            youtube.client_path(db_dir).unlink(missing_ok=True)
+        youtube.forget_token(db_dir)
+        db.set_settings(conn, {"youtube_client_secrets": ""})
+        return _youtube_status(db.get_settings(conn))
+    finally:
+        conn.close()
+
+
+# One browser sign-in at a time; it runs in a thread because it waits on the
+# user (up to youtube.SIGN_IN_TIMEOUT_S), and the UI polls GET for the outcome.
+SIGNIN_STATE = {"running": False, "auth_url": None, "error": None,
+                "channel_title": None, "done": False}
+
+
+def _run_sign_in(flow):
+    try:
+        token = flow.wait()
+        SIGNIN_STATE.update(channel_title=token.get("channel_title") or "", done=True)
+    except Exception as exc:  # noqa: BLE001 - shown to the user, with a fix
+        SIGNIN_STATE.update(error=str(exc),
+                            check=youtube._signin_failure(exc))
+    finally:
+        SIGNIN_STATE.update(running=False)
+
+
+@app.post("/api/youtube/sign-in")
+def api_youtube_sign_in():
+    """Open Google's consent page in the user's browser and wait (in the
+    background) for it to redirect back. Returns the URL too, so the UI can
+    offer it as a link if no browser opened."""
+    if UPLOAD_STATE["running"]:
         raise HTTPException(409, "an upload is running — try again when it finishes")
-    return youtube.check_setup(secrets, get_db_path().parent,
-                               sign_in=bool(body.get("sign_in")))
+    client, check, _ = _youtube_client_and_stored()
+    if client is None:
+        raise HTTPException(400, f"{check['detail']} {check['fix']}")
+    if SIGNIN_STATE["running"]:
+        return SIGNIN_STATE
+    flow = youtube.SignIn(client, get_db_path().parent)
+    auth_url = flow.start()
+    SIGNIN_STATE.clear()
+    SIGNIN_STATE.update(running=True, auth_url=auth_url, error=None,
+                        channel_title=None, done=False, check=None)
+    threading.Thread(target=_run_sign_in, args=(flow,), daemon=True).start()
+    return SIGNIN_STATE
+
+
+@app.get("/api/youtube/sign-in")
+def api_youtube_sign_in_status():
+    return SIGNIN_STATE
+
+
+@app.delete("/api/youtube/sign-in")
+def api_youtube_sign_out():
+    youtube.forget_token(get_db_path().parent)
+    conn = get_conn()
+    try:
+        return _youtube_status(db.get_settings(conn))
+    finally:
+        conn.close()
+
+
+@app.post("/api/youtube/test")
+def api_youtube_test():
+    """Settings' "Test configuration": every step of one-click upload, each
+    with how to fix it (youtube.check_setup). Never uploads anything."""
+    _, _, stored = _youtube_client_and_stored()
+    return youtube.check_setup(stored.get("youtube_client_secrets"),
+                               get_db_path().parent)
 
 
 # ---------- OBS-recorded coaching sessions (see server/obs.py) ----------
