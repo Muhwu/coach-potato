@@ -304,3 +304,14 @@ def test_youtube_upload_asks_in_app_with_fresh_privacy():
     dialog = js[js.index("async function openUploadDialog"):js.index("async function startRecordingUpload")]
     assert 'getJSON("/api/settings")' in dialog
     assert "state.youtubePrivacy" not in dialog
+
+
+def test_youtube_upload_locks_the_live_button_at_once():
+    """Starting an upload paints "uploading" onto the button on screen, looked up
+    by recording id — the reference the dialog was opened from can be stale
+    after a background re-render, which left the visible button clickable."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    start = js[js.index("async function startRecordingUpload"):js.index("function recordingTitle")]
+    assert "showUploadProgress(" in start
+    assert start.index("showUploadProgress(") < start.index("await fetch")
+    assert "btn.disabled" not in start

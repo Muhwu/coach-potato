@@ -2699,7 +2699,7 @@ function recordingCard(r) {
   } else {
     const oneClick = state.youtubeReady
       ? `<button type="button" class="preset btn-primary recording-upload" data-uuid="${uuid}"
-           ${uploading ? "disabled" : ""}
+           ${recordingUi.upload.uuid && !recordingUi.upload.error ? "disabled" : ""}
            title="Upload from Coach Potato with the title and chapters filled in"
            >${uploading ? `Uploading… ${Math.round(recordingUi.upload.progress * 100)}%`
              : "⬆ Upload to YouTube"}</button>`
@@ -3283,8 +3283,7 @@ async function openUploadDialog(btn, reload) {
 
 async function startRecordingUpload(btn, section, reload, title, privacy) {
   recordingUi.upload = { uuid: btn.dataset.uuid, progress: 0, error: null, timer: null };
-  btn.disabled = true;
-  btn.textContent = "Uploading…";
+  showUploadProgress(btn.dataset.uuid, 0);
   const response = await fetch(
     `/api/recordings/${encodeURIComponent(btn.dataset.uuid)}/youtube`, {
       method: "POST",
@@ -3330,12 +3329,31 @@ function pollUploadStatus(section, reload) {
       if (section) await reload(section.dataset.match, section.dataset.puuid);
       return;
     }
-    const pct = Math.round(recordingUi.upload.progress * 100);
-    const fill = document.querySelector(".recording-progress-fill");
-    if (fill) fill.style.width = `${pct}%`;
-    const btn = document.querySelector(".recording-upload[disabled]");
-    if (btn) btn.textContent = `Uploading… ${pct}%`;
+    showUploadProgress(recordingUi.upload.uuid, recordingUi.upload.progress);
   }, 1500);
+}
+
+/* Paint "uploading" onto whatever is on screen NOW, looked up by recording
+   id. The button the dialog was opened from can be stale by the time Upload
+   is clicked (a background refresh re-renders the card), so disabling that
+   reference left the visible button clickable until the next full re-render.
+   Every upload button is locked: only one upload runs at a time (409). */
+function showUploadProgress(uuid, progress) {
+  const pct = Math.round((progress || 0) * 100);
+  document.querySelectorAll(".recording-upload").forEach((b) => {
+    b.disabled = true;
+    if (b.dataset.uuid === uuid) b.textContent = `Uploading… ${pct}%`;
+  });
+  document.querySelectorAll(".recording-card").forEach((card) => {
+    if (card.dataset.uuid !== uuid) return;
+    let fill = card.querySelector(".recording-progress-fill");
+    if (!fill) {
+      card.querySelector(".rec-share")?.insertAdjacentHTML("afterend",
+        `<div class="recording-progress"><div class="recording-progress-fill"></div></div>`);
+      fill = card.querySelector(".recording-progress-fill");
+    }
+    if (fill) fill.style.width = `${pct}%`;
+  });
 }
 
 function reflectionKey(matchId, puuid) { return `${matchId}:${puuid}`; }
